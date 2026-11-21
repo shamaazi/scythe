@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Int32Array`/`Float32Array` or `Array<number>`, and enums as a string union.
   JSON parameters go through `sql.json`, enum and JSON arrays through
   `sql.array`, and `:batch` opens a savepoint when handed a transaction.
+- PostgreSQL `LANGUAGE sql` functions take their result nullability from their
+  body, as PostgreSQL's inlining sees through them: `RETURNS TABLE` columns,
+  `RETURNS SETOF` elements and scalar results read as the body (an `AS` string
+  or a `RETURN` expression) proves them, with `$n` and named arguments typed as
+  declared and non-null only in `STRICT` functions. A strict scalar call is
+  nullable when an argument may be null. Bodies are analyzed once the whole
+  schema is loaded, functions calling each other settle on a sound result, and
+  views calling refined functions are analyzed again. Bodies scythe cannot
+  analyze keep every result nullable, as before.
+
+### Changed
+
+- `catalog::Function` gains `strict` and `body`, and `FunctionReturn::Scalar`
+  and `FunctionReturn::SetOf` gain `nullable`. A `RETURNS TABLE` function is
+  cataloged as set-returning, distinct from output parameters alone.
 
 ## [0.20.2] - 2026-10-31
 
