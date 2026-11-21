@@ -141,15 +141,15 @@ impl<'a> Analyzer<'a> {
             match limit_clause {
                 sqlparser::ast::LimitClause::LimitOffset { limit, offset, .. } => {
                     if let Some(limit) = limit {
-                        self.collect_param_from_expr(limit, "limit_val", "int64");
+                        self.collect_param_from_expr(limit, "limit", "int64");
                     }
                     if let Some(offset) = offset {
-                        self.collect_param_from_expr(&offset.value, "offset_val", "int64");
+                        self.collect_param_from_expr(&offset.value, "offset", "int64");
                     }
                 }
                 sqlparser::ast::LimitClause::OffsetCommaLimit { offset, limit } => {
-                    self.collect_param_from_expr(limit, "limit_val", "int64");
-                    self.collect_param_from_expr(offset, "offset_val", "int64");
+                    self.collect_param_from_expr(limit, "limit", "int64");
+                    self.collect_param_from_expr(offset, "offset", "int64");
                 }
             }
         }

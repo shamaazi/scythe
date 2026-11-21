@@ -669,12 +669,12 @@ where the TypeScript path writes `expr as T`, JSDoc mode writes `/** @type {T} *
 /**
  * Fetch all ListUsersRow rows.
  * @param {import("better-sqlite3").Database} db
- * @param {number} limit_val
+ * @param {number} limit
  * @returns {ListUsersRow[]}
  */
-export function listUsers(db, limit_val) {
+export function listUsers(db, limit) {
 	const stmt = db.prepare(`SELECT id, name FROM users ORDER BY name LIMIT ?`);
-	return /** @type {ListUsersRow[]} */ (stmt.all(limit_val));
+	return /** @type {ListUsersRow[]} */ (stmt.all(limit));
 }
 ```
 

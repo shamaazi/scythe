@@ -337,6 +337,92 @@ pub(super) fn expr_to_name(expr: &Expr) -> String {
     }
 }
 
+/// Functions whose result means the same thing as their (first non-literal)
+/// argument, so a parameter compared with the call is named after that
+/// argument: `lower(email) = $1` takes `email`.
+const VALUE_PRESERVING_FUNCTIONS: &[&str] = &[
+    "lower",
+    "upper",
+    "initcap",
+    "trim",
+    "btrim",
+    "ltrim",
+    "rtrim",
+    "unaccent",
+    "normalize",
+    "coalesce",
+    "nullif",
+    "greatest",
+    "least",
+    "abs",
+    "round",
+    "trunc",
+    "floor",
+    "ceil",
+    "ceiling",
+    "date_trunc",
+    "left",
+    "right",
+    "substring",
+    "substr",
+    "lpad",
+    "rpad",
+    "replace",
+    "regexp_replace",
+    "translate",
+];
+
+/// The name a parameter compared with, or bound to, `expr` takes.
+///
+/// Like [`expr_to_name`], except that it looks through functions that keep
+/// their argument's meaning (`lower(email)` names `email`,
+/// `coalesce(s.widget, false)` names `widget`) and names a JSON field read by
+/// its key (`metadata ->> 'product'` names `product`), and a `CASE` by the
+/// column its branches return. Result columns keep
+/// [`expr_to_name`], which follows the names PostgreSQL gives them.
+pub(super) fn param_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Nested(inner) | Expr::Cast { expr: inner, .. } => param_name(inner),
+        Expr::BinaryOp {
+            op: BinaryOperator::Arrow | BinaryOperator::LongArrow,
+            right,
+            ..
+        } if let Expr::Value(vws) = right.as_ref()
+            && let Value::SingleQuotedString(key) = &vws.value =>
+        {
+            key.clone()
+        }
+        Expr::Function(func)
+            if VALUE_PRESERVING_FUNCTIONS
+                .iter()
+                .any(|name| object_name_to_string(&func.name).eq_ignore_ascii_case(name)) =>
+        {
+            let args = match &func.args {
+                ast::FunctionArguments::List(list) => function_arg_exprs(&list.args),
+                _ => Vec::new(),
+            };
+            args.iter()
+                .find(|arg| !matches!(arg, Expr::Value(_)))
+                .map(param_name)
+                .filter(|name| name != "unknown")
+                .unwrap_or_else(|| expr_to_name(expr))
+        }
+        Expr::Case {
+            conditions,
+            else_result,
+            ..
+        } => conditions
+            .iter()
+            .map(|when| &when.result)
+            .chain(else_result.as_deref())
+            .find(|result| !matches!(result, Expr::Value(_)))
+            .map(param_name)
+            .filter(|name| name != "unknown")
+            .unwrap_or_else(|| expr_to_name(expr)),
+        _ => expr_to_name(expr),
+    }
+}
+
 /// Detect if a statement is a SELECT * from a single table (for model struct reuse)
 pub(super) fn detect_select_star_source(stmt: &Statement) -> Option<String> {
     if let Statement::Query(query) = stmt
