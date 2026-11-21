@@ -399,6 +399,7 @@ impl CatalogBuilder {
             composite_names: AHashMap::new(),
             domain_names: AHashMap::new(),
             raw_domain_types: AHashMap::new(),
+            view_queries: Vec::new(),
         };
 
         add_relations(&mut catalog, self.relations)?;
@@ -428,9 +429,11 @@ fn add_functions(catalog: &mut Catalog, definitions: Vec<FunctionDefinition>) ->
         let return_type = match definition.return_type {
             FunctionReturnDefinition::Scalar(sql_type) => FunctionReturn::Scalar {
                 sql_type: normalized_sql_type(&sql_type, "function return type")?,
+                nullable: true,
             },
             FunctionReturnDefinition::SetOf(sql_type) => FunctionReturn::SetOf {
                 sql_type: normalized_sql_type(&sql_type, "function return type")?,
+                nullable: true,
             },
             FunctionReturnDefinition::Table(columns) => FunctionReturn::Table {
                 columns: columns
@@ -445,7 +448,12 @@ fn add_functions(catalog: &mut Catalog, definitions: Vec<FunctionDefinition>) ->
                     .collect::<Result<Vec<_>, ScytheError>>()?,
             },
         };
-        let function = Function { arguments, return_type };
+        let function = Function {
+            arguments,
+            return_type,
+            strict: false,
+            body: None,
+        };
         let overloads = catalog.functions.entry(key.clone()).or_default();
         let signature = function
             .arguments

@@ -493,7 +493,11 @@ impl<'a> Analyzer<'a> {
 
         let bare_name = function_name.rsplit('.').next().unwrap_or(function_name);
         let mut columns = match &best.function.return_type {
-            FunctionReturn::Scalar { sql_type } | FunctionReturn::SetOf { sql_type } => {
+            FunctionReturn::Scalar { sql_type, nullable } | FunctionReturn::SetOf { sql_type, nullable } => {
+                // A STRICT set-returning function returns no rows for a null
+                // input, but a scalar one still returns its null row.
+                let scalar = matches!(best.function.return_type, FunctionReturn::Scalar { .. });
+                let nullable = *nullable || (scalar && best.strict_null_input(&inferred));
                 if let Some(composite) = self.catalog.get_composite(sql_type) {
                     composite
                         .fields
@@ -516,7 +520,7 @@ impl<'a> Analyzer<'a> {
                     if let Some(error) = unresolved_type_error(&neutral_type, "function result", bare_name) {
                         return Err(error);
                     }
-                    vec![ScopeColumn::from_catalog(bare_name, sql_type, neutral_type, true)]
+                    vec![ScopeColumn::from_catalog(bare_name, sql_type, neutral_type, nullable)]
                 }
             }
             FunctionReturn::Table { columns } => columns

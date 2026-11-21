@@ -47,6 +47,8 @@ impl Catalog {
     ) -> Result<(), ScytheError> {
         let view_key = object_name_to_key(&name);
         let raw_name = object_name_to_raw_name(&name);
+        self.view_queries.retain(|(key, _)| *key != view_key);
+        self.view_queries.push((view_key.clone(), query.clone()));
 
         // `CREATE VIEW v (a, b) AS SELECT ...` renames the body's projected
         // columns positionally; it does not redeclare their types. The body
@@ -108,6 +110,35 @@ impl Catalog {
         let columns = self.resolve_select_columns(query)?;
         self.tables.insert(view_key, Table { columns, raw_name });
         Ok(())
+    }
+
+    /// Analyze every view again, in definition order, and clear the `nullable`
+    /// flag of each column the new analysis proves non-null, reporting whether
+    /// any changed. A view is analyzed when it is created, before function
+    /// bodies defined anywhere in the schema have refined the results of the
+    /// functions it calls. A view that no longer analyzes keeps its columns.
+    pub(super) fn refine_view_columns(&mut self) -> bool {
+        let mut changed = false;
+        for index in 0..self.view_queries.len() {
+            let (key, query) = &self.view_queries[index];
+            let Ok(analyzed) = self.resolve_select_columns(query.clone()) else {
+                continue;
+            };
+            let key = key.clone();
+            let Some(view) = self.tables.get_mut(&key) else {
+                continue;
+            };
+            if view.columns.len() != analyzed.len() {
+                continue;
+            }
+            for (column, analyzed) in view.columns.iter_mut().zip(analyzed) {
+                if column.nullable && !analyzed.nullable {
+                    column.nullable = false;
+                    changed = true;
+                }
+            }
+        }
+        changed
     }
 
     /// Resolve a raw `SELECT` query's projected output columns by
