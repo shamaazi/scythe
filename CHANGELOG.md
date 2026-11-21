@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `typescript-bun` and `javascript-bun` backends for Bun's built-in PostgreSQL
+  client (`import type { SQL } from "bun"`). They share the postgres.js
+  tagged-template codegen and map types to what Bun returns: `int8` as
+  `string`, `date` as `Date`, `integer[]`/`real[]` columns as
+  `Int32Array`/`Float32Array` or `Array<number>`, and enums as a string union.
+  JSON parameters go through `sql.json`, enum and JSON arrays through
+  `sql.array`, and `:batch` opens a savepoint when handed a transaction.
+
 ## [0.20.2] - 2026-10-31
 
 ### Changed

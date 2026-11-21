@@ -187,13 +187,13 @@ error: failed to parse config 'scythe.toml': TOML parse error at line 4, column 
 | `derive` | string | no | Comma-separated list of additional derive macros to append (e.g. `derive = "PartialEq, Hash"`). `rust-sqlx`, `rust-tokio-postgres`, `rust-tiberius`, `rust-sibyl` only. |
 
 `row_type`, `outer_join_unions`, `structs_only`, and `field_case` are the only options every
-TypeScript backend accepts (`typescript-pg`, `typescript-postgres`, `typescript-kysely`,
+TypeScript backend accepts (`typescript-pg`, `typescript-postgres`, `typescript-bun`, `typescript-kysely`,
 `typescript-mysql2`, `typescript-mssql`, `typescript-oracledb`, `typescript-snowflake`,
 `typescript-duckdb`, `typescript-better-sqlite3`, `typescript-node-sqlite`,
 `typescript-wasm-sqlite`); `namespace` and `extension_functions` are not on that list. Setting either
 on a TypeScript target fails with the `unknown option` error shown below — see the caution box.
 
-The ten `javascript-*` names (`javascript-pg`, `javascript-postgres`, `javascript-mysql2`,
+The eleven `javascript-*` names (`javascript-pg`, `javascript-postgres`, `javascript-bun`, `javascript-mysql2`,
 `javascript-better-sqlite3`, `javascript-duckdb`, `javascript-node-sqlite`, `javascript-wasm-sqlite`,
 `javascript-mssql`, `javascript-oracledb`, `javascript-snowflake`) accept the same four keys, but
 reject three of their values outright:
@@ -375,7 +375,7 @@ const db = new Kysely<any>({
 
 :::
 
-The ten `javascript-*` backends accept `field_case = "snake_case"` but reject `"camelCase"`: the
+The eleven `javascript-*` backends accept `field_case = "snake_case"` but reject `"camelCase"`: the
 remap needs a TypeScript `as T` assertion that a plain `.js` file cannot carry. The error points at
 the matching `typescript-*` backend.
 

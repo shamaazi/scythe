@@ -1,13 +1,13 @@
 ---
 title: TypeScript
-description: The typescript-postgres, typescript-pg, typescript-kysely, typescript-node-sqlite, and typescript-wasm-sqlite backends -- generated interfaces, queries, type mappings, and the javascript-* JSDoc emit mode.
+description: The typescript-postgres, typescript-bun, typescript-pg, typescript-kysely, typescript-node-sqlite, and typescript-wasm-sqlite backends -- generated interfaces, queries, type mappings, and the javascript-* JSDoc emit mode.
 ---
 
-Backends: `typescript-postgres` (postgres.js), `typescript-pg` (node-postgres), `typescript-kysely` (Kysely) | Engine: PostgreSQL (`typescript-kysely` also targets MySQL, SQLite, MSSQL, MariaDB, and Redshift -- see [Kysely](#kysely) below)
+Backends: `typescript-postgres` (postgres.js), `typescript-bun` (Bun SQL), `typescript-pg` (node-postgres), `typescript-kysely` (Kysely) | Engine: PostgreSQL (`typescript-kysely` also targets MySQL, SQLite, MSSQL, MariaDB, and Redshift -- see [Kysely](#kysely) below)
 
-All three backends share the same type mappings and TypeScript interfaces. They differ in query execution. Two further TypeScript backends, `typescript-node-sqlite` and `typescript-wasm-sqlite`, target SQLite only and generate synchronous code -- see [typescript-node-sqlite and typescript-wasm-sqlite](#typescript-node-sqlite-and-typescript-wasm-sqlite) below.
+`typescript-postgres`, `typescript-pg` and `typescript-kysely` share the same type mappings and TypeScript interfaces and differ in query execution; `typescript-bun` maps types to what Bun SQL returns -- see [Bun SQL](#bun-sql). Two further TypeScript backends, `typescript-node-sqlite` and `typescript-wasm-sqlite`, target SQLite only and generate synchronous code -- see [typescript-node-sqlite and typescript-wasm-sqlite](#typescript-node-sqlite-and-typescript-wasm-sqlite) below.
 
-Ten of the eleven TypeScript backends are also reachable under a `javascript-*` name that emits plain JSDoc-typed `.js` instead of `.ts` -- see [JavaScript output (JSDoc)](#javascript-output-jsdoc).
+Eleven of the twelve TypeScript backends are also reachable under a `javascript-*` name that emits plain JSDoc-typed `.js` instead of `.ts` -- see [JavaScript output (JSDoc)](#javascript-output-jsdoc).
 
 ## SQL input
 
@@ -116,6 +116,83 @@ export async function createUser(
   `;
 }
 ```
+
+## Bun SQL
+
+`typescript-bun` (and its JSDoc twin `javascript-bun`) targets Bun's built-in PostgreSQL client,
+[`Bun.SQL`](https://bun.com/docs/runtime/sql). Bun's tagged-template API copies postgres.js's, so the
+generated code has the same shape as [postgres.js](#postgresjs): every `$N` placeholder becomes a
+`${}` interpolation, which Bun sends as a bound parameter, never as SQL text. The handle is Bun's
+`SQL`, imported as a type only, so the module has no runtime import of `bun`. A transaction, savepoint
+or reserved client can be passed too: `TransactionSQL` and `ReservedSQL` both extend `SQL`.
+PostgreSQL (and CockroachDB) only.
+
+```typescript
+import type { SQL } from "bun";
+
+export async function getUser(sql: SQL, id: string): Promise<GetUserRow> {
+	const rows = await sql<GetUserRow[]>`
+    SELECT id, name, email, created_at FROM users WHERE id = ${id}
+  `;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("GetUser: no row returned");
+	}
+	return row;
+}
+```
+
+### Type mappings
+
+The mappings follow what Bun's adapter returns, which differs from postgres.js in a few places:
+
+| SQL type | `typescript-bun` | Why |
+|----------|------------------|-----|
+| `BIGINT` / `BIGSERIAL` | `string` | Bun returns `int8` as a string unless the client sets `bigint: true`; with that option, override the type to `bigint` |
+| `NUMERIC`, `MONEY` | `string` | Kept as text to preserve precision |
+| `DATE`, `TIMESTAMP`, `TIMESTAMPTZ` | `Date` | Bun parses all three; `timestamp` is read as UTC |
+| `TIME`, `TIMETZ`, `INTERVAL` | `string` | As PostgreSQL prints them |
+| `JSON` / `JSONB` | `SqlJsonValue` | Parsed by Bun; the alias is declared in the file header when used |
+| `BYTEA` | `Buffer` | |
+| `UUID`, `INET`, ranges | `string` | |
+| `INTEGER[]` | `Int32Array \| Array<number>` | Bun reads a one-dimensional, `NULL`-free `integer[]` in binary as an `Int32Array`, anything else as an `Array` |
+| `REAL[]` | `Float32Array \| Array<number>` | As above, with `Float32Array` |
+| other arrays | `Array<T>` | |
+| enum | string union | `const` object plus derived type, as on `typescript-pg` -- Bun returns plain strings |
+
+Parameters use the same types, except that the typed-array widening applies to columns only. A few
+parameter kinds are wrapped so Bun binds them correctly; a nullable one keeps `null` as SQL `NULL`:
+
+- `json`/`jsonb` goes through `sql.json(...)`, so a string or number is stored as JSON.
+- an array of an enum goes through `sql.array(...)`: Bun cannot tell that a user-defined type's array
+  is an array.
+- a `json[]`/`jsonb[]` array goes through `sql.array(..., "JSONB")`, so each element is encoded as JSON.
+- a composite is spelled `ROW(...)::type` from one binding per field, as on postgres.js.
+
+### `:batch`
+
+Bun rejects `begin()` on a transaction's own client, so a batch function opens a savepoint when it is
+handed a transaction and a transaction otherwise:
+
+```typescript
+export async function markPaidBatch(sql: SQL, items: number[]): Promise<void> {
+	const run = async (tx: SQL) => {
+		for (const item of items) {
+			await tx`
+    UPDATE donations SET status = 'paid' WHERE id = ${item}
+  `;
+		}
+	};
+	await ("savepoint" in sql ? (sql as TransactionSQL).savepoint(run) : sql.begin(run));
+}
+```
+
+### `field_case = "camelCase"`
+
+As on the other TypeScript backends, the generated functions rename the columns themselves: they read
+the raw `snake_case` keys Bun returns and build the `camelCase` row. Do not also set
+`transform: SQL.camel` (or another column transform) on the client passed to them -- the renamed keys
+would not be found.
 
 ## pg (node-postgres)
 
@@ -349,13 +426,14 @@ for the full backend list.
 
 ## JavaScript output (JSDoc)
 
-Ten registry names emit plain JavaScript instead of TypeScript. They are an emit mode on the
+Eleven registry names emit plain JavaScript instead of TypeScript. They are an emit mode on the
 TypeScript backend structs above -- not separate backends, and not separate manifests -- selected by
 the name you write in `backend`:
 
 | Registry name | TypeScript counterpart | Handle type | Engines |
 |---------------|------------------------|-------------|---------|
 | `javascript-postgres` | `typescript-postgres` | `import("postgres").Sql` | PostgreSQL, CockroachDB, Redshift |
+| `javascript-bun` | `typescript-bun` | `import("bun").SQL` | PostgreSQL, CockroachDB |
 | `javascript-pg` | `typescript-pg` | `import("pg").PoolClient` | PostgreSQL, CockroachDB, Redshift |
 | `javascript-mysql2` | `typescript-mysql2` | `import("mysql2/promise").Pool` | MySQL, MariaDB |
 | `javascript-better-sqlite3` | `typescript-better-sqlite3` | `import("better-sqlite3").Database` | SQLite |
@@ -367,7 +445,7 @@ the name you write in `backend`:
 | `javascript-snowflake` | `typescript-snowflake` | `import("snowflake-sdk").Connection` | Snowflake |
 
 `typescript-kysely` is the only TypeScript backend with no JavaScript counterpart. There are no
-aliases for these ten names. `javascript-node-sqlite` and `javascript-wasm-sqlite` are synchronous,
+aliases for these eleven names. `javascript-node-sqlite` and `javascript-wasm-sqlite` are synchronous,
 mirroring their TypeScript counterparts and inheriting the same `--experimental-sqlite` requirement
 on Node 22. `javascript-mssql` and `javascript-oracledb` keep a real runtime driver import
 (`import sql from "mssql"` / `import oracledb from 'oracledb'`) even in JSDoc mode, since their
@@ -468,7 +546,7 @@ Generated output is validated in CI against the real toolchain: `node --check` f
 CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned');
 ```
 
-Only `typescript-postgres` emits a real TypeScript `enum`. `typescript-pg` and `typescript-kysely`
+Only `typescript-postgres` emits a real TypeScript `enum`. `typescript-pg`, `typescript-bun` and `typescript-kysely`
 emit a `const` object of values plus a derived type instead -- `enum` values are not narrowable the
 way a driver returns raw strings, and the `as const` pattern round-trips through `pg`/Kysely without a
 runtime enum object.
@@ -483,7 +561,7 @@ export enum UserStatus {
 }
 ```
 
-**typescript-pg and typescript-kysely:**
+**typescript-pg, typescript-bun and typescript-kysely:**
 
 ```typescript
 export const UserStatusValues = {
