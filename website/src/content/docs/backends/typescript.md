@@ -350,6 +350,8 @@ export type GetUserOrdersRow = {
 | `structs_only` | `true`, `false` | `false` | Emit only row types (interfaces/Zod schemas, enums, composites) -- no query functions, no driver import |
 | `field_case` | `snake_case`, `camelCase` | `snake_case` | Case convention for generated row/interface field names and function parameter names |
 | `params` | `positional`, `object` | `positional` | Take one argument per parameter, or one `params` object typed by an exported `<Query>Params` interface (`typescript-bun`, `typescript-postgres`, `typescript-pg`) |
+| `validation` | `none`, `jsdoc` | `none` | Render [schema constraints](/scythe/guide/schema-constraints/) as JSDoc tags and literal unions on row and params properties (`typescript-bun`, `typescript-postgres`, `typescript-pg`) |
+| `constraints` | `ignore`, `warn`, `error` | `ignore` | What happens to a schema constraint `validation` cannot carry -- see [Untranslated constraints](/scythe/guide/schema-constraints/#untranslated-constraints) |
 
 `structs_only` is supported by every TypeScript backend, including `typescript-postgres`, `typescript-pg`, and `typescript-kysely`. Combined with `row_type = "zod"` it produces a types-only package with no driver dependency:
 
@@ -362,7 +364,7 @@ structs_only = "true"
 ```
 
 Every key besides `row_type`, `outer_join_unions`, `structs_only`, `field_case` and (where
-supported) `params` is rejected --
+supported) `params`, `validation` and `constraints` is rejected --
 an unrecognized option aborts generation with a "did you mean" suggestion rather than being
 silently ignored. See [`field_case`](/scythe/guide/configuration/#field_case) in the Configuration
 guide for the runtime-remap behavior it triggers and its collision-detection error.
@@ -424,6 +426,67 @@ export async function recentOrders(sql: SQL, params: RecentOrdersParams): Promis
 A `:batch` function takes an array of the same interface (`items: RecentOrdersParams[]`), a query
 without parameters takes only the database handle, and `structs_only` keeps the interface. The
 JavaScript (JSDoc) backends reject `params = "object"`.
+
+### Validation (`validation = "jsdoc"`)
+
+`typescript-bun`, `typescript-postgres` and `typescript-pg` can render the
+[schema's constraints](/scythe/guide/schema-constraints/) -- `varchar(n)` lengths, `CHECK`
+constraints, domains, `COMMENT ON` text -- on the properties of row interfaces and `<Query>Params`
+interfaces, for a validator that compiles JSON Schema from TypeScript types:
+
+- each rule is a JSDoc tag named by its JSON Schema keyword: `@minLength`, `@maxLength`,
+  `@pattern`, `@minimum`, `@maximum`, `@exclusiveMinimum`, `@exclusiveMaximum`, `@multipleOf`;
+- the column's (or its domain's) comment is the property's description;
+- a value restricted by `IN (...)` is typed as the union of its literals.
+
+A result column takes the rules of the column it reads unchanged, and a parameter the rules of the
+column it is written into; see [Where rules apply](/scythe/guide/schema-constraints/#where-rules-apply).
+
+```toml
+[[sql.gen]]
+backend = "typescript-bun"
+output = "src/generated"
+field_case = "camelCase"
+params = "object"
+validation = "jsdoc"
+constraints = "error"
+```
+
+```sql
+-- @name AddCause
+-- @returns :exec
+-- $1: slug
+-- $2: title
+-- $3: status
+INSERT INTO causes (slug, title, status) VALUES ($1, $2, $3);
+```
+
+```typescript
+/** Parameters for AddCause queries. */
+export interface AddCauseParams {
+	/**
+	 * @pattern ^[a-z0-9\-]+$
+	 */
+	slug: string;
+	/**
+	 * What the cause is called.
+	 * @minLength 1
+	 * @maxLength 255
+	 * @pattern [^ ]
+	 */
+	title: string;
+	/**
+	 * @maxLength 20
+	 */
+	status: "draft" | "live";
+}
+```
+
+Numeric keywords are rendered only on `number` properties and string keywords only on `string`
+properties: a `bigint` or `numeric` column the backend types as `string` cannot carry `@minimum`.
+Such a rule, and every constraint without a translation, is handled by `constraints`: ignored
+(the default), printed as a warning (`warn`), or a generation error (`error`). Outer-join
+discriminated unions (`outer_join_unions`) keep their tags on the flat columns only.
 
 ## typescript-node-sqlite and typescript-wasm-sqlite
 
@@ -577,6 +640,7 @@ use instead:
 | `field_case = "camelCase"` | Error | The field remap needs an `as T` assertion |
 | `field_case = "snake_case"` | Supported | The default -- driver rows pass straight through |
 | `params = "object"` | Error | Not implemented for JSDoc output |
+| `validation = "jsdoc"` | Error | Not implemented for JSDoc output |
 | `structs_only` | Supported | Emits only typedefs; there was no driver import to drop |
 
 Enums always take the `const` object plus derived-type form, spelled `/** @type {const} */` and

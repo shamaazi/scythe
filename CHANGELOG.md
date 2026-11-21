@@ -25,6 +25,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `typescript-pg`: query functions take one `params` argument typed by an
   exported `<Query>Params` interface whose properties follow `field_case`,
   and `:batch` functions take an array of it. `positional` stays the default.
+- Schema constraints as validation: the catalog records `varchar(n)`/`char(n)`
+  lengths, `numeric(p, s)` precision, `CHECK` constraints on one column (column-level,
+  table-level, `ALTER TABLE ... ADD CONSTRAINT`, and domain checks on `VALUE`), and
+  `COMMENT ON COLUMN`/`COMMENT ON DOMAIN` text; columns of a domain type take the
+  domain's constraints. Checks are translated from their parsed expression into JSON
+  Schema rules (`minLength`, `maxLength`, `pattern`, `minimum`, `maximum`, exclusive
+  bounds, `multipleOf`, allowed values), with PostgreSQL regular expressions translated
+  to ECMAScript only where both engines agree; anything else is kept as untranslated.
+  Result columns read straight from a column (also through views, CTEs and derived
+  tables) and parameters written into a column carry the resolved rules
+  (`AnalyzedColumn::constraints`, `AnalyzedParam::constraints`).
+- `validation = "jsdoc"` for `typescript-bun`, `typescript-postgres` and `typescript-pg`
+  renders those rules as JSDoc tags on row and params properties, the comment as the
+  property's description, and `IN (...)` lists as literal union types.
+  `constraints = "ignore" | "warn" | "error"` (default `ignore`) decides what happens to a
+  constraint the output cannot carry. See the Schema Constraints guide.
 
 - PostgreSQL `LANGUAGE sql` functions take their result nullability from their
   body, as PostgreSQL's inlining sees through them: `RETURNS TABLE` columns,

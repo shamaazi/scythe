@@ -128,6 +128,7 @@ export default defineConfig({
             { label: "Annotations", slug: "guide/annotations" },
             { label: "Type Inference", slug: "guide/type-inference" },
             { label: "Custom Types", slug: "guide/custom-types" },
+            { label: "Schema Constraints", slug: "guide/schema-constraints" },
             { label: "Linting", slug: "guide/linting" },
             { label: "Audit", slug: "guide/audit" },
             { label: "Inspect", slug: "guide/inspect" },
