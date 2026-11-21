@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Cargo features for building scythe with only the database engines and
+  target languages a project uses. `scythe-cli` has one feature per engine
+  (`postgres`, `mysql`, `sqlite`, `duckdb`, `mssql`, `oracle`, `snowflake`,
+  `redshift`) and per language (`lang-rust`, `lang-python`,
+  `lang-typescript`, `lang-go`, `lang-java`, `lang-kotlin`, `lang-csharp`,
+  `lang-elixir`, `lang-ruby`, `lang-php`), plus `all-engines` and
+  `all-languages`. The default build enables all of them and is unchanged.
+  `cargo install scythe-cli --no-default-features --features
+  postgres,lang-typescript` builds a PostgreSQL and TypeScript binary without
+  the bundled DuckDB and SQLite C/C++ builds or the MySQL client. Configuring
+  an engine or backend the build left out is a runtime error naming the
+  feature to enable.
+- `scythe-inspect` makes its `postgres`, `mysql`, `sqlite` and `duckdb`
+  drivers optional features (all on by default) and reports a disabled engine
+  as `InspectError::EngineDisabled`. `scythe-codegen` gains the same engine
+  and language features and exports `engine_feature`.
+
 ## [0.20.2] - 2026-10-31
 
 ### Changed

@@ -15,6 +15,34 @@ cargo install scythe-cli
 cargo binstall scythe-cli
 ```
 
+### Choosing engines and languages
+
+A default build includes every database engine and every target language. Building from source,
+you can compile only the ones a project uses: the build is faster, the binary smaller, and the
+bundled DuckDB and SQLite C/C++ sources are skipped unless you ask for those engines.
+
+```bash
+cargo install scythe-cli --no-default-features --features postgres,lang-typescript
+```
+
+| Feature | Includes |
+| --- | --- |
+| `postgres` | PostgreSQL and CockroachDB; `scythe inspect` and `scythe check --database-url` against PostgreSQL |
+| `mysql` | MySQL and MariaDB; `scythe inspect` against MySQL/MariaDB |
+| `sqlite` | SQLite; `schema_source = "execute"` for SQLite |
+| `duckdb` | DuckDB; `schema_source = "execute"` for DuckDB |
+| `mssql`, `oracle`, `snowflake`, `redshift` | Code generation for that engine |
+| `lang-rust`, `lang-python`, `lang-typescript`, `lang-go`, `lang-java`, `lang-kotlin`, `lang-csharp`, `lang-elixir`, `lang-ruby`, `lang-php` | That language's backends; `lang-typescript` includes the JavaScript variants |
+| `all-engines`, `all-languages` | Every engine or every language; `default` enables both |
+
+A backend needs its language feature and the feature of the engine it generates for:
+`typescript-pg` needs `lang-typescript` and `postgres`, `python-aiomysql` needs `lang-python` and
+`mysql`. Configuring an engine or backend the build left out stops with an error naming the
+feature to enable, for example
+``backend 'go-pgx' is not available in this build: it was compiled without the `lang-go` Cargo feature``.
+Parsing, `scythe lint`, `scythe fmt` and `scythe audit` work for every engine whatever features
+are enabled.
+
 ## npm (Node.js)
 
 For Node.js projects, install scythe as a pinned dev dependency -- no Rust toolchain required. A
@@ -58,6 +86,9 @@ git clone https://github.com/Goldziher/scythe.git
 cd scythe
 cargo install --path crates/scythe-cli
 ```
+
+The [engine and language features](#choosing-engines-and-languages) apply here too, for example
+`cargo build --release -p scythe-cli --no-default-features --features postgres,lang-typescript`.
 
 ## GitHub Actions
 

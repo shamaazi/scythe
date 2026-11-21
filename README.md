@@ -64,6 +64,10 @@ cargo binstall scythe-cli              # prebuilt binary, no compile
 brew install Goldziher/tap/scythe
 ```
 
+Building from source, compile only the engines and languages you use, for example
+`cargo install scythe-cli --no-default-features --features postgres,lang-typescript`. See
+[Choosing engines and languages](https://goldziher.github.io/scythe/getting-started/installation/#choosing-engines-and-languages).
+
 No Rust toolchain required — both wrappers download the prebuilt binary for your platform and verify
 its checksum:
 
