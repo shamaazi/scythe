@@ -135,6 +135,13 @@ use crate::backend_trait::{CodegenBackend, ResolvedParam};
 /// Manifest selection is a pure function of (backend, engine). There is
 /// deliberately no filesystem lookup here: generated output must not depend
 /// on the process working directory (#82).
+/// The summary a generator writes above a query's function: the free-text
+/// description from the query header when there is one, otherwise the
+/// generator's own `fallback` wording. May span several lines.
+pub(crate) fn query_doc_text<'a>(analyzed: &'a scythe_core::analyzer::AnalyzedQuery, fallback: &'a str) -> &'a str {
+    analyzed.description.as_deref().unwrap_or(fallback)
+}
+
 pub(crate) fn parse_manifest(manifest_toml: &str) -> Result<BackendManifest, ScytheError> {
     toml::from_str(manifest_toml).map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
 }

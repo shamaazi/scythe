@@ -393,7 +393,11 @@ export interface GetUserProfileRow {
 	address: UserAddress | null;
 }
 
-/** Fetch a single GetUserProfileRow. */
+/**
+ * Exercises a nullable enum column and a nullable composite column
+ * (board #197). Callers must pass an id seeded via raw SQL, since a
+ * composite VALUES literal is not part of this generator's fixture surface.
+ */
 export async function getUserProfile(
 	sql: Sql,
 	id: number,

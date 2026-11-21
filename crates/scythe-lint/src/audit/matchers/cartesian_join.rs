@@ -123,6 +123,7 @@ mod tests {
             optional_params: vec![],
             group_by: None,
             positional_param_docs: vec![],
+            description: None,
             custom: vec![],
         };
         (stmt, analyzed, catalog, annotations)

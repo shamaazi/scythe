@@ -23,6 +23,10 @@ pub struct AnalyzedQuery {
     pub columns: Vec<AnalyzedColumn>,
     pub params: Vec<AnalyzedParam>,
     pub deprecated: Option<String>,
+    /// The query header's free-text description; see
+    /// [`Annotations::description`](crate::parser::Annotations::description).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub description: Option<String>,
     /// If this is a SELECT * from a single table, the table name
     pub source_table: Option<String>,
     /// Composite type definitions needed by this query
