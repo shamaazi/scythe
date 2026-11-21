@@ -130,6 +130,7 @@ fn resolved_json_field(
         )
     })?;
     Ok(ResolvedColumn {
+        constraints: None,
         name: name.to_string(),
         field_name: field_name(name, &manifest.naming).into_owned(),
         lang_type,

@@ -5,6 +5,7 @@ use scythe_backend::naming::{
     NamingConfig, apply_case, composite_type_name, enum_type_name, field_name, to_camel_case, to_pascal_case,
 };
 use scythe_core::analyzer::{CompositeInfo, NestedStructInfo};
+use scythe_core::constraints::{AllowedValue, Rules, ValueConstraints};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
@@ -158,7 +159,13 @@ impl TsQueryParams {
         let _ = writeln!(out, "/** Parameters for {query_name} queries. */");
         let _ = writeln!(out, "export interface {interface} {{");
         for param in &self.params {
-            let _ = writeln!(out, "\t{}: {};", ts_property_key(&param.field_name), param.full_type);
+            write_ts_property(
+                &mut out,
+                &param.field_name,
+                &param.full_type,
+                &param.lang_type,
+                param.constraints.as_ref(),
+            );
         }
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
@@ -509,7 +516,13 @@ pub fn generate_ts_interface_row_struct_with_base(
         }
     }
     for col in columns {
-        let _ = writeln!(out, "\t{}: {};", ts_property_key(&col.field_name), col.full_type);
+        write_ts_property(
+            &mut out,
+            &col.field_name,
+            &col.full_type,
+            &col.lang_type,
+            col.constraints.as_ref(),
+        );
     }
     let _ = write!(out, "}}");
     out
@@ -599,7 +612,13 @@ pub fn generate_ts_union_row_struct(
         .iter()
         .filter(|c| c.join_group.as_ref().is_none_or(|group| !groups.contains(group)))
     {
-        let _ = writeln!(out, "\t{}: {};", ts_property_key(&col.field_name), col.full_type);
+        write_ts_property(
+            &mut out,
+            &col.field_name,
+            &col.full_type,
+            &col.lang_type,
+            col.constraints.as_ref(),
+        );
     }
     let _ = write!(out, "}}");
 
@@ -794,14 +813,26 @@ pub fn generate_grouped_interface_structs(
     let _ = writeln!(out, "/** Child row type for grouped query. */");
     let _ = writeln!(out, "export interface {child_struct_name} {{");
     for col in child_columns {
-        let _ = writeln!(out, "\t{}: {};", ts_property_key(&col.field_name), col.full_type);
+        write_ts_property(
+            &mut out,
+            &col.field_name,
+            &col.full_type,
+            &col.lang_type,
+            col.constraints.as_ref(),
+        );
     }
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "/** Parent row type for grouped query. */");
     let _ = writeln!(out, "export interface {parent_struct_name} {{");
     for col in parent_columns {
-        let _ = writeln!(out, "\t{}: {};", ts_property_key(&col.field_name), col.full_type);
+        write_ts_property(
+            &mut out,
+            &col.field_name,
+            &col.full_type,
+            &col.lang_type,
+            col.constraints.as_ref(),
+        );
     }
     let _ = writeln!(out, "\tchildren: {child_struct_name}[];");
     let _ = write!(out, "}}");
@@ -1359,6 +1390,207 @@ pub fn generate_js_enum_def(type_name: &str, variants: &[(String, String)]) -> S
     out
 }
 
+/// How generated TypeScript carries the schema's constraints, as selected by
+/// the `validation` backend option. See `scythe_core::constraints`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TsValidation {
+    /// Types only.
+    #[default]
+    None,
+    /// JSON Schema keywords as JSDoc tags on row and params properties
+    /// (`@minLength`, `@pattern`, `@minimum`, ...), the column comment as the
+    /// property's description, and `IN (...)` lists as literal union types.
+    JsDoc,
+}
+
+impl TsValidation {
+    /// Parse a validation option string into a `TsValidation`.
+    pub fn from_option(value: &str) -> Result<Self, ScytheError> {
+        match value {
+            "none" => Ok(Self::None),
+            "jsdoc" => Ok(Self::JsDoc),
+            _ => Err(ScytheError::new(
+                ErrorCode::InvalidConfig,
+                format!("invalid validation '{value}': expected 'none' or 'jsdoc'"),
+            )),
+        }
+    }
+}
+
+/// The TypeScript backends' [`crate::backend_trait::CodegenBackend::inexpressible_rules`]:
+/// JSDoc's numeric keywords need a `number`, its string keywords a `string`,
+/// and allowed values a type a literal union can narrow.
+pub fn ts_inexpressible_rules(rules: &Rules, lang_type: &str) -> Vec<String> {
+    let mut missing = Vec::new();
+    if lang_type != "number" {
+        let numeric = [
+            ("minimum", rules.minimum.is_some()),
+            ("maximum", rules.maximum.is_some()),
+            ("exclusiveMinimum", rules.exclusive_minimum.is_some()),
+            ("exclusiveMaximum", rules.exclusive_maximum.is_some()),
+            ("multipleOf", rules.multiple_of.is_some()),
+        ];
+        for (keyword, present) in numeric {
+            if present {
+                missing.push(format!("@{keyword} (needs a number type)"));
+            }
+        }
+    }
+    if lang_type != "string" {
+        let textual = [
+            ("minLength", rules.min_length.is_some()),
+            ("maxLength", rules.max_length.is_some()),
+            ("pattern", rules.pattern.is_some()),
+        ];
+        for (keyword, present) in textual {
+            if present {
+                missing.push(format!("@{keyword} (needs a string type)"));
+            }
+        }
+    }
+    if let Some(allowed) = &rules.allowed
+        && ts_allowed_union(allowed, lang_type).is_none()
+    {
+        missing.push(format!("its allowed values as a literal union of {lang_type}"));
+    }
+    missing
+}
+
+/// The TypeScript backends' [`crate::backend_trait::CodegenBackend::constrained_type`]:
+/// a string or number restricted to listed values becomes their literal union.
+pub fn ts_constrained_type(
+    constraints: &ValueConstraints,
+    lang_type: &str,
+    nullable: bool,
+) -> Option<(String, String)> {
+    let union = ts_allowed_union(constraints.rules.allowed.as_ref()?, lang_type)?;
+    let full = if nullable {
+        format!("{union} | null")
+    } else {
+        union.clone()
+    };
+    Some((union, full))
+}
+
+/// `"a" | "b"` for allowed strings on a `string`, `1 | 2` for allowed numbers
+/// on a `number`; `None` for anything else, an empty list included.
+fn ts_allowed_union(allowed: &[AllowedValue], lang_type: &str) -> Option<String> {
+    if allowed.is_empty() {
+        return None;
+    }
+    let literals: Option<Vec<String>> = allowed
+        .iter()
+        .map(|value| match (value, lang_type) {
+            (AllowedValue::String(s), "string") => Some(ts_string_literal(s)),
+            (AllowedValue::Number(n), "number") => n.parse::<f64>().is_ok().then(|| n.clone()),
+            _ => None,
+        })
+        .collect();
+    Some(literals?.join(" | "))
+}
+
+/// A double-quoted TypeScript string literal.
+fn ts_string_literal(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for c in value.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c if c.is_control() => {
+                let _ = write!(out, "\\u{{{:x}}}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The JSDoc block documenting a property's constraints -- its description,
+/// then one tag per rule its type can carry -- indented by `indent`, or empty
+/// when there is nothing to say. Allowed values are expressed by the type
+/// ([`ts_constrained_type`]), not by a tag.
+pub fn ts_property_doc(constraints: Option<&ValueConstraints>, lang_type: &str, indent: &str) -> String {
+    let Some(constraints) = constraints else {
+        return String::new();
+    };
+    let rules = &constraints.rules;
+    let mut lines: Vec<String> = Vec::new();
+    if let Some(description) = &constraints.description {
+        lines.extend(description.trim().lines().map(|line| line.trim_end().to_string()));
+    }
+    let is_number = lang_type == "number" || ts_allowed_union_is_numeric(rules);
+    let is_string = lang_type == "string" || ts_allowed_union_is_textual(rules);
+    let mut tag = |keyword: &str, value: &Option<String>| {
+        if let Some(value) = value {
+            lines.push(format!("@{keyword} {value}"));
+        }
+    };
+    if is_string {
+        tag("minLength", &rules.min_length.map(|n| n.to_string()));
+        tag("maxLength", &rules.max_length.map(|n| n.to_string()));
+        tag("pattern", &rules.pattern);
+    }
+    if is_number {
+        tag("minimum", &rules.minimum);
+        tag("maximum", &rules.maximum);
+        tag("exclusiveMinimum", &rules.exclusive_minimum);
+        tag("exclusiveMaximum", &rules.exclusive_maximum);
+        tag("multipleOf", &rules.multiple_of);
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    let _ = writeln!(out, "{indent}/**");
+    for line in lines {
+        // `*/` would end the comment early; the patterns never contain it.
+        let line = line.replace("*/", "*\\/");
+        if line.is_empty() {
+            let _ = writeln!(out, "{indent} *");
+        } else {
+            let _ = writeln!(out, "{indent} * {line}");
+        }
+    }
+    let _ = writeln!(out, "{indent} */");
+    out
+}
+
+/// Whether a narrowed literal union (whose `lang_type` is no longer `number`)
+/// stands for numbers.
+fn ts_allowed_union_is_numeric(rules: &Rules) -> bool {
+    rules
+        .allowed
+        .as_ref()
+        .is_some_and(|allowed| !allowed.is_empty() && allowed.iter().all(|v| matches!(v, AllowedValue::Number(_))))
+}
+
+/// Whether a narrowed literal union stands for strings.
+fn ts_allowed_union_is_textual(rules: &Rules) -> bool {
+    rules
+        .allowed
+        .as_ref()
+        .is_some_and(|allowed| !allowed.is_empty() && allowed.iter().all(|v| matches!(v, AllowedValue::String(_))))
+}
+
+/// Write one interface property line, preceded by its constraint JSDoc.
+fn write_ts_property(
+    out: &mut String,
+    field_name: &str,
+    full_type: &str,
+    lang_type: &str,
+    constraints: Option<&ValueConstraints>,
+) {
+    out.push_str(&ts_property_doc(constraints, lang_type, "\t"));
+    let _ = writeln!(out, "\t{}: {};", ts_property_key(field_name), full_type);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1485,6 +1717,7 @@ mod tests {
         nullable_before_join: bool,
     ) -> ResolvedColumn {
         ResolvedColumn {
+            constraints: None,
             name: name.to_string(),
             field_name: name.to_string(),
             lang_type: lang_type.to_string(),
@@ -1703,6 +1936,7 @@ mod tests {
 
     fn bytes_column(name: &str, lang_type: &str, nullable: bool) -> ResolvedColumn {
         ResolvedColumn {
+            constraints: None,
             name: name.to_string(),
             field_name: name.to_string(),
             lang_type: lang_type.to_string(),

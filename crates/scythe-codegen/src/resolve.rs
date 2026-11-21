@@ -52,6 +52,7 @@ pub fn resolve_columns(
                 join_group: col.join_group.clone(),
                 nullable_before_join: col.nullable_before_join,
                 sql_type: col.sql_type.clone(),
+                constraints: col.constraints.clone(),
             })
         })
         .collect::<Result<_, ScytheError>>()?;
@@ -113,6 +114,7 @@ pub fn resolve_params(
                 borrowed_type,
                 neutral_type: effective_neutral_type.to_string(),
                 nullable: param.nullable,
+                constraints: param.constraints.clone(),
             })
         })
         .collect::<Result<_, ScytheError>>()?;

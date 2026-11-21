@@ -11,14 +11,17 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsFieldCase, TsParamStyle, TsQueryParams, TsRowShape, TsRowType, escape_ts_template_literal,
+    TsFieldCase, TsParamStyle, TsQueryParams, TsRowShape, TsRowType, TsValidation, escape_ts_template_literal,
     generate_grouped_interface_structs, generate_js_grouped_typedef_structs, generate_js_typedef,
     generate_js_typedef_row_struct, generate_jsdoc_fn_header, generate_ts_grouped_fold_body,
     generate_ts_interface_row_struct, generate_ts_json_composite_interface, generate_ts_many_row_remap,
     generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum,
     generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line,
-    js_type_cast, parse_bool_option, ts_index_access, ts_member_access, ts_property_key, ts_row_not_found_throw,
+    js_type_cast, parse_bool_option, ts_constrained_type, ts_index_access, ts_inexpressible_rules, ts_member_access,
+    ts_property_key, ts_row_not_found_throw,
 };
+use crate::constraints::ConstraintPolicy;
+use scythe_core::constraints::{Rules, ValueConstraints};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/typescript-postgres.redshift.toml");
@@ -468,6 +471,10 @@ pub struct TypescriptPostgresBackend {
     /// Whether query functions take one argument per parameter or one
     /// `params` object -- see [`TsParamStyle`].
     params_style: TsParamStyle,
+    /// Whether row and params types carry the schema's constraints -- see
+    /// [`TsValidation`] -- and how one they cannot carry is reported.
+    validation: TsValidation,
+    constraint_policy: ConstraintPolicy,
     /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
     /// `javascript-postgres` registry name (#81). See
     /// `TypescriptPgBackend::js_mode` for the shared rationale, including why
@@ -506,6 +513,8 @@ impl TypescriptPostgresBackend {
             structs_only: false,
             field_case: TsFieldCase::default(),
             params_style: TsParamStyle::default(),
+            validation: TsValidation::default(),
+            constraint_policy: ConstraintPolicy::default(),
             js_mode: false,
             driver: TemplateDriver::PostgresJs,
         })
@@ -535,6 +544,8 @@ impl TypescriptPostgresBackend {
             structs_only: false,
             field_case: TsFieldCase::default(),
             params_style: TsParamStyle::default(),
+            validation: TsValidation::default(),
+            constraint_policy: ConstraintPolicy::default(),
             js_mode: false,
             driver: TemplateDriver::Bun,
         })
@@ -644,6 +655,23 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
     fn manifest_mut(&mut self) -> &mut scythe_backend::manifest::BackendManifest {
         &mut self.manifest
+    }
+
+    fn constraint_policy(&self) -> Option<ConstraintPolicy> {
+        (self.validation == TsValidation::JsDoc).then_some(self.constraint_policy)
+    }
+
+    fn inexpressible_rules(&self, rules: &Rules, lang_type: &str) -> Vec<String> {
+        ts_inexpressible_rules(rules, lang_type)
+    }
+
+    fn constrained_type(
+        &self,
+        constraints: &ValueConstraints,
+        lang_type: &str,
+        nullable: bool,
+    ) -> Option<(String, String)> {
+        ts_constrained_type(constraints, lang_type, nullable)
     }
 
     fn supported_engines(&self) -> &[&str] {
@@ -1259,7 +1287,15 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         reject_unknown_options(
-            &["row_type", "outer_join_unions", "structs_only", "field_case", "params"],
+            &[
+                "row_type",
+                "outer_join_unions",
+                "structs_only",
+                "field_case",
+                "params",
+                "validation",
+                "constraints",
+            ],
             options,
         )?;
 
@@ -1282,6 +1318,12 @@ impl CodegenBackend for TypescriptPostgresBackend {
         if let Some(value) = options.get("params") {
             self.params_style = TsParamStyle::from_option(value)?;
         }
+        if let Some(value) = options.get("validation") {
+            self.validation = TsValidation::from_option(value)?;
+        }
+        if let Some(value) = options.get("constraints") {
+            self.constraint_policy = ConstraintPolicy::from_option(value)?;
+        }
 
         // ~keep See `TypescriptPgBackend::apply_options` for why these are
         // rejected outright in JSDoc mode rather than silently ignored.
@@ -1291,6 +1333,16 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     ErrorCode::InvalidConfig,
                     format!(
                         "{} does not support params = \"object\" -- use {}",
+                        self.driver.js_name(),
+                        self.driver.ts_name()
+                    ),
+                ));
+            }
+            if self.validation != TsValidation::None {
+                return Err(ScytheError::new(
+                    ErrorCode::InvalidConfig,
+                    format!(
+                        "{} does not support validation -- use {}",
                         self.driver.js_name(),
                         self.driver.ts_name()
                     ),
@@ -1680,6 +1732,7 @@ mod tests {
         use crate::backend_trait::ResolvedColumn;
         vec![
             ResolvedColumn {
+                constraints: None,
                 name: "id".to_string(),
                 field_name: "id".to_string(),
                 lang_type: "number".to_string(),
@@ -1691,6 +1744,7 @@ mod tests {
                 nullable_before_join: false,
             },
             ResolvedColumn {
+                constraints: None,
                 name: "total".to_string(),
                 field_name: "total".to_string(),
                 lang_type: "string".to_string(),
@@ -2384,6 +2438,7 @@ mod tests {
         use crate::backend_trait::ResolvedColumn;
         vec![
             ResolvedColumn {
+                constraints: None,
                 name: "id".to_string(),
                 field_name: "id".to_string(),
                 lang_type: "number".to_string(),
@@ -2395,6 +2450,7 @@ mod tests {
                 nullable_before_join: false,
             },
             ResolvedColumn {
+                constraints: None,
                 name: "bio".to_string(),
                 field_name: "bio".to_string(),
                 lang_type: "string".to_string(),

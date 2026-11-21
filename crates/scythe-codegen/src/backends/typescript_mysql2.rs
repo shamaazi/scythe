@@ -1001,6 +1001,7 @@ mod tests {
         use crate::backend_trait::ResolvedColumn;
         vec![
             ResolvedColumn {
+                constraints: None,
                 name: "id".to_string(),
                 field_name: "id".to_string(),
                 lang_type: "number".to_string(),
@@ -1012,6 +1013,7 @@ mod tests {
                 nullable_before_join: false,
             },
             ResolvedColumn {
+                constraints: None,
                 name: "total".to_string(),
                 field_name: "total".to_string(),
                 lang_type: "string".to_string(),
@@ -1662,6 +1664,7 @@ mod tests {
         use crate::backend_trait::ResolvedColumn;
         vec![
             ResolvedColumn {
+                constraints: None,
                 name: "id".to_string(),
                 field_name: "id".to_string(),
                 lang_type: "number".to_string(),
@@ -1673,6 +1676,7 @@ mod tests {
                 nullable_before_join: false,
             },
             ResolvedColumn {
+                constraints: None,
                 name: "bio".to_string(),
                 field_name: "bio".to_string(),
                 lang_type: "string".to_string(),

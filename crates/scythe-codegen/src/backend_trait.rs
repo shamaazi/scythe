@@ -1,8 +1,10 @@
 use scythe_backend::naming::row_struct_name;
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo, NestedStructInfo};
+use scythe_core::constraints::{Rules, ValueConstraints};
 use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::GeneratedCode;
+use crate::constraints::ConstraintPolicy;
 
 /// Information needed to generate an RBS type signature file.
 #[derive(Debug, Clone)]
@@ -60,6 +62,10 @@ pub struct ResolvedColumn {
     /// (Oracle CLOB vs. VARCHAR2, both `neutral_type == "string"`) match on
     /// this instead of `neutral_type`.
     pub sql_type: String,
+    /// The schema's constraints on this column's values (see
+    /// [`scythe_core::analyzer::AnalyzedColumn::constraints`]); `None` unless the
+    /// backend renders validation ([`CodegenBackend::constraint_policy`]).
+    pub constraints: Option<ValueConstraints>,
 }
 
 impl ResolvedColumn {
@@ -80,6 +86,10 @@ pub struct ResolvedParam {
     pub borrowed_type: String,
     pub neutral_type: String,
     pub nullable: bool,
+    /// The schema's constraints on the values this parameter is written as (see
+    /// [`scythe_core::analyzer::AnalyzedParam::constraints`]); `None` unless the
+    /// backend renders validation ([`CodegenBackend::constraint_policy`]).
+    pub constraints: Option<ValueConstraints>,
 }
 
 /// Inputs for [`CodegenBackend::generate_grouped_query_fn`].
@@ -141,6 +151,33 @@ pub trait CodegenBackend: Send + Sync {
     /// configuration), so the extension has to be expressible here instead.
     fn output_extension(&self) -> &str {
         &self.manifest().backend.file_extension
+    }
+
+    /// Whether this backend renders the schema's constraints as validation, and
+    /// if so how a constraint it cannot render is reported.
+    ///
+    /// `None` (the default) renders none: resolved columns and parameters then
+    /// carry no [`ValueConstraints`], and nothing is reported.
+    fn constraint_policy(&self) -> Option<ConstraintPolicy> {
+        None
+    }
+
+    /// The parts of `rules` this backend cannot express on a value of
+    /// `lang_type` (before any [`Self::constrained_type`] narrowing), described
+    /// for a report. Reported like an untranslated constraint.
+    fn inexpressible_rules(&self, _rules: &Rules, _lang_type: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// The `(lang_type, full_type)` that expresses `constraints` in the type
+    /// itself -- a union of the allowed literals -- or `None` to keep the type.
+    fn constrained_type(
+        &self,
+        _constraints: &ValueConstraints,
+        _lang_type: &str,
+        _nullable: bool,
+    ) -> Option<(String, String)> {
+        None
     }
 
     /// Emit a row-shaped type declaration under an *already final* name.

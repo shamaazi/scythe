@@ -1399,6 +1399,7 @@ mod tests {
 
     fn resolved_param(name: &str, neutral_type: &str) -> ResolvedParam {
         ResolvedParam {
+            constraints: None,
             name: name.to_string(),
             field_name: name.to_string(),
             lang_type: "String".to_string(),

@@ -1433,6 +1433,7 @@ mod tests {
 
     fn make_scalar_param(field_name: &str, lang_type: &str, neutral_type: &str, nullable: bool) -> ResolvedParam {
         ResolvedParam {
+            constraints: None,
             name: field_name.to_string(),
             field_name: field_name.to_string(),
             lang_type: lang_type.to_string(),

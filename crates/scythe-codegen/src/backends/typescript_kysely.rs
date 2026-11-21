@@ -1620,6 +1620,7 @@ mod tests {
         use crate::backend_trait::ResolvedColumn;
 
         let columns = vec![ResolvedColumn {
+            constraints: None,
             name: "home_address".to_string(),
             field_name: "homeAddress".to_string(),
             lang_type: "WidgetAddress".to_string(),
@@ -1858,6 +1859,7 @@ mod tests {
 
         let columns = vec![
             ResolvedColumn {
+                constraints: None,
                 name: "id".to_string(),
                 field_name: "id".to_string(),
                 lang_type: "number".to_string(),
@@ -1869,6 +1871,7 @@ mod tests {
                 nullable_before_join: false,
             },
             ResolvedColumn {
+                constraints: None,
                 name: "total".to_string(),
                 field_name: "total".to_string(),
                 lang_type: "string".to_string(),
@@ -1880,6 +1883,7 @@ mod tests {
                 nullable_before_join: false,
             },
             ResolvedColumn {
+                constraints: None,
                 name: "notes".to_string(),
                 field_name: "notes".to_string(),
                 lang_type: "string".to_string(),
@@ -1943,6 +1947,7 @@ mod tests {
 
         let columns = vec![
             ResolvedColumn {
+                constraints: None,
                 name: "id".to_string(),
                 field_name: "id".to_string(),
                 lang_type: "number".to_string(),
@@ -1954,6 +1959,7 @@ mod tests {
                 nullable_before_join: false,
             },
             ResolvedColumn {
+                constraints: None,
                 name: "total".to_string(),
                 field_name: "total".to_string(),
                 lang_type: "string".to_string(),
@@ -1965,6 +1971,7 @@ mod tests {
                 nullable_before_join: false,
             },
             ResolvedColumn {
+                constraints: None,
                 name: "notes".to_string(),
                 field_name: "notes".to_string(),
                 lang_type: "string".to_string(),
@@ -2012,6 +2019,7 @@ mod tests {
             .unwrap();
 
         let columns = vec![ResolvedColumn {
+            constraints: None,
             name: "id".to_string(),
             field_name: "id".to_string(),
             lang_type: "number".to_string(),
@@ -2047,6 +2055,7 @@ mod tests {
             .unwrap();
 
         let columns = vec![ResolvedColumn {
+            constraints: None,
             name: "id".to_string(),
             field_name: "id".to_string(),
             lang_type: "number".to_string(),

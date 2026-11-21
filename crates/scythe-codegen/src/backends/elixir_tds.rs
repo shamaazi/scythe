@@ -537,6 +537,7 @@ mod tests {
 
     fn param(field_name: &str, neutral_type: &str) -> ResolvedParam {
         ResolvedParam {
+            constraints: None,
             name: field_name.to_string(),
             field_name: field_name.to_string(),
             lang_type: String::new(),

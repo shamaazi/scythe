@@ -545,6 +545,7 @@ mod tests {
     #[test]
     fn column_read_expr_wraps_lob_columns_and_passes_non_lob_columns_through_raw() {
         let clob_column = ResolvedColumn {
+            constraints: None,
             name: "notes".to_string(),
             field_name: "notes".to_string(),
             lang_type: "String".to_string(),

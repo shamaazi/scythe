@@ -1,0 +1,133 @@
+//! Preparing schema constraints for a backend that renders them as
+//! validation, and reporting what it cannot render.
+
+use scythe_core::constraints::ValueConstraints;
+use scythe_core::errors::{ErrorCode, ScytheError};
+
+use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+
+/// What happens to a constraint that applies to a generated column or
+/// parameter but is missing from its validation: one that has no translation
+/// (see [`scythe_core::constraints`]) or that the backend cannot express on the
+/// value's type. Selected by the `constraints` backend option.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ConstraintPolicy {
+    /// Generate without it, silently -- the behaviour without validation.
+    #[default]
+    Ignore,
+    /// Generate without it and print a warning naming it.
+    Warn,
+    /// Fail generation, naming it.
+    Error,
+}
+
+impl ConstraintPolicy {
+    /// Parse a `constraints` option value.
+    pub fn from_option(value: &str) -> Result<Self, ScytheError> {
+        match value {
+            "ignore" => Ok(Self::Ignore),
+            "warn" => Ok(Self::Warn),
+            "error" => Ok(Self::Error),
+            _ => Err(ScytheError::new(
+                ErrorCode::InvalidConfig,
+                format!("invalid constraints '{value}': expected 'ignore', 'warn' or 'error'"),
+            )),
+        }
+    }
+}
+
+/// One column or parameter's view of its constraints, for
+/// [`apply_constraint_policy`].
+struct Target<'a> {
+    kind: &'static str,
+    name: &'a str,
+    constraints: &'a mut Option<ValueConstraints>,
+    lang_type: &'a mut String,
+    full_type: &'a mut String,
+    nullable: bool,
+}
+
+/// Prepare `columns` and `params` for `backend`: without a
+/// [`CodegenBackend::constraint_policy`] their constraints are dropped;
+/// otherwise each type is narrowed by [`CodegenBackend::constrained_type`] and
+/// every constraint missing from the validation is handled per the policy --
+/// pushed onto `warnings` under [`ConstraintPolicy::Warn`], returned as one
+/// error under [`ConstraintPolicy::Error`].
+pub fn apply_constraint_policy(
+    backend: &dyn CodegenBackend,
+    query_name: &str,
+    columns: &mut [ResolvedColumn],
+    params: &mut [ResolvedParam],
+    warnings: &mut Vec<String>,
+) -> Result<(), ScytheError> {
+    let targets = columns
+        .iter_mut()
+        .map(|c| Target {
+            kind: "column",
+            name: &c.name,
+            constraints: &mut c.constraints,
+            lang_type: &mut c.lang_type,
+            full_type: &mut c.full_type,
+            nullable: c.nullable,
+        })
+        .chain(params.iter_mut().map(|p| Target {
+            kind: "parameter",
+            name: &p.name,
+            constraints: &mut p.constraints,
+            lang_type: &mut p.lang_type,
+            full_type: &mut p.full_type,
+            nullable: p.nullable,
+        }));
+
+    let Some(policy) = backend.constraint_policy() else {
+        for target in targets {
+            *target.constraints = None;
+        }
+        return Ok(());
+    };
+
+    let mut problems = Vec::new();
+    for target in targets {
+        let Some(constraints) = target.constraints.as_ref() else {
+            continue;
+        };
+        for entry in &constraints.untranslated {
+            let constraint = if entry.constraint.is_empty() {
+                entry.source.clone()
+            } else {
+                format!("{} {}", entry.source, entry.constraint)
+            };
+            problems.push(format!(
+                "{query_name} {} '{}': {constraint} is not translated: {}",
+                target.kind, target.name, entry.reason
+            ));
+        }
+        for rule in backend.inexpressible_rules(&constraints.rules, target.lang_type) {
+            problems.push(format!(
+                "{query_name} {} '{}' ({}) cannot carry {rule}",
+                target.kind, target.name, target.lang_type
+            ));
+        }
+        if let Some((lang_type, full_type)) = backend.constrained_type(constraints, target.lang_type, target.nullable) {
+            *target.lang_type = lang_type;
+            *target.full_type = full_type;
+        }
+    }
+
+    match policy {
+        ConstraintPolicy::Ignore => Ok(()),
+        ConstraintPolicy::Warn => {
+            warnings.extend(problems);
+            Ok(())
+        }
+        ConstraintPolicy::Error if problems.is_empty() => Ok(()),
+        ConstraintPolicy::Error => Err(ScytheError::new(
+            ErrorCode::UntranslatedConstraint,
+            format!(
+                "query '{query_name}': schema constraints missing from the generated validation \
+                 (constraints = \"error\"):\n  {}",
+                problems.join("\n  ")
+            ),
+        )),
+    }
+}

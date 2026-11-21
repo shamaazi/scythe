@@ -42,6 +42,9 @@ pub enum ErrorCode {
     /// ([`ErrorCode::AmbiguousColumn`], [`ErrorCode::UnknownColumn`],
     /// [`ErrorCode::UnknownFunction`]) rather than folding into `TypeMismatch`.
     UnresolvedType,
+    /// A schema constraint the configuration requires validation to carry
+    /// (`constraints = "error"`) could not be translated or rendered.
+    UntranslatedConstraint,
     InternalError,
 }
 
@@ -62,6 +65,7 @@ impl fmt::Display for ErrorCode {
             ErrorCode::InvalidRecursion => write!(f, "INVALID_RECURSION"),
             ErrorCode::InvalidConfig => write!(f, "INVALID_CONFIG"),
             ErrorCode::UnresolvedType => write!(f, "UNRESOLVED_TYPE"),
+            ErrorCode::UntranslatedConstraint => write!(f, "UNTRANSLATED_CONSTRAINT"),
             ErrorCode::InternalError => write!(f, "INTERNAL_ERROR"),
         }
     }

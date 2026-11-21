@@ -1497,6 +1497,9 @@ fn generate_for_backend(
                 analyzed.name, degraded.column, degraded.fallback_type, degraded.backend, degraded.struct_name
             );
         }
+        for warning in &code.constraint_warnings {
+            eprintln!("[{config_name}] warning: {warning}");
+        }
 
         // `analyzed.enums` covers enums reachable from the top-level
         // columns/params *and* from nested-aggregate fields. Emitting one

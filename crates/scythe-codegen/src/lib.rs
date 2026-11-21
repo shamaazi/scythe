@@ -1,6 +1,7 @@
 pub mod backend_options;
 pub mod backend_trait;
 pub mod backends;
+pub mod constraints;
 pub mod overrides;
 pub mod provenance;
 pub mod resolve;
@@ -46,6 +47,9 @@ pub struct GeneratedCode {
     /// identity attached, so the name has to survive alongside the code for
     /// the writer to dedupe on. See `scythe-cli`'s `generate_for_backend`.
     pub nested_struct_defs: Vec<NestedStructDef>,
+    /// Schema constraints left out of this query's generated validation, one
+    /// message each, under the backend's [`constraints::ConstraintPolicy::Warn`].
+    pub constraint_warnings: Vec<String>,
     /// One entry per column [`degrade_unsupported_nested_structs`] rewrote
     /// because `backend` did not opt the referenced struct into
     /// [`CodegenBackend::generate_nested_struct_def`] (GH #147).
@@ -246,14 +250,21 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
     };
     let nested_refs = NestedTypeRefs::collect(analyzed, &nested_struct_defs);
 
-    let columns = resolve::resolve_columns(
+    let mut columns = resolve::resolve_columns(
         degraded_columns.as_deref().unwrap_or(&analyzed.columns),
         manifest,
         overrides,
     )?;
-    let params = resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
+    let mut params = resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
     let mut result = GeneratedCode::default();
+    constraints::apply_constraint_policy(
+        backend,
+        &analyzed.name,
+        &mut columns,
+        &mut params,
+        &mut result.constraint_warnings,
+    )?;
 
     // Computed here, ahead of enum generation, so the collision check below
     // can compare an enum's generated name against the same row/model type
@@ -354,16 +365,19 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
             result.degraded_nested_structs.extend(child_degradations);
             (Some(dp), Some(dc))
         };
-        let parent_cols = resolve::resolve_columns(
+        let mut parent_cols = resolve::resolve_columns(
             degraded_parent.as_deref().unwrap_or(&group_by.parent_columns),
             manifest,
             overrides,
         )?;
-        let child_cols = resolve::resolve_columns(
+        let mut child_cols = resolve::resolve_columns(
             degraded_child.as_deref().unwrap_or(&group_by.child_columns),
             manifest,
             overrides,
         )?;
+        // Same constraints as the flat columns, already reported above.
+        constraints::apply_constraint_policy(backend, &analyzed.name, &mut parent_cols, &mut [], &mut Vec::new())?;
+        constraints::apply_constraint_policy(backend, &analyzed.name, &mut child_cols, &mut [], &mut Vec::new())?;
 
         // Every `generate_grouped_structs` implementation injects one more
         // field into the parent struct beyond `parent_cols`: `children`
