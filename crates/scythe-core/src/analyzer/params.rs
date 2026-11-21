@@ -59,6 +59,10 @@ impl<'a> Analyzer<'a> {
         source_relation: Option<String>,
     ) {
         if let Some(existing) = self.params.iter_mut().find(|p| p.position == position) {
+            // Nullability accumulates where the rest fills blanks: one use that
+            // accepts NULL (`$1 IS NULL`, a nullable column written from it)
+            // means the caller may pass NULL, whichever use is visited first.
+            existing.nullable |= nullable;
             if existing.name.is_none() && name.is_some() {
                 existing.name = name;
             }
@@ -177,7 +181,14 @@ impl<'a> Analyzer<'a> {
             // (#171). `IS NULL`/`IS NOT NULL` themselves are never
             // placeholders -- there is nothing dialect-specific to bind at
             // this node -- so this only needs to keep walking.
-            Expr::IsNull(inner) | Expr::IsNotNull(inner) => self.collect_params_from_where(inner, scope),
+            //
+            // Testing a parameter itself for NULL (`$1 IS NULL OR col = $1`,
+            // the optional-filter idiom) is the statement saying the
+            // parameter may be NULL, so it is registered nullable here.
+            Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
+                self.bind_null_tested_operand(inner);
+                self.collect_params_from_where(inner, scope);
+            }
             Expr::Nested(inner) => self.collect_params_from_where(inner, scope),
             Expr::UnaryOp { op, expr: inner } => {
                 if *op == UnaryOperator::Not {
@@ -236,6 +247,31 @@ impl<'a> Analyzer<'a> {
             _ => {
                 let _ = self.infer_expr_type(expr, scope);
             }
+        }
+    }
+
+    /// Register the placeholder an `IS [NOT] NULL` tests -- bare, parenthesised
+    /// or cast (`$1::date IS NULL`) -- as nullable, typed by its cast if any.
+    fn bind_null_tested_operand(&mut self, operand: &Expr) {
+        let mut operand = operand;
+        let mut neutral_type = None;
+        loop {
+            match operand {
+                Expr::Nested(inner) => operand = inner,
+                Expr::Cast {
+                    expr: inner, data_type, ..
+                } if neutral_type.is_none() => {
+                    neutral_type = Some(datatype_to_neutral(data_type, self.catalog));
+                    operand = inner;
+                }
+                _ => break,
+            }
+        }
+        if let Expr::Value(vws) = operand
+            && let Some(p) = value_is_placeholder(vws)
+            && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
+        {
+            self.register_param(pos, None, neutral_type, true, None);
         }
     }
 

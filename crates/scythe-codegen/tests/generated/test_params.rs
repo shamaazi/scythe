@@ -230,7 +230,7 @@ fn test_coalesce_param_type() {
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "name", "param name");
     assert_eq!(analyzed.params[0].neutral_type, "string", "param neutral_type for name");
-    assert!(!analyzed.params[0].nullable, "param nullable for name");
+    assert!(analyzed.params[0].nullable, "param nullable for name");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
     assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");

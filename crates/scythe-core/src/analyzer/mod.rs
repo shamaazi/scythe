@@ -914,6 +914,51 @@ UPDATE users SET name = $1 WHERE id = $2;",
         assert_eq!(result.params[1].name, "target_id");
     }
 
+    fn analyze_sql(sql: &str) -> Result<AnalyzedQuery, ScytheError> {
+        analyze(&make_catalog(), &parse_query(sql)?)
+    }
+
+    #[test]
+    fn test_param_tested_for_null_is_nullable() {
+        let result = analyze_sql(
+            "-- @name FindUsers
+-- @returns :many
+SELECT id FROM users WHERE (name = $1 OR $1 IS NULL) AND ($2::text IS NOT NULL OR bio = $2) AND id = $3;",
+        )
+        .unwrap();
+        assert!(result.params[0].nullable, "tested after its comparison still counts");
+        assert_eq!(result.params[0].neutral_type, "string");
+        assert!(result.params[1].nullable);
+        assert_eq!(result.params[1].neutral_type, "string", "typed by its cast");
+        assert!(!result.params[2].nullable);
+    }
+
+    #[test]
+    fn test_update_set_nullable_column_makes_param_nullable() {
+        let result = analyze_sql(
+            "-- @name UpdateUser
+-- @returns :exec
+UPDATE users SET bio = $1, name = $2 WHERE id = $3;",
+        )
+        .unwrap();
+        assert!(result.params[0].nullable, "bio is nullable");
+        assert!(!result.params[1].nullable, "name is NOT NULL");
+        assert!(!result.params[2].nullable);
+    }
+
+    #[test]
+    fn test_on_conflict_update_nullable_column_makes_param_nullable() {
+        let result = analyze_sql(
+            "-- @name UpsertUser
+-- @returns :exec
+INSERT INTO users (id, name, email) VALUES ($1, $2, $3)
+ON CONFLICT (id) DO UPDATE SET bio = $4, name = EXCLUDED.name;",
+        )
+        .unwrap();
+        assert!(!result.params[1].nullable);
+        assert!(result.params[3].nullable, "bio is nullable");
+    }
+
     #[test]
     fn test_update_set_arithmetic_expr_collects_all_params() {
         let catalog = make_catalog();
