@@ -23,6 +23,16 @@
 //! each test's doc comment states what the pre-fix code printed for the same
 //! input.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedParam, AnalyzedQuery};
 use scythe_core::parser::QueryCommand;
@@ -99,6 +109,7 @@ fn assert_contains(backend: &str, code: &str, needle: &str) {
 /// Old code printed `ps.setInt(1, a);` then `ps.setString(2, b);` -- binding
 /// `a`'s value into the first `?` (which is actually `$2`/`b`'s slot in the
 /// rewritten SQL `"...WHERE b = ? AND a = ?"`) and vice versa.
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_binds_out_of_order_placeholders_in_sql_text_order() {
     let query = two_param_query("UPDATE t SET touched = true WHERE b = $2 AND a = $1", vec![]);
@@ -113,6 +124,7 @@ fn java_jdbc_binds_out_of_order_placeholders_in_sql_text_order() {
 
 /// Old code printed `ps.setInt(1, a)` then `ps.setString(2, b)` (no
 /// trailing `;` in Kotlin) -- same swap as the Java case.
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_binds_out_of_order_placeholders_in_sql_text_order() {
     let query = two_param_query("UPDATE t SET touched = true WHERE b = $2 AND a = $1", vec![]);
@@ -128,6 +140,7 @@ fn kotlin_jdbc_binds_out_of_order_placeholders_in_sql_text_order() {
 /// Old code printed `listOf(IntegerColumnType() to a, TextColumnType() to
 /// b)`. Exposed's `exec(sql, args)` binds `args` positionally to the `?`s in
 /// `sql`, so that order bound `a`'s value to the first `?` (`b`'s slot).
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_binds_out_of_order_placeholders_in_sql_text_order() {
     let query = two_param_query("UPDATE t SET touched = true WHERE b = $2 AND a = $1", vec![]);
@@ -141,6 +154,7 @@ fn kotlin_exposed_binds_out_of_order_placeholders_in_sql_text_order() {
 
 /// Old code printed `->execute([$a, $b]);` -- `$a` bound to the first `?`
 /// (`b`'s slot) and `$b` to the second (`a`'s slot).
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_amphp_binds_out_of_order_placeholders_in_sql_text_order() {
     let query = two_param_query("UPDATE t SET touched = true WHERE b = $2 AND a = $1", vec![]);
@@ -162,6 +176,7 @@ fn php_amphp_binds_out_of_order_placeholders_in_sql_text_order() {
 /// compiled but `PreparedStatement.executeUpdate()` threw at runtime
 /// ("parameter index out of range" / "not all parameters ... bound",
 /// depending on driver).
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_binds_a_repeated_placeholder_once_per_occurrence() {
     let query = two_param_query("UPDATE t SET touched = true WHERE a = $1 OR parent_id = $1", vec![]);
@@ -174,6 +189,7 @@ fn java_jdbc_binds_a_repeated_placeholder_once_per_occurrence() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_binds_a_repeated_placeholder_once_per_occurrence() {
     let query = two_param_query("UPDATE t SET touched = true WHERE a = $1 OR parent_id = $1", vec![]);
@@ -181,6 +197,7 @@ fn kotlin_jdbc_binds_a_repeated_placeholder_once_per_occurrence() {
     assert_contains("kotlin-jdbc", &code, "ps.setInt(1, a)\n        ps.setInt(2, a)");
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_binds_a_repeated_placeholder_once_per_occurrence() {
     let query = two_param_query("UPDATE t SET touched = true WHERE a = $1 OR parent_id = $1", vec![]);
@@ -192,6 +209,7 @@ fn kotlin_exposed_binds_a_repeated_placeholder_once_per_occurrence() {
     );
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_amphp_binds_a_repeated_placeholder_once_per_occurrence() {
     let query = two_param_query("UPDATE t SET touched = true WHERE a = $1 OR parent_id = $1", vec![]);
@@ -209,6 +227,7 @@ fn php_amphp_binds_a_repeated_placeholder_once_per_occurrence() {
 /// for a SQL text carrying two `?`s, throwing at runtime exactly like the
 /// repeated-placeholder case above (this is the same root cause reached
 /// through `@optional` instead of a hand-written repeated `$1`).
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_optional_param_produces_matching_marker_and_bind_counts() {
     let query = one_param_query("UPDATE t SET touched = true WHERE name = $1", vec!["name".to_string()]);
@@ -232,6 +251,7 @@ fn java_jdbc_optional_param_produces_matching_marker_and_bind_counts() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_optional_param_produces_matching_marker_and_bind_counts() {
     let query = one_param_query("UPDATE t SET touched = true WHERE name = $1", vec!["name".to_string()]);
@@ -248,6 +268,7 @@ fn kotlin_jdbc_optional_param_produces_matching_marker_and_bind_counts() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_optional_param_produces_matching_marker_and_bind_counts() {
     let query = one_param_query("UPDATE t SET touched = true WHERE name = $1", vec!["name".to_string()]);
@@ -259,6 +280,7 @@ fn kotlin_exposed_optional_param_produces_matching_marker_and_bind_counts() {
     );
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_amphp_optional_param_produces_matching_marker_and_bind_counts() {
     let query = one_param_query("UPDATE t SET touched = true WHERE name = $1", vec!["name".to_string()]);

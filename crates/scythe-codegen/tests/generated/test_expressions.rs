@@ -41,28 +41,47 @@ fn test_case_numeric_branches() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -207,28 +226,47 @@ fn test_case_type_from_branches() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -372,28 +410,47 @@ fn test_case_widens_to_decimal() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -544,28 +601,47 @@ fn test_cast_preserves_nullability() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -715,28 +791,47 @@ fn test_cast_text() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -886,28 +981,47 @@ fn test_explicit_cast() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1062,28 +1176,47 @@ fn test_cast_composite_field_access() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1237,28 +1370,47 @@ fn test_cast_pg_double_colon() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1402,28 +1554,47 @@ fn test_cast_union_type_widening() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1570,8 +1741,15 @@ fn test_try_cast_nullable_on_failure() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "snowflake";
-    let all_backends = ["java-jdbc", "kotlin-jdbc", "php-pdo"];
-    for backend_name in &all_backends {
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-java", feature = "snowflake"))]
+        "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "snowflake"))]
+        "kotlin-jdbc",
+        #[cfg(all(feature = "lang-php", feature = "snowflake"))]
+        "php-pdo",
+    ];
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1721,28 +1899,47 @@ fn test_coalesce_preserves_type() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1889,28 +2086,47 @@ fn test_coalesce_type_inference() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -2051,28 +2267,47 @@ fn test_coalesce_widens_to_decimal() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -2216,28 +2451,47 @@ fn test_age_nullable_operand() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -2385,28 +2639,47 @@ fn test_date_age_interval() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -2562,28 +2835,47 @@ fn test_date_current_functions() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -2736,28 +3028,47 @@ fn test_date_extract() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -2903,18 +3214,27 @@ fn test_date_extract_mysql_returns_int() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mysql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "mysql"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-typescript", feature = "mysql"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-java", feature = "mysql"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "mysql"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mysql"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mysql"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-ruby", feature = "mysql"))]
         "ruby-trilogy",
+        #[cfg(all(feature = "lang-php", feature = "mysql"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "mysql"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -3061,28 +3381,47 @@ fn test_date_trunc() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -3226,28 +3565,47 @@ fn test_to_date_nullable_operand() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -3403,28 +3761,47 @@ fn test_fractional_and_exponent_literals() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -3568,28 +3945,47 @@ fn test_greatest_least_widen() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -3749,28 +4145,47 @@ fn test_math_abs_ceil_floor() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -3924,28 +4339,47 @@ fn test_math_power_sqrt() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -4094,28 +4528,47 @@ fn test_math_power_sqrt_nullable_operand() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -4264,28 +4717,47 @@ fn test_math_round() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -4428,28 +4900,47 @@ fn test_round_preserves_float_type() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -4595,28 +5086,47 @@ fn test_nullif_always_nullable() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -4761,28 +5271,47 @@ fn test_nullif_on_non_null() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -4927,28 +5456,47 @@ fn test_arithmetic() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -5093,28 +5641,47 @@ fn test_arithmetic_widens_to_decimal() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -5259,28 +5826,47 @@ fn test_arithmetic_with_nullable() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -5427,28 +6013,47 @@ fn test_between_nullable_operand() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -5594,28 +6199,47 @@ fn test_comparison_nullable_operand() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -5762,28 +6386,47 @@ fn test_in_list_nullable_operand() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -5929,28 +6572,47 @@ fn test_string_concat() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -6097,28 +6759,47 @@ fn test_like_nullable_operand() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -6267,28 +6948,47 @@ fn test_like_returns_bool() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -6436,18 +7136,27 @@ fn test_concat_mysql_nullable() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mysql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "mysql"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-typescript", feature = "mysql"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-java", feature = "mysql"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "mysql"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mysql"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mysql"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-ruby", feature = "mysql"))]
         "ruby-trilogy",
+        #[cfg(all(feature = "lang-php", feature = "mysql"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "mysql"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -6587,28 +7296,47 @@ fn test_position_nullable_operand() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -6756,28 +7484,47 @@ fn test_string_concat_function() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -6930,28 +7677,47 @@ fn test_string_length_trim() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -7099,28 +7865,47 @@ fn test_string_substring() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -7273,28 +8058,47 @@ fn test_string_upper_lower() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "postgresql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "postgres"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "postgres"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "postgres"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-exposed",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
         "elixir-ecto",
+        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "postgres"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(

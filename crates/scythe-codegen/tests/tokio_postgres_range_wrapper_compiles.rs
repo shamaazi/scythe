@@ -59,6 +59,8 @@
 //! `BUILD_COMMANDS["rust-tokio-postgres"]`. Until then, this is the only
 //! thing that compiles `PG_RANGE_SUPPORT`.
 
+#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;

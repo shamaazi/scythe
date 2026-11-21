@@ -26,6 +26,16 @@
 //!    import goimports has no way to know the file needs `github.com/...`
 //!    for). The fix drives the import block from `manifest.imports.rules`.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_structural, validate_with_tools};
 use scythe_codegen::{generate_with_backend, get_backend, provenance};
 use scythe_core::analyzer::analyze;
@@ -136,6 +146,7 @@ const PG_DECIMAL_QUERY: &str = "-- @name GetOrder\n-- @returns :one\nSELECT id, 
 /// `json = "array"`, so the property is `public array $payload` -- a value
 /// no PHP scalar cast can produce from PDO's raw JSON text. The fix decodes
 /// it instead of casting it to the string type the old table assumed.
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_json_column_is_decoded_when_the_manifest_declares_it_an_array() {
     for backend_name in ["php-pdo", "php-amphp"] {
@@ -174,6 +185,7 @@ fn php_json_column_is_decoded_when_the_manifest_declares_it_an_array() {
 /// `json_decode` would disagree with the declared type just as badly as the
 /// old unconditional `(string)` cast disagreed with `php-pdo.toml`. The cast
 /// must track whichever type *this* manifest declared.
+#[cfg(all(feature = "lang-php", feature = "mysql"))]
 #[test]
 fn php_json_column_stays_a_string_when_the_manifest_declares_it_a_string() {
     for backend_name in ["php-pdo", "php-amphp"] {
@@ -207,6 +219,7 @@ fn php_json_column_stays_a_string_when_the_manifest_declares_it_a_string() {
 /// `decimal = "float"`; every other PHP manifest declares it `"string"`. The
 /// old table cast every `decimal` column to `(string)` regardless, which
 /// disagreed with the SQLite property's declared `float` type.
+#[cfg(all(feature = "lang-php", feature = "sqlite"))]
 #[test]
 fn php_pdo_sqlite_decimal_column_is_cast_to_float() {
     let code = generate_full_file(
@@ -236,6 +249,7 @@ fn php_pdo_sqlite_decimal_column_is_cast_to_float() {
 /// Every other PHP manifest still declares `decimal = "string"`, so the
 /// `(string)` cast is correct there -- this pins that the fix did not throw
 /// the working case away while chasing the SQLite one.
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_pdo_postgresql_decimal_column_stays_a_string() {
     let code = generate_full_file(
@@ -274,6 +288,7 @@ const GO_PGX_QUERY: &str =
 /// selecting all three columns must now pull in all three imports -- the
 /// generated file did not compile before this fix, with no import for any of
 /// `uuid.UUID`, `json.RawMessage`, or `netip.Addr`.
+#[cfg(all(feature = "lang-go", feature = "postgres"))]
 #[test]
 fn go_pgx_emits_the_imports_uuid_json_and_inet_columns_need() {
     let code = generate_full_file(
@@ -311,6 +326,7 @@ const GO_MYSQL_DATETIME_QUERY: &str =
 /// there, so it needs nothing else). This pins that manifest-driven imports
 /// still work for the one rule every non-`go-pgx` manifest declares, not
 /// only for `go-pgx`'s five.
+#[cfg(all(feature = "lang-go", feature = "mysql"))]
 #[test]
 fn go_database_sql_mysql_still_emits_time_import_for_a_datetime_column() {
     let code = generate_full_file(
@@ -344,6 +360,7 @@ const GO_SQLITE_DATETIME_QUERY: &str =
 /// nothing in `[imports.rules]` must not regress to emitting no imports
 /// whatsoever -- `"context"` and `"database/sql"`, the unconditional ones,
 /// must still be there.
+#[cfg(all(feature = "lang-go", feature = "sqlite"))]
 #[test]
 fn go_database_sql_sqlite_emits_no_time_import_and_keeps_the_unconditional_ones() {
     let code = generate_full_file(

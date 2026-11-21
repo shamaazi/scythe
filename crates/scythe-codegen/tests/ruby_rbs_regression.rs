@@ -26,6 +26,16 @@
 //! from the manifest's own declared type instead of a parallel hardcoded list. `ruby-sqlite3`
 //! declares `decimal = "Float"` and needs no `BigDecimal` at all.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_backend::naming::{fn_name, row_struct_name};
 use scythe_codegen::resolve::{resolve_columns, resolve_params};
 use scythe_codegen::{
@@ -124,6 +134,7 @@ fn full_rb_file(backend: &dyn CodegenBackend, code: &GeneratedCode) -> String {
     out
 }
 
+#[cfg(all(feature = "lang-ruby", feature = "postgres", feature = "sqlite"))]
 #[test]
 fn grouped_query_rbs_declares_child_before_parent_with_children_reader() {
     let analyzed = analyze_query(&GROUPED_SCHEMA, GROUPED_QUERY);
@@ -165,6 +176,7 @@ fn grouped_query_rbs_declares_child_before_parent_with_children_reader() {
     }
 }
 
+#[cfg(all(feature = "lang-ruby", feature = "postgres"))]
 #[test]
 fn grouped_query_child_column_types_are_not_lost_in_the_split() {
     let analyzed = analyze_query(&GROUPED_SCHEMA, GROUPED_QUERY);
@@ -186,6 +198,7 @@ fn grouped_query_child_column_types_are_not_lost_in_the_split() {
     assert!(rbs.contains("attr_reader order_date:"), "got:\n{rbs}");
 }
 
+#[cfg(all(feature = "lang-ruby", feature = "mysql", feature = "postgres"))]
 #[test]
 fn pg_mysql2_and_trilogy_decimal_columns_coerce_to_bigdecimal_matching_the_rbs() {
     let analyzed = analyze_query(&[DECIMAL_SCHEMA], DECIMAL_QUERY);
@@ -228,6 +241,7 @@ fn pg_mysql2_and_trilogy_decimal_columns_coerce_to_bigdecimal_matching_the_rbs()
     }
 }
 
+#[cfg(all(feature = "lang-ruby", feature = "sqlite"))]
 #[test]
 fn sqlite3_decimal_column_coerces_to_float_never_bigdecimal() {
     let analyzed = analyze_query(&[DECIMAL_SCHEMA], DECIMAL_QUERY);
@@ -259,6 +273,7 @@ fn sqlite3_decimal_column_coerces_to_float_never_bigdecimal() {
 /// `require "bigdecimal/util"` must be emitted only when the generated code for *this*
 /// query actually needs it -- not unconditionally for every file a `BigDecimal`-capable
 /// backend ever produces.
+#[cfg(all(feature = "lang-ruby", feature = "postgres"))]
 #[test]
 fn bigdecimal_directives_are_not_emitted_for_a_query_with_no_decimal_column() {
     let analyzed = analyze_query(&[DECIMAL_SCHEMA], NO_DECIMAL_QUERY);

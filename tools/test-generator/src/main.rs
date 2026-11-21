@@ -64,6 +64,19 @@ fn applicable_backends(engine: &str) -> Vec<&'static str> {
         .collect()
 }
 
+/// The `cfg` predicate under which `backend` (a canonical `{language}-{driver}` name) is
+/// compiled into scythe-codegen and accepts `engine`.
+fn backend_cfg(backend: &str, engine: &str) -> String {
+    let language = match backend.split('-').next().unwrap_or_default() {
+        "javascript" => "typescript",
+        language => language,
+    };
+    match scythe_codegen::engine_feature(engine) {
+        Some(engine) => format!("all(feature = \"lang-{language}\", feature = \"{engine}\")"),
+        None => format!("feature = \"lang-{language}\""),
+    }
+}
+
 /// A fixture with `query_sql`, `expected.success == true`, and a row-returning command
 /// (`one`/`many`/`grouped`) that declares no `expected.query.columns` would generate a test
 /// asserting name, command and params only -- not one column type or nullability. A
@@ -324,12 +337,16 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("    // every entry here is expected to construct -- a construction failure\n");
     out.push_str("    // below is a real regression, not an expected engine mismatch. See #156.\n");
     let _ = writeln!(out, "    let engine = {:?};", engine);
-    out.push_str("    let all_backends = [\n");
+    // ~keep Each entry is gated on the Cargo features that compile its backend and
+    // accept the engine, so a build with fewer features still runs the analysis
+    // assertions above and checks the backends it has.
+    out.push_str("    let all_backends: &[&str] = &[\n");
     for name in &applicable {
+        let _ = writeln!(out, "        #[cfg({})]", backend_cfg(name, engine));
         let _ = writeln!(out, "        {:?},", name);
     }
     out.push_str("    ];\n");
-    out.push_str("    for backend_name in &all_backends {\n");
+    out.push_str("    for backend_name in all_backends {\n");
     out.push_str("        let backend = match scythe_codegen::get_backend(backend_name, engine) {\n");
     out.push_str("            Ok(b) => b,\n");
     let _ = writeln!(

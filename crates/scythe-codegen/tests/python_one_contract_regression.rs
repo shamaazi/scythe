@@ -27,6 +27,17 @@
 //! pyrefly-caught type mismatch, fixed here by narrowing with `or 0` rather
 //! than widening the other seven backends' `int` contract.
 
+#![cfg(all(
+    feature = "lang-python",
+    feature = "duckdb",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery};
 use scythe_core::parser::QueryCommand;

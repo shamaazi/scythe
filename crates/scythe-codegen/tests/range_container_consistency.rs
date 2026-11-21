@@ -155,6 +155,16 @@
 //! is a real type in a crate `rust-tokio-postgres` does not depend on --
 //! see `RANGE_SPELLING_EXCEPTIONS`.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -483,6 +493,7 @@ fn each_language_declares_one_range_spelling() {
 /// compile-only check that feeds this same `file_header_for_results` output
 /// to a real `rustc`, and for why that check lives in its own throwaway
 /// crate rather than as a range column on a shared schema.
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]
 fn rust_tokio_postgres_range_emits_a_working_pgrange_wrapper() {
     let backend = get_backend("rust-tokio-postgres", "postgresql").expect("rust-tokio-postgres/postgresql");

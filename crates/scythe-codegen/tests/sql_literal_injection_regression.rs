@@ -18,6 +18,16 @@
 //! this crate -- since this suite must still pass on a machine that only has
 //! some of the eight language toolchains installed.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use std::process::Command;
 
 use scythe_codegen::validation::strict_mode_enabled;
@@ -172,6 +182,7 @@ const KOTLIN_176_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
 /// escape function: a query whose SQL contains `$name` -- exactly matching
 /// an in-scope parameter's field name -- must not produce Kotlin source
 /// that interpolates it.
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_176_injection_is_neutralized() {
     let file = generate_full_file("kotlin-jdbc", KOTLIN_176_QUERY);
@@ -197,6 +208,7 @@ fn kotlin_jdbc_176_injection_is_neutralized() {
     let _ = std::fs::remove_file(&path);
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_r2dbc_176_injection_is_neutralized() {
     let file = generate_full_file("kotlin-r2dbc", KOTLIN_176_QUERY);
@@ -204,6 +216,7 @@ fn kotlin_r2dbc_176_injection_is_neutralized() {
     assert!(file.contains("literal-\\$name-marker"), "got:\n{file}");
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_176_injection_is_neutralized() {
     let file = generate_full_file("kotlin-exposed", KOTLIN_176_QUERY);
@@ -218,6 +231,7 @@ fn kotlin_exposed_176_injection_is_neutralized() {
 const HASH_BRACE_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
     SELECT id, name FROM users WHERE name = $1 AND name != 'literal-#{evil}-marker';";
 
+#[cfg(all(feature = "lang-ruby", feature = "postgres"))]
 #[test]
 fn ruby_pg_hash_brace_interpolation_is_neutralized() {
     let file = generate_full_file("ruby-pg", HASH_BRACE_QUERY);
@@ -232,6 +246,7 @@ fn ruby_pg_hash_brace_interpolation_is_neutralized() {
     let _ = std::fs::remove_file(&path);
 }
 
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 #[test]
 fn elixir_postgrex_hash_brace_interpolation_is_neutralized() {
     let file = generate_full_file("elixir-postgrex", HASH_BRACE_QUERY);
@@ -258,6 +273,7 @@ fn elixir_postgrex_hash_brace_interpolation_is_neutralized() {
 const PHP_DOLLAR_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
     SELECT id, name FROM users WHERE name = $1 AND name != 'literal-$pdo-marker';";
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_pdo_dollar_interpolation_is_neutralized() {
     let file = generate_full_file("php-pdo", PHP_DOLLAR_QUERY);
@@ -287,6 +303,7 @@ fn php_pdo_dollar_interpolation_is_neutralized() {
 const QUOTE_BACKSLASH_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
     SELECT id, name FROM users WHERE name = $1 AND name != 'has \"quotes\" and a\\backslash and a\\_b%';";
 
+#[cfg(all(feature = "lang-go", feature = "postgres"))]
 #[test]
 fn go_pgx_quote_and_backslash_are_escaped() {
     let file = generate_full_file("go-pgx", QUOTE_BACKSLASH_QUERY);
@@ -298,6 +315,7 @@ fn go_pgx_quote_and_backslash_are_escaped() {
     let _ = std::fs::remove_file(&path);
 }
 
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn python_psycopg3_quote_and_backslash_are_escaped() {
     let file = generate_full_file("python-psycopg3", QUOTE_BACKSLASH_QUERY);
@@ -309,6 +327,7 @@ fn python_psycopg3_quote_and_backslash_are_escaped() {
     let _ = std::fs::remove_file(&path);
 }
 
+#[cfg(all(feature = "lang-csharp", feature = "postgres"))]
 #[test]
 fn csharp_npgsql_quote_is_doubled_and_backslash_stays_literal() {
     let file = generate_full_file("csharp-npgsql", QUOTE_BACKSLASH_QUERY);
@@ -329,6 +348,7 @@ fn csharp_npgsql_quote_is_doubled_and_backslash_stays_literal() {
 const RUST_HASH_QUOTE_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
     SELECT id, name FROM users WHERE name = $1 AND name != 'ends with a hash-quote \"# sequence';";
 
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]
 fn tokio_postgres_raw_string_widens_delimiter_for_hash_quote() {
     let file = generate_full_file("rust-tokio-postgres", RUST_HASH_QUOTE_QUERY);
@@ -342,6 +362,7 @@ fn tokio_postgres_raw_string_widens_delimiter_for_hash_quote() {
     );
 }
 
+#[cfg(all(feature = "lang-rust", feature = "mssql"))]
 #[test]
 fn rust_tiberius_raw_string_widens_delimiter_for_hash_quote() {
     const MSSQL_SCHEMA: &str = "CREATE TABLE users (id INT IDENTITY(1,1) PRIMARY KEY, name NVARCHAR(255) NOT NULL);";

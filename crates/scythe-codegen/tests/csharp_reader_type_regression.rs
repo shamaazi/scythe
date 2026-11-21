@@ -32,6 +32,16 @@
 //! C# type* of the emitted expression is -- an accessor this file does not
 //! recognise is a hard failure, not a skip.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -339,6 +349,7 @@ fn assert_csharp_file_is_valid(backend_name: &str, code: &str) {
     }
 }
 
+#[cfg(all(feature = "lang-csharp", feature = "postgres"))]
 #[test]
 fn csharp_npgsql_reads_every_non_scalar_column_with_a_typed_accessor() {
     let code = generate_full_file(
@@ -363,6 +374,7 @@ fn csharp_npgsql_reads_every_non_scalar_column_with_a_typed_accessor() {
     assert_csharp_file_is_valid("csharp-npgsql", &code);
 }
 
+#[cfg(all(feature = "lang-csharp", feature = "redshift"))]
 #[test]
 fn csharp_npgsql_redshift_reads_every_non_scalar_column_with_a_typed_accessor() {
     let code = generate_full_file(
@@ -384,6 +396,16 @@ fn csharp_npgsql_redshift_reads_every_non_scalar_column_with_a_typed_accessor() 
 
 /// `bytes` is the one fallback type every engine can express, so it is the
 /// route to the same defect on the five non-PostgreSQL backends.
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "redshift",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
 #[test]
 fn every_csharp_backend_reads_a_binary_column_as_a_byte_array() {
     let cases: &[(&str, &str, SqlDialect)] = &[
@@ -419,6 +441,7 @@ fn every_csharp_backend_reads_a_binary_column_as_a_byte_array() {
 /// table, and rerouting it through `GetFieldValue<TEnum>` would need the enum
 /// registered with the driver's type mapper. A test that only asserted "no
 /// GetValue" would happily accept that rewrite, so pin the parse form.
+#[cfg(all(feature = "lang-csharp", feature = "postgres"))]
 #[test]
 fn enum_columns_are_still_read_through_enum_try_parse() {
     let code = generate_full_file(
@@ -523,6 +546,7 @@ fn assert_declaration_and_reader_agree(manifest_file: &str, backend_name: &str, 
     checked
 }
 
+#[cfg(all(feature = "lang-csharp", feature = "postgres"))]
 #[test]
 fn every_csharp_manifest_declares_only_types_its_reader_can_produce() {
     let manifests_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("manifests");

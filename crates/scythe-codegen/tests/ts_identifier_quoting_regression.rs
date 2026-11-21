@@ -22,6 +22,16 @@
 //! `validate_with_tools`, and `tsc --strict` when it is on `PATH`) are
 //! additive on top -- a machine without them still fails on a regression.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -189,6 +199,16 @@ fn tool_check(backend_name: &str, file: &str) {
 /// interface spliced `p.field_name` in bare (`2fa: string;`), the per-item
 /// bind read it back with `item.2fa`, and the pg/mysql2 row remaps read
 /// driver rows with `row.my col`.
+#[cfg(all(
+    feature = "lang-typescript",
+    feature = "duckdb",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
 #[test]
 fn every_typescript_backend_quotes_non_identifier_column_names() {
     for (backend_name, engine, dialect) in TS_BACKENDS {
@@ -228,6 +248,16 @@ fn every_typescript_backend_quotes_non_identifier_column_names() {
 /// parseable JSDoc name token (a whitespace-containing one splits into a
 /// name and a bogus description; a leading digit is not a valid identifier
 /// start either).
+#[cfg(all(
+    feature = "lang-typescript",
+    feature = "duckdb",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
 #[test]
 fn every_javascript_backend_describes_non_identifier_columns_with_a_quoted_typedef_key() {
     for (backend_name, engine, dialect) in JS_BACKENDS {
@@ -284,6 +314,17 @@ fn every_javascript_backend_describes_non_identifier_columns_with_a_quoted_typed
 /// field-by-field remap that reads the driver's *raw* keys -- the code path
 /// that emitted `row.my col`. The declared field is renamed, but the raw key
 /// it is read from is still the SQL column name.
+#[cfg(all(
+    feature = "lang-typescript",
+    feature = "duckdb",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn camel_case_remaps_read_non_identifier_columns_by_bracket_access() {
     let options = HashMap::from([("field_case".to_string(), "camelCase".to_string())]);
@@ -320,6 +361,7 @@ fn camel_case_remaps_read_non_identifier_columns_by_bracket_access() {
 /// A reserved word is a valid property key and a valid property read, so
 /// #215 must not start quoting one -- that is #180/#151's problem (keyword-
 /// ness), not this one (identifier shape), and they have different fixes.
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn a_reserved_word_column_stays_an_unquoted_key() {
     const SCHEMA: &str = "CREATE TABLE items (id INT PRIMARY KEY, class TEXT NOT NULL);";
@@ -339,6 +381,7 @@ fn a_reserved_word_column_stays_an_unquoted_key() {
 /// This must fail before the fix: the bracket-access read paths spliced the
 /// column name into a single-quoted JS string without escaping, so a column
 /// named `it's` produced `row['it's']` -- the literal closes after `it`.
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn an_apostrophe_in_a_column_name_is_escaped_in_bracket_reads() {
     const SCHEMA: &str = "CREATE TABLE weird (id INT PRIMARY KEY, \"it's\" TEXT NOT NULL);";
@@ -412,6 +455,7 @@ fn tsc_accepts_the_quoted_declarations_and_reads() {
 /// is a contract with something outside the generated file -- the row type's
 /// key and the SQL text -- which is what the two negative assertions below
 /// hold in place.
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn a_scalar_parameter_named_after_a_non_identifier_column_is_mangled() {
     const SCHEMA: &str = "CREATE TABLE weird (id INT PRIMARY KEY, \"my col\" TEXT NOT NULL);";

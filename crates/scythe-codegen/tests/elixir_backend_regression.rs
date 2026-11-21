@@ -31,6 +31,16 @@
 //!    arm, so a `VARBINARY`/`TIME` parameter was declared to the TDS wire
 //!    protocol as `:string`.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_structural, validate_with_tools};
 use scythe_codegen::{generate_with_backend, get_backend, provenance};
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig, analyze};
@@ -99,6 +109,14 @@ fn grouped_query_with_empty_parent_columns() -> AnalyzedQuery {
     })
 }
 
+#[cfg(all(
+    feature = "lang-elixir",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "sqlite"
+))]
 #[test]
 fn empty_grouped_parent_never_produces_defstruct_with_a_leading_comma() {
     for (backend_name, engine) in ALL_ELIXIR_BACKENDS {
@@ -143,6 +161,14 @@ fn one_param_query(param_neutral_type: &str) -> AnalyzedQuery {
     })
 }
 
+#[cfg(all(
+    feature = "lang-elixir",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "sqlite"
+))]
 #[test]
 fn enum_param_gets_string_t_spec_not_a_bare_module_alias() {
     for (backend_name, engine) in PREVIOUSLY_BUGGY_ENUM_SPEC_BACKENDS {
@@ -172,6 +198,7 @@ fn enum_param_gets_string_t_spec_not_a_bare_module_alias() {
 /// Postgres). Runs on `elixir-postgrex` only -- `CREATE TYPE ... AS ENUM` is
 /// PostgreSQL-specific syntax, so this is the one Elixir backend it reaches
 /// without a dialect-specific enum fixture.
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 #[test]
 fn enum_where_clause_param_gets_string_t_spec_through_the_real_pipeline() {
     let schema = "CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned'); \
@@ -235,6 +262,7 @@ fn batch_query() -> AnalyzedQuery {
     })
 }
 
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 #[test]
 fn ecto_backend_emits_ecto_not_a_postgrex_clone() {
     let backend = get_backend("elixir-ecto", "postgresql").expect("ecto must support postgresql");
@@ -286,6 +314,7 @@ fn ecto_backend_emits_ecto_not_a_postgrex_clone() {
 
 /// The grouped path is a separate code path (`generate_grouped_query_fn`)
 /// from the flat one exercised above, and needs its own pin.
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 #[test]
 fn ecto_grouped_query_fn_also_emits_ecto() {
     let backend = get_backend("elixir-ecto", "postgresql").expect("ecto must support postgresql");
@@ -334,6 +363,7 @@ fn ecto_grouped_query_fn_also_emits_ecto() {
 /// never carries that nesting -- it comes from which of the two hooks the
 /// backend implements -- so this pins the hooks directly rather than the
 /// struct text.
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 #[test]
 fn ecto_and_postgrex_agree_on_where_struct_definitions_nest() {
     let ecto = get_backend("elixir-ecto", "postgresql").expect("ecto must support postgresql");
@@ -399,6 +429,7 @@ fn exqlite_query(command: QueryCommand) -> AnalyzedQuery {
 /// was reachable from exactly one of those: the success path. This counts
 /// occurrences rather than asserting a fixed number, because the point being
 /// pinned is "more than the one success-path call", not the exact code shape.
+#[cfg(all(feature = "lang-elixir", feature = "sqlite"))]
 #[test]
 fn exqlite_releases_the_prepared_statement_on_every_exit_path() {
     let backend = get_backend("elixir-exqlite", "sqlite").expect("exqlite must support sqlite");
@@ -424,6 +455,7 @@ fn exqlite_releases_the_prepared_statement_on_every_exit_path() {
     }
 }
 
+#[cfg(all(feature = "lang-elixir", feature = "sqlite"))]
 #[test]
 fn exqlite_grouped_query_fn_also_releases_on_the_bind_failure_path() {
     let backend = get_backend("elixir-exqlite", "sqlite").expect("exqlite must support sqlite");
@@ -540,6 +572,7 @@ fn assert_elixir_file_is_valid(backend_name: &str, code: &str) {
 /// Every exqlite command shape, run through the real `elixirc` compiler: the
 /// restructured `with`/`case` nesting has to still be valid Elixir, not just
 /// release the statement on more paths.
+#[cfg(all(feature = "lang-elixir", feature = "sqlite"))]
 #[test]
 fn exqlite_restructured_release_paths_still_compile() {
     for command in [
@@ -556,6 +589,7 @@ fn exqlite_restructured_release_paths_still_compile() {
 }
 
 /// The rewritten ecto output, run through the real `elixirc` compiler.
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 #[test]
 fn ecto_rewrite_compiles() {
     for query in [many_param_query(), batch_query()] {
@@ -570,6 +604,7 @@ fn ecto_rewrite_compiles() {
 /// `time`/`time_tz` neutral-typed parameter must reach the generated
 /// `%Tds.Parameter{}` literal as `:binary`/`:time`, not fall through to the
 /// `:string` default the way it did before #202.
+#[cfg(all(feature = "lang-elixir", feature = "mssql"))]
 #[test]
 fn tds_binary_and_time_params_are_not_declared_as_string() {
     let backend = get_backend("elixir-tds", "mssql").expect("tds must support mssql");

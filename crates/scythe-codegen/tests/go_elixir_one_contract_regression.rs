@@ -26,6 +26,16 @@
 //! the exact fragment the split produces, not mere presence/absence of an
 //! error.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery};
 use scythe_core::parser::QueryCommand;
@@ -98,11 +108,13 @@ fn assert_go_database_sql_shape_one_errors_opt_does_not(backend_name: &str, engi
     );
 }
 
+#[cfg(all(feature = "lang-go", feature = "mysql"))]
 #[test]
 fn go_database_sql_one_errors_on_missing_row_opt_returns_nil() {
     assert_go_database_sql_shape_one_errors_opt_does_not("go-database-sql", "mysql");
 }
 
+#[cfg(all(feature = "lang-go", feature = "snowflake"))]
 #[test]
 fn go_gosnowflake_one_errors_on_missing_row_opt_returns_nil() {
     assert_go_database_sql_shape_one_errors_opt_does_not("go-gosnowflake", "snowflake");
@@ -112,6 +124,7 @@ fn go_gosnowflake_one_errors_on_missing_row_opt_returns_nil() {
 // go-pgx: same shape, driven by pgx.ErrNoRows instead of sql.ErrNoRows.
 // ---------------------------------------------------------------------
 
+#[cfg(all(feature = "lang-go", feature = "postgres"))]
 #[test]
 fn go_pgx_one_errors_on_missing_row_opt_returns_nil() {
     let one_fn = query_fn_for("go-pgx", "postgresql", QueryCommand::One);
@@ -150,6 +163,7 @@ fn go_pgx_one_errors_on_missing_row_opt_returns_nil() {
 /// `pgx.ErrNoRows`) alongside `pgxpool` -- omitting it makes the generated
 /// file fail to compile with "undefined: pgx" (the #198 failure mode, for a
 /// different import).
+#[cfg(all(feature = "lang-go", feature = "postgres"))]
 #[test]
 fn go_pgx_file_header_adds_pgx_import_only_when_opt_query_present() {
     let backend = get_backend("go-pgx", "postgresql").unwrap();
@@ -178,6 +192,7 @@ fn go_pgx_file_header_adds_pgx_import_only_when_opt_query_present() {
 // only the ErrNoRows-swallow differs.
 // ---------------------------------------------------------------------
 
+#[cfg(all(feature = "lang-go", feature = "oracle"))]
 #[test]
 fn go_godror_one_errors_on_missing_row_opt_returns_nil() {
     let one_fn = query_fn_for("go-godror", "oracle", QueryCommand::One);
@@ -251,21 +266,25 @@ fn assert_elixir_tagged_tuple_shape_one_errors_opt_does_not(
     );
 }
 
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 #[test]
 fn elixir_postgrex_one_errors_on_missing_row_opt_returns_ok_nil() {
     assert_elixir_tagged_tuple_shape_one_errors_opt_does_not("elixir-postgrex", "postgresql", "{:ok, %{rows: []}}");
 }
 
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 #[test]
 fn elixir_ecto_one_errors_on_missing_row_opt_returns_ok_nil() {
     assert_elixir_tagged_tuple_shape_one_errors_opt_does_not("elixir-ecto", "postgresql", "{:ok, %{rows: []}}");
 }
 
+#[cfg(all(feature = "lang-elixir", feature = "mssql"))]
 #[test]
 fn elixir_tds_one_errors_on_missing_row_opt_returns_ok_nil() {
     assert_elixir_tagged_tuple_shape_one_errors_opt_does_not("elixir-tds", "mssql", "{:ok, %{rows: []}}");
 }
 
+#[cfg(all(feature = "lang-elixir", feature = "oracle"))]
 #[test]
 fn elixir_jamdb_one_errors_on_missing_row_opt_returns_ok_nil() {
     // ~keep board #223: jamdb executes through `DBConnection.execute/3`, which returns
@@ -281,6 +300,7 @@ fn elixir_jamdb_one_errors_on_missing_row_opt_returns_ok_nil() {
 // {:error, :not_found} even though the body already produced it for :one.
 // ---------------------------------------------------------------------
 
+#[cfg(all(feature = "lang-elixir", feature = "mysql"))]
 #[test]
 fn elixir_myxql_one_errors_on_missing_row_opt_returns_ok_nil() {
     assert_elixir_tagged_tuple_shape_one_errors_opt_does_not("elixir-myxql", "mysql", "{:ok, %MyXQL.Result{rows: []}}");
@@ -293,6 +313,7 @@ fn elixir_myxql_one_errors_on_missing_row_opt_returns_ok_nil() {
 // not a `%{rows: []}}` struct match.
 // ---------------------------------------------------------------------
 
+#[cfg(all(feature = "lang-elixir", feature = "sqlite"))]
 #[test]
 fn elixir_exqlite_one_errors_on_missing_row_opt_returns_ok_nil() {
     let one_fn = query_fn_for("elixir-exqlite", "sqlite", QueryCommand::One);
@@ -333,6 +354,16 @@ fn elixir_exqlite_one_errors_on_missing_row_opt_returns_ok_nil() {
 // elixir-* backend -- the exact fold #192 named.
 // ---------------------------------------------------------------------
 
+#[cfg(all(
+    feature = "lang-elixir",
+    feature = "lang-go",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
 #[test]
 fn one_and_opt_render_different_code_for_every_go_and_elixir_backend() {
     let backends: &[(&str, &str)] = &[

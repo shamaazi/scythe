@@ -17,6 +17,16 @@
 //!
 //! none of which parse.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;
@@ -90,6 +100,17 @@ fn outside_string_literals(source: &str) -> String {
     out
 }
 
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "lang-elixir",
+    feature = "lang-go",
+    feature = "lang-java",
+    feature = "lang-kotlin",
+    feature = "lang-php",
+    feature = "lang-python",
+    feature = "lang-rust",
+    feature = "postgres"
+))]
 #[test]
 fn no_backend_emits_a_space_or_dash_inside_a_generated_name() {
     for backend_name in MANGLING_BACKENDS {
@@ -108,6 +129,17 @@ fn no_backend_emits_a_space_or_dash_inside_a_generated_name() {
 /// Rust and Python, `MyCol` wherever the backend PascalCases on top. What
 /// every one of them must agree on is that the two words survived and are
 /// joined by something an identifier can hold.
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "lang-elixir",
+    feature = "lang-go",
+    feature = "lang-java",
+    feature = "lang-kotlin",
+    feature = "lang-php",
+    feature = "lang-python",
+    feature = "lang-rust",
+    feature = "postgres"
+))]
 #[test]
 fn every_backend_emits_the_mangled_names() {
     for backend_name in MANGLING_BACKENDS {
@@ -127,6 +159,17 @@ fn every_backend_emits_the_mangled_names() {
 /// applies on top -- go-pgx and the csharp family PascalCase the field name
 /// again. A bare `_` does not survive either, which is why the guard is a
 /// word.
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "lang-elixir",
+    feature = "lang-go",
+    feature = "lang-java",
+    feature = "lang-kotlin",
+    feature = "lang-php",
+    feature = "lang-python",
+    feature = "lang-rust",
+    feature = "postgres"
+))]
 #[test]
 fn a_leading_digit_never_survives_into_a_generated_name() {
     for backend_name in MANGLING_BACKENDS {
@@ -147,6 +190,17 @@ fn a_leading_digit_never_survives_into_a_generated_name() {
 /// The SQL text is not a generated name and must keep the column exactly as
 /// the database spells it -- mangling there would query a column that does
 /// not exist.
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "lang-elixir",
+    feature = "lang-go",
+    feature = "lang-java",
+    feature = "lang-kotlin",
+    feature = "lang-php",
+    feature = "lang-python",
+    feature = "lang-rust",
+    feature = "postgres"
+))]
 #[test]
 fn the_sql_text_still_names_the_columns_as_the_database_does() {
     for backend_name in MANGLING_BACKENDS {
@@ -160,6 +214,7 @@ fn the_sql_text_still_names_the_columns_as_the_database_does() {
 
 /// TypeScript is the counter-case, asserted here rather than assumed: its
 /// manifests deliberately leave `sanitize_field_names` off.
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn typescript_quotes_instead_of_mangling() {
     let code = generate("typescript-pg");

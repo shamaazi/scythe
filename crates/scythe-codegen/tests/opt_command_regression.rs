@@ -46,6 +46,16 @@
 //! the ratchet still fails in both directions and an empty list is what
 //! makes a new fold show up as a regression instead of as the status quo.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery};
 use scythe_core::parser::QueryCommand;
@@ -88,6 +98,7 @@ fn query_fn_for(backend_name: &str, engine: &str, command: QueryCommand) -> Stri
 /// emitted for both `:one` and `:opt`. For `:opt` that `.expect()` panics at
 /// runtime the moment the row is legitimately absent -- the one case `:opt`
 /// is supposed to hand back as `None` rather than fail on.
+#[cfg(all(feature = "lang-rust", feature = "mssql"))]
 #[test]
 fn rust_tiberius_opt_returns_option_and_does_not_panic_on_missing_row() {
     let opt_fn = query_fn_for("rust-tiberius", "mssql", QueryCommand::Opt);
@@ -113,6 +124,7 @@ fn rust_tiberius_opt_returns_option_and_does_not_panic_on_missing_row() {
 /// shape -- this fix only stops `:opt` from being folded into it. Whether
 /// `:one` panicking (rather than returning an `Err`) on a missing row is
 /// itself desirable is a separate question, out of scope for #197.
+#[cfg(all(feature = "lang-rust", feature = "mssql"))]
 #[test]
 fn rust_tiberius_one_is_unchanged_by_the_opt_fix() {
     let one_fn = query_fn_for("rust-tiberius", "mssql", QueryCommand::One);
@@ -131,6 +143,7 @@ fn rust_tiberius_one_is_unchanged_by_the_opt_fix() {
 /// The regression itself, phrased the way #197 named it: before this fix,
 /// `:opt` on rust-tiberius rendered byte-identical code to `:one`, which is
 /// exactly what made it panic instead of returning `None`.
+#[cfg(all(feature = "lang-rust", feature = "mssql"))]
 #[test]
 fn rust_tiberius_opt_and_one_generate_different_code() {
     let one_fn = query_fn_for("rust-tiberius", "mssql", QueryCommand::One);
@@ -300,6 +313,19 @@ const KNOWN_UNDIFFERENTIATED_BACKENDS: &[BackendNote] = &[];
 /// every other allowlisted backend does) -- both are silent downgrades of
 /// one command's contract into the other's, and both are exactly what
 /// "a backend silently downgrades :opt" (or, symmetrically, :one) means.
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "lang-elixir",
+    feature = "lang-go",
+    feature = "lang-java",
+    feature = "lang-kotlin",
+    feature = "lang-php",
+    feature = "lang-python",
+    feature = "lang-ruby",
+    feature = "lang-rust",
+    feature = "lang-typescript",
+    feature = "postgres"
+))]
 #[test]
 fn one_and_opt_render_different_code_except_on_the_known_allowlist() {
     let mut regressions = Vec::new();

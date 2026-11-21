@@ -13,6 +13,8 @@
 //! calling `.field` or pattern-matching the declared struct on that value got a `KeyError` /
 //! `FunctionClauseError` at runtime instead of the generated type.
 
+#![cfg(all(feature = "lang-elixir", feature = "postgres"))]
+
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_with_tools};
 use scythe_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;

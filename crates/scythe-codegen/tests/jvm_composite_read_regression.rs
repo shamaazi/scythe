@@ -26,6 +26,16 @@
 //! tests; those assertions are inverted alongside this file landing -- see that file's updated
 //! doc comments.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::provenance;
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_with_tools};
 use scythe_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
@@ -151,6 +161,7 @@ fn assert_absent(backend: &str, code: &str, needle: &str, why: &str) {
 
 // -- every backend: the type-map-less accessor must be gone for composite columns ------------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_reads_composite_columns_through_text_form_not_getobject() {
     let code = generated_text("java-jdbc");
@@ -176,6 +187,7 @@ fn java_jdbc_reads_composite_columns_through_text_form_not_getobject() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_reads_composite_columns_through_text_form_not_getobject() {
     let code = generated_text("kotlin-jdbc");
@@ -205,6 +217,7 @@ fn kotlin_jdbc_reads_composite_columns_through_text_form_not_getobject() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_reads_composite_columns_through_text_form_not_getobject() {
     let code = generated_text("kotlin-exposed");
@@ -224,6 +237,7 @@ fn kotlin_exposed_reads_composite_columns_through_text_form_not_getobject() {
     }
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_reads_composite_columns_through_text_form_not_row_get_class() {
     let code = generated_text("java-r2dbc");
@@ -243,6 +257,7 @@ fn java_r2dbc_reads_composite_columns_through_text_form_not_row_get_class() {
     }
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_r2dbc_reads_composite_columns_through_text_form_not_row_get_class() {
     let code = generated_text("kotlin-r2dbc");
@@ -264,6 +279,7 @@ fn kotlin_r2dbc_reads_composite_columns_through_text_form_not_row_get_class() {
 
 // -- nested composites recurse through the inner type's own `fromText` -----------------------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_nested_composite_field_recurses_through_inner_fromtext() {
     let code = generated_text("java-jdbc");
@@ -282,6 +298,7 @@ fn java_jdbc_nested_composite_field_recurses_through_inner_fromtext() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_nested_composite_field_recurses_through_inner_fromtext() {
     let code = generated_text("kotlin-jdbc");
@@ -301,6 +318,7 @@ fn kotlin_jdbc_nested_composite_field_recurses_through_inner_fromtext() {
 
 // -- NULL: the whole point of a nullable composite column ------------------------------------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_composite_fromtext_returns_null_for_a_null_column() {
     let code = generated_text("java-jdbc");
@@ -318,6 +336,7 @@ fn java_jdbc_composite_fromtext_returns_null_for_a_null_column() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_composite_fromtext_returns_null_for_a_null_column() {
     let code = generated_text("kotlin-jdbc");
@@ -331,6 +350,7 @@ fn kotlin_jdbc_composite_fromtext_returns_null_for_a_null_column() {
 
 // -- the escaping rules themselves: NULL-vs-empty-string, quoting, backslash escapes ----------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_parse_composite_fields_implements_the_escaping_rules() {
     let code = generated_text("java-jdbc");
@@ -354,6 +374,7 @@ fn java_jdbc_parse_composite_fields_implements_the_escaping_rules() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_parse_composite_fields_implements_the_escaping_rules() {
     let code = generated_text("kotlin-jdbc");
@@ -379,6 +400,7 @@ fn kotlin_jdbc_parse_composite_fields_implements_the_escaping_rules() {
 
 // -- scalar field conversion: int/bool must not stay raw strings ------------------------------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_composite_scalar_fields_are_converted_not_left_as_strings() {
     let code = generated_text("java-jdbc");
@@ -396,6 +418,7 @@ fn java_jdbc_composite_scalar_fields_are_converted_not_left_as_strings() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_composite_scalar_fields_are_converted_not_left_as_strings() {
     let code = generated_text("kotlin-jdbc");
@@ -413,6 +436,7 @@ fn kotlin_jdbc_composite_scalar_fields_are_converted_not_left_as_strings() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_composite_nullable_fields_use_null_safe_base_type_conversions() {
     for backend in ["kotlin-jdbc", "kotlin-r2dbc", "kotlin-exposed"] {
@@ -477,16 +501,19 @@ fn assert_file_compiles(backend_name: &str, file: String) {
     }
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_composite_text_form_file_compiles() {
     assert_file_compiles("java-jdbc", generated_file("java-jdbc"));
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_composite_text_form_file_compiles() {
     assert_file_compiles("java-r2dbc", generated_file("java-r2dbc"));
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_composite_text_form_file_compiles() {
     assert_file_compiles("kotlin-jdbc", generated_file("kotlin-jdbc"));

@@ -19,6 +19,8 @@
 //! Covers the TypeScript emit mode and the `javascript-postgres` JSDoc emit
 //! mode, which had a verbatim copy of the same loop.
 
+#![cfg(all(feature = "lang-typescript", feature = "postgres"))]
+
 use scythe_codegen::validation::{strict_mode_enabled, validate_with_tools};
 use scythe_codegen::{CodegenBackend, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;

@@ -14,6 +14,8 @@
 //!
 //! So this asserts the invariant rather than the one keyword that exposed it.
 
+#![cfg(all(feature = "lang-python", feature = "postgres"))]
+
 use std::collections::BTreeSet;
 
 use scythe_codegen::{generate_with_backend, get_backend};

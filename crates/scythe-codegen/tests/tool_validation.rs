@@ -1,6 +1,16 @@
 //! Validate generated code for all backends using real language tools.
 //! All tools are expected to be installed.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::provenance;
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_structural, validate_with_tools};
 use scythe_codegen::{CodegenBackend, generate_with_backend, get_backend};
@@ -625,65 +635,117 @@ macro_rules! snowflake_backend_test {
     };
 }
 
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 backend_test!(test_rust_sqlx, "rust-sqlx");
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 backend_test!(test_rust_tokio_postgres, "rust-tokio-postgres");
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 backend_test!(test_python_psycopg3, "python-psycopg3");
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 backend_test!(test_python_asyncpg, "python-asyncpg");
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 backend_test!(test_typescript_postgres, "typescript-postgres");
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 backend_test!(test_typescript_pg, "typescript-pg");
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 backend_test!(test_typescript_kysely, "typescript-kysely");
+#[cfg(all(feature = "lang-go", feature = "postgres"))]
 backend_test!(test_go_pgx, "go-pgx");
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 backend_test!(test_java_jdbc, "java-jdbc");
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 backend_test!(test_java_r2dbc, "java-r2dbc");
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 backend_test!(test_kotlin_jdbc, "kotlin-jdbc");
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 backend_test!(test_kotlin_r2dbc, "kotlin-r2dbc");
+#[cfg(all(feature = "lang-csharp", feature = "postgres"))]
 backend_test!(test_csharp_npgsql, "csharp-npgsql");
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 backend_test!(test_elixir_postgrex, "elixir-postgrex");
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 backend_test!(test_elixir_ecto, "elixir-ecto");
+#[cfg(all(feature = "lang-ruby", feature = "postgres"))]
 backend_test!(test_ruby_pg, "ruby-pg");
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 backend_test!(test_php_pdo, "php-pdo");
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 backend_test!(test_php_amphp, "php-amphp");
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 backend_test!(test_kotlin_exposed, "kotlin-exposed");
 
+#[cfg(all(feature = "lang-typescript", feature = "sqlite"))]
 sqlite_backend_test!(test_typescript_better_sqlite3, "typescript-better-sqlite3");
+#[cfg(all(feature = "lang-typescript", feature = "sqlite"))]
 sqlite_backend_test!(test_typescript_node_sqlite, "typescript-node-sqlite");
+#[cfg(all(feature = "lang-typescript", feature = "sqlite"))]
 sqlite_backend_test!(test_typescript_wasm_sqlite, "typescript-wasm-sqlite");
 
+#[cfg(all(feature = "lang-python", feature = "duckdb"))]
 duckdb_backend_test!(test_python_duckdb, "python-duckdb");
+#[cfg(all(feature = "lang-typescript", feature = "duckdb"))]
 duckdb_backend_test!(test_typescript_duckdb, "typescript-duckdb");
 
+#[cfg(all(feature = "lang-ruby", feature = "mysql"))]
 mysql_backend_test!(test_ruby_trilogy, "ruby-trilogy");
+#[cfg(all(feature = "lang-csharp", feature = "mysql"))]
 mysql_backend_test!(test_csharp_mysqlconnector, "csharp-mysqlconnector");
+#[cfg(all(feature = "lang-elixir", feature = "mysql"))]
 mysql_backend_test!(test_elixir_myxql, "elixir-myxql");
 
+#[cfg(all(feature = "lang-csharp", feature = "sqlite"))]
 sqlite_backend_test!(test_csharp_microsoft_sqlite, "csharp-microsoft-sqlite");
+#[cfg(all(feature = "lang-elixir", feature = "sqlite"))]
 sqlite_backend_test!(test_elixir_exqlite, "elixir-exqlite");
 
+#[cfg(all(feature = "lang-typescript", feature = "mssql"))]
 mssql_backend_test!(test_typescript_mssql, "typescript-mssql");
+#[cfg(all(feature = "lang-csharp", feature = "mssql"))]
 mssql_backend_test!(test_csharp_sqlclient, "csharp-sqlclient");
+#[cfg(all(feature = "lang-elixir", feature = "mssql"))]
 mssql_backend_test!(test_elixir_tds, "elixir-tds");
+#[cfg(all(feature = "lang-python", feature = "mssql"))]
 mssql_backend_test!(test_python_pyodbc, "python-pyodbc");
+#[cfg(all(feature = "lang-ruby", feature = "mssql"))]
 mssql_backend_test!(test_ruby_tiny_tds, "ruby-tiny-tds");
+#[cfg(all(feature = "lang-rust", feature = "mssql"))]
 mssql_backend_test!(test_rust_tiberius, "rust-tiberius");
 
+#[cfg(all(feature = "lang-typescript", feature = "oracle"))]
 oracle_backend_test!(test_typescript_oracledb, "typescript-oracledb");
+#[cfg(all(feature = "lang-csharp", feature = "oracle"))]
 oracle_backend_test!(test_csharp_oracle, "csharp-oracle");
+#[cfg(all(feature = "lang-elixir", feature = "oracle"))]
 oracle_backend_test!(test_elixir_jamdb, "elixir-jamdb");
+#[cfg(all(feature = "lang-python", feature = "oracle"))]
 oracle_backend_test!(test_python_oracledb, "python-oracledb");
+#[cfg(all(feature = "lang-go", feature = "oracle"))]
 oracle_backend_test!(test_go_godror, "go-godror");
+#[cfg(all(feature = "lang-ruby", feature = "oracle"))]
 oracle_backend_test!(test_ruby_oci8, "ruby-oci8");
+#[cfg(all(feature = "lang-rust", feature = "oracle"))]
 oracle_backend_test!(test_rust_sibyl, "rust-sibyl");
 
+#[cfg(all(feature = "lang-typescript", feature = "snowflake"))]
 snowflake_backend_test!(test_typescript_snowflake, "typescript-snowflake");
+#[cfg(all(feature = "lang-csharp", feature = "snowflake"))]
 snowflake_backend_test!(test_csharp_snowflake, "csharp-snowflake");
+#[cfg(all(feature = "lang-python", feature = "snowflake"))]
 snowflake_backend_test!(test_python_snowflake, "python-snowflake");
+#[cfg(all(feature = "lang-go", feature = "snowflake"))]
 snowflake_backend_test!(test_go_gosnowflake, "go-gosnowflake");
 
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 backend_test_with_options!(test_python_psycopg3_pydantic, "python-psycopg3", "row_type" => "pydantic");
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 backend_test_with_options!(test_python_psycopg3_msgspec, "python-psycopg3", "row_type" => "msgspec");
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 backend_test_with_options!(test_python_asyncpg_pydantic, "python-asyncpg", "row_type" => "pydantic");
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 backend_test_with_options!(test_typescript_pg_zod, "typescript-pg", "row_type" => "zod");
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 backend_test_with_options!(test_typescript_kysely_zod, "typescript-kysely", "row_type" => "zod");
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 backend_test_with_options!(test_typescript_postgres_zod, "typescript-postgres", "row_type" => "zod");
 
 const SCHEMA_UUID_JSONB: &str = "CREATE TABLE items (\
@@ -709,6 +771,7 @@ fn generate_header_for_uuid_jsonb_schema_mysql(backend_name: &str) -> String {
     backend.file_header()
 }
 
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn test_python_psycopg3_header_contains_uuid_and_any_imports() {
     let header = generate_header_for_uuid_jsonb_schema("python-psycopg3");
@@ -725,6 +788,7 @@ fn test_python_psycopg3_header_contains_uuid_and_any_imports() {
     );
 }
 
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn test_python_asyncpg_header_contains_uuid_and_any_imports() {
     let header = generate_header_for_uuid_jsonb_schema("python-asyncpg");
@@ -741,6 +805,7 @@ fn test_python_asyncpg_header_contains_uuid_and_any_imports() {
     );
 }
 
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn test_python_aiomysql_header_contains_any_but_not_uuid_import() {
     let header = generate_header_for_uuid_jsonb_schema_mysql("python-aiomysql");
@@ -757,6 +822,7 @@ fn test_python_aiomysql_header_contains_any_but_not_uuid_import() {
     );
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn test_php_pdo_default_namespace() {
     let code = generate_full_file("php-pdo");
@@ -767,6 +833,7 @@ fn test_php_pdo_default_namespace() {
     );
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn test_php_pdo_custom_namespace() {
     let mut options = std::collections::HashMap::new();
@@ -783,6 +850,7 @@ fn test_php_pdo_custom_namespace() {
     );
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn test_php_pdo_empty_namespace() {
     let mut options = std::collections::HashMap::new();
@@ -807,6 +875,7 @@ fn test_php_pdo_empty_namespace() {
     );
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn test_php_amphp_default_namespace() {
     let code = generate_full_file("php-amphp");
@@ -817,6 +886,7 @@ fn test_php_amphp_default_namespace() {
     );
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn test_php_amphp_custom_namespace() {
     let mut options = std::collections::HashMap::new();
@@ -833,6 +903,7 @@ fn test_php_amphp_custom_namespace() {
     );
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn test_php_amphp_empty_namespace() {
     let mut options = std::collections::HashMap::new();
@@ -857,6 +928,7 @@ fn test_php_amphp_empty_namespace() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn test_kotlin_jdbc_extension_functions_signature() {
     let mut options = std::collections::HashMap::new();
@@ -873,6 +945,7 @@ fn test_kotlin_jdbc_extension_functions_signature() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn test_kotlin_jdbc_extension_functions_expression_body() {
     let mut options = std::collections::HashMap::new();
@@ -893,6 +966,7 @@ fn test_kotlin_jdbc_extension_functions_expression_body() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn test_kotlin_jdbc_extension_functions_exec_block_body() {
     let mut options = std::collections::HashMap::new();
@@ -905,6 +979,7 @@ fn test_kotlin_jdbc_extension_functions_exec_block_body() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn test_kotlin_jdbc_extension_functions_default_off() {
     let code = generate_full_file("kotlin-jdbc");
@@ -918,6 +993,7 @@ fn test_kotlin_jdbc_extension_functions_default_off() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn test_kotlin_r2dbc_extension_functions_signature() {
     let mut options = std::collections::HashMap::new();
@@ -938,6 +1014,7 @@ fn test_kotlin_r2dbc_extension_functions_signature() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn test_kotlin_r2dbc_extension_functions_header() {
     let mut options = std::collections::HashMap::new();
@@ -968,9 +1045,13 @@ fn test_kotlin_r2dbc_extension_functions_header() {
 // (if present) real `tsc --checkJs --strict` -- see `validate_javascript_tools`
 // in `src/validation.rs`.
 
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 backend_test!(test_javascript_pg, "javascript-pg");
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 backend_test!(test_javascript_postgres, "javascript-postgres");
+#[cfg(all(feature = "lang-typescript", feature = "mysql"))]
 mysql_backend_test!(test_javascript_mysql2, "javascript-mysql2");
+#[cfg(all(feature = "lang-typescript", feature = "sqlite"))]
 sqlite_backend_test!(test_javascript_better_sqlite3, "javascript-better-sqlite3");
 
 const JS_MODE_PG_SCHEMA: [&str; 2] = [
@@ -1135,6 +1216,7 @@ fn assert_js_mode_tool_validation_passes(backend_name: &str, code: &str) {
     }
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn test_javascript_pg_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1153,6 +1235,7 @@ fn test_javascript_pg_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-pg", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn test_javascript_postgres_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1175,6 +1258,7 @@ fn test_javascript_postgres_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-postgres", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "mysql"))]
 #[test]
 fn test_javascript_mysql2_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1193,6 +1277,7 @@ fn test_javascript_mysql2_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-mysql2", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "sqlite"))]
 #[test]
 fn test_javascript_better_sqlite3_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1211,6 +1296,7 @@ fn test_javascript_better_sqlite3_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-better-sqlite3", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "sqlite"))]
 #[test]
 fn test_javascript_node_sqlite_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1229,6 +1315,7 @@ fn test_javascript_node_sqlite_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-node-sqlite", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "sqlite"))]
 #[test]
 fn test_javascript_wasm_sqlite_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1247,6 +1334,7 @@ fn test_javascript_wasm_sqlite_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-wasm-sqlite", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "snowflake"))]
 #[test]
 fn test_javascript_snowflake_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1265,6 +1353,7 @@ fn test_javascript_snowflake_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-snowflake", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "duckdb"))]
 #[test]
 fn test_javascript_duckdb_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1287,6 +1376,7 @@ fn test_javascript_duckdb_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-duckdb", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "oracle"))]
 #[test]
 fn test_javascript_oracledb_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1305,6 +1395,7 @@ fn test_javascript_oracledb_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-oracledb", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "mssql"))]
 #[test]
 fn test_javascript_mssql_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1323,6 +1414,7 @@ fn test_javascript_mssql_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-mssql", &code);
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "mssql"))]
 #[test]
 fn test_javascript_mssql_wrong_row_shape_fails_real_type_check() {
     let code = generate_js_mode_nullable_and_grouped_file(
@@ -1345,6 +1437,7 @@ fn test_javascript_mssql_wrong_row_shape_fails_real_type_check() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn test_kotlin_r2dbc_extension_functions_default_off() {
     let code = generate_full_file("kotlin-r2dbc");
@@ -1382,6 +1475,19 @@ fn test_kotlin_r2dbc_extension_functions_default_off() {
 /// Rust is the sharpest entry: `validate_structural` returns `vec![]` for the
 /// four `rust-*` backends too. Their generated suites parse all four with
 /// `syn`, but this file still has no real driver-backed validator for them.
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "lang-elixir",
+    feature = "lang-go",
+    feature = "lang-java",
+    feature = "lang-kotlin",
+    feature = "lang-php",
+    feature = "lang-python",
+    feature = "lang-ruby",
+    feature = "lang-rust",
+    feature = "lang-typescript",
+    feature = "postgres"
+))]
 #[test]
 fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
     const NO_TOOL_VALIDATOR: &[&str] = &[

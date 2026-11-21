@@ -26,6 +26,8 @@
 //! `enum_def_still_hand_writes_fromsql_tosql_not_the_derive_macro` pins that so a future change
 //! to the enum path does not silently start relying on the composite fix's derive machinery.
 
+#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+
 use scythe_codegen::{CodegenBackend, get_backend};
 use scythe_core::analyzer::{CompositeFieldInfo, CompositeInfo, EnumInfo};
 

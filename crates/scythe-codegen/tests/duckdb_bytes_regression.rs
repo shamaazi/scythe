@@ -22,6 +22,8 @@
 //!
 //! These tests pin the corrected read type, `DuckDBBlobValue`.
 
+#![cfg(all(feature = "lang-typescript", feature = "duckdb"))]
+
 use std::collections::HashMap;
 
 use scythe_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};

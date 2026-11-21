@@ -12,6 +12,16 @@
 //! `cargo test`, since a missing tool is tolerated (not a failure) under the
 //! non-strict policy this function is built on.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::validation::{ValidationOutcome, validate_generated_code};
 
 /// `csharp-npgsql` is one of the languages `validate_with_tools` has no
@@ -22,6 +32,7 @@ use scythe_codegen::validation::{ValidationOutcome, validate_generated_code};
 /// that collapse is exactly the bug #98 (`ToolValidation`) exists to
 /// prevent, and this is the case a `--verify` flag must not silently skip
 /// past when it reports results.
+#[cfg(all(feature = "lang-csharp", feature = "postgres"))]
 #[test]
 fn no_validator_for_the_backends_language_reports_unsupported() {
     let outcome = validate_generated_code("public class Foo {}", "csharp-npgsql");
@@ -44,6 +55,7 @@ fn no_validator_for_the_backends_language_reports_unsupported() {
 /// `Passed` (a missing tool is tolerated, not a failure) -- but a `Failed`
 /// result here would always be a genuine bug, so that branch is asserted
 /// unconditionally.
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn a_backend_with_a_validator_reports_passed_for_clean_input() {
     let clean_code = "from dataclasses import dataclass\n\n\n@dataclass\nclass Row:\n    id: int\n";
@@ -74,6 +86,7 @@ fn a_backend_with_a_validator_reports_passed_for_clean_input() {
 /// this test does not require a specific toolchain -- but it must never
 /// silently report `Unsupported`, since a validator does exist for this
 /// backend.
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn a_backend_with_a_validator_reports_failed_for_broken_input() {
     let broken_code = "def broken(:\n    this is not python\n";

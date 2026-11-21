@@ -1,3 +1,5 @@
+#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo};
 use scythe_core::parser::QueryCommand;

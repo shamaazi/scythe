@@ -11,6 +11,8 @@
 //! `row.my_col` reads -- the `#[sqlx(rename = "...")]` fix for the FromRow
 //! path does not apply here, because there is no derive to attach it to.
 
+#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;
