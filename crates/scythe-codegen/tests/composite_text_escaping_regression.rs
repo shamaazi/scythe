@@ -18,6 +18,16 @@
 //! The five JVM parsers shipped with this defect; the python and typescript ones inherited it
 //! from `java_jdbc.rs`, which board #204 named as the model to copy.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::get_backend;
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_with_tools};
 use scythe_core::analyzer::analyze;
@@ -100,6 +110,16 @@ const PARSER_BACKENDS: &[(&str, &str)] = &[
     ("csharp-npgsql", "inner[i + 1] == '\"'"),
 ];
 
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "lang-go",
+    feature = "lang-java",
+    feature = "lang-kotlin",
+    feature = "lang-python",
+    feature = "lang-ruby",
+    feature = "lang-typescript",
+    feature = "postgres"
+))]
 #[test]
 fn every_generated_composite_parser_handles_a_doubled_quote() {
     for (backend, needle) in PARSER_BACKENDS {
@@ -120,6 +140,13 @@ const NULLABLE_SCHEMA: &str = "CREATE TYPE mood AS ENUM ('happy', 'sad'); \
 
 const NULLABLE_QUERY: &str = "-- @name GetProfile\n-- @returns :one\nSELECT id, details FROM profiles WHERE id = $1;";
 
+#[cfg(all(
+    feature = "lang-java",
+    feature = "lang-php",
+    feature = "lang-ruby",
+    feature = "lang-typescript",
+    feature = "postgres"
+))]
 #[test]
 fn nullable_composite_fields_skip_scalar_and_static_decoders_for_sql_null() {
     let expectations = [
@@ -192,6 +219,13 @@ fn nullable_composite_fields_skip_scalar_and_static_decoders_for_sql_null() {
     }
 }
 
+#[cfg(all(
+    feature = "lang-java",
+    feature = "lang-php",
+    feature = "lang-ruby",
+    feature = "lang-typescript",
+    feature = "postgres"
+))]
 #[test]
 fn composite_encoders_preserve_sql_null_subfields() {
     let expectations = [
@@ -224,6 +258,7 @@ fn composite_encoders_preserve_sql_null_subfields() {
 ///
 /// Skips rather than fails when `python3` is absent, matching how `tool_validation.rs` treats a
 /// missing toolchain -- but only outside strict mode. See [`STRICT_SKIP_REASON`].
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn the_emitted_python_parser_recovers_both_fields_from_real_postgresql_output() {
     let code = generated_text("python-psycopg3");
@@ -288,6 +323,7 @@ fn the_emitted_python_parser_recovers_both_fields_from_real_postgresql_output() 
 /// column is actually routed through `from_text` rather than left as raw driver text.
 ///
 /// Skips rather than fails when `ruby` is absent, matching the python test's policy.
+#[cfg(all(feature = "lang-ruby", feature = "postgres"))]
 #[test]
 fn the_emitted_ruby_parser_recovers_both_fields_from_real_postgresql_output() {
     let code = generated_text("ruby-pg");
@@ -348,6 +384,7 @@ fn the_emitted_ruby_parser_recovers_both_fields_from_real_postgresql_output() {
 /// `python_composite_enum_read_regression.rs`'s `assert_file_compiles`, which this suite's own
 /// `SCHEMA`/`QUERY` predates. Before this fix `ruby-pg` had no `from_text`/`_parse_composite_fields`
 /// output at all to check.
+#[cfg(all(feature = "lang-ruby", feature = "postgres"))]
 #[test]
 fn ruby_pg_composite_escaping_generated_file_compiles() {
     let backend = get_backend("ruby-pg", "postgresql").expect("ruby-pg must support postgresql");
@@ -501,11 +538,13 @@ fn assert_php_composite_parser_recovers_both_fields(backend_name: &str) {
     );
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn the_emitted_php_pdo_parser_recovers_both_fields_from_real_postgresql_output() {
     assert_php_composite_parser_recovers_both_fields("php-pdo");
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn the_emitted_php_amphp_parser_recovers_both_fields_from_real_postgresql_output() {
     assert_php_composite_parser_recovers_both_fields("php-amphp");
@@ -589,11 +628,13 @@ fn assert_php_composite_escaping_generated_file_compiles(backend_name: &str) {
     }
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_pdo_composite_escaping_generated_file_compiles() {
     assert_php_composite_escaping_generated_file_compiles("php-pdo");
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_amphp_composite_escaping_generated_file_compiles() {
     assert_php_composite_escaping_generated_file_compiles("php-amphp");

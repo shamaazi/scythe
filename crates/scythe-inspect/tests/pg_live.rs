@@ -40,7 +40,7 @@
 //!   (`PARTITION BY RANGE`, `PARTITION OF … DEFAULT`) is available since PG 10.
 //!   PG 12 floor covers this.
 
-#![cfg(feature = "live-tests")]
+#![cfg(all(feature = "live-tests", feature = "postgres"))]
 
 use scythe_inspect::{DbDriver, PostgresDriver};
 use scythe_lint::types::Severity;

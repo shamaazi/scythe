@@ -10,6 +10,8 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{ResolvedColumn, ResolvedParam};
 
+pub(crate) use super::parse_bool_option;
+
 /// Supported TypeScript row type styles for generated code.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TsRowType {
@@ -204,23 +206,6 @@ impl TsRowShape {
             return &col.lang_type;
         }
         &col.full_type
-    }
-}
-
-/// Parse a boolean backend option strictly.
-///
-/// Accepts (case-insensitively) `true`/`false`, `1`/`0`, and `yes`/`no`. Any
-/// other value — a typo, `"on"`, an empty string — is rejected with an error
-/// naming the option and the offending value, rather than being silently
-/// coerced to `false` as `matches!` or `== "true"` would do.
-pub fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, ScytheError> {
-    match value.to_ascii_lowercase().as_str() {
-        "true" | "1" | "yes" => Ok(true),
-        "false" | "0" | "no" => Ok(false),
-        _ => Err(ScytheError::new(
-            ErrorCode::InvalidConfig,
-            format!("invalid {option_name} '{value}': expected 'true'/'false', '1'/'0', or 'yes'/'no'"),
-        )),
     }
 }
 

@@ -15,6 +15,17 @@
 //! truthiness -- see `crates/scythe-codegen/src/backends/typescript_common.rs`'s
 //! `ts_row_not_found_throw` for the exact throw text every backend shares.
 
+#![cfg(all(
+    feature = "lang-typescript",
+    feature = "duckdb",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery};
 use scythe_core::parser::QueryCommand;

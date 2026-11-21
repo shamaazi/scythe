@@ -18,6 +18,16 @@
 //!
 //! Assertions here are unconditional; `validate_with_tools` is additive.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use std::collections::HashMap;
 
 use scythe_codegen::validation::{strict_mode_enabled, validate_with_tools};
@@ -95,6 +105,7 @@ fn expected_schema_for(ts_type: &str) -> String {
 /// the manifest maps `bool` to `number`, `decimal` to `number`, `datetime`
 /// to `string` and `json` to `Record<string, unknown>`, while the hardcoded
 /// table produced `z.boolean()`, `z.string()`, `z.date()` and `z.unknown()`.
+#[cfg(all(feature = "lang-typescript", feature = "sqlite"))]
 #[test]
 fn zod_schemas_agree_with_the_interface_the_same_backend_declares() {
     for backend_name in [
@@ -139,6 +150,7 @@ fn zod_schemas_agree_with_the_interface_the_same_backend_declares() {
 
 /// The two binary runtimes must each keep their own manifest type -- the
 /// pre-existing half of this bug, still covered.
+#[cfg(all(feature = "lang-typescript", feature = "postgres", feature = "sqlite"))]
 #[test]
 fn zod_bytes_schema_follows_the_manifest_not_a_hardcoded_buffer() {
     let pg = generate(
@@ -166,6 +178,7 @@ fn zod_bytes_schema_follows_the_manifest_not_a_hardcoded_buffer() {
 /// `int64` is `bigint` on the duckdb manifest and `number` on pg -- the
 /// clearest case of a single neutral type the old table could not have got
 /// right for both.
+#[cfg(all(feature = "lang-typescript", feature = "duckdb", feature = "postgres"))]
 #[test]
 fn zod_int64_follows_each_backends_own_int64_mapping() {
     let duck = generate(
@@ -213,6 +226,7 @@ fn enum_def(backend_name: &str, zod: bool) -> String {
 /// This must fail before the fix: `to_pascal_case("in-active")` keeps the
 /// hyphen (`In-active`), which is not a valid object key, while the
 /// interface path's `enum_variant_name` sanitises it to `InActive`.
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn zod_enum_variant_keys_match_the_interface_paths_variant_names() {
     let interface = enum_def("typescript-pg", false);
@@ -235,6 +249,7 @@ fn zod_enum_variant_keys_match_the_interface_paths_variant_names() {
 /// This must fail before the fix: an enum value containing a `"` was
 /// spliced into `z.enum(["..."])` and into the const's values raw, closing
 /// the literal.
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn zod_enum_values_are_escaped_for_the_string_literals_they_land_in() {
     let zod = enum_def("typescript-pg", true);
@@ -252,6 +267,7 @@ fn zod_enum_values_are_escaped_for_the_string_literals_they_land_in() {
 /// The whole generated file must still satisfy the repository's own
 /// TypeScript checker under `row_type = "zod"`. Additive on top of the
 /// assertions above.
+#[cfg(all(feature = "lang-typescript", feature = "postgres", feature = "sqlite"))]
 #[test]
 fn zod_output_passes_tool_validation() {
     for (backend_name, engine, dialect, schema, query) in [

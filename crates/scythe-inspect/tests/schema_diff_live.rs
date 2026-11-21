@@ -13,7 +13,7 @@
 //! fetch layer sees that schema and nothing else. That makes these tests
 //! independent even though the CI workflow runs them serially.
 
-#![cfg(feature = "live-tests")]
+#![cfg(all(feature = "live-tests", feature = "postgres"))]
 
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;

@@ -20,6 +20,16 @@
 //! `:one`/`:opt` signature split is exercised through `CodegenBackend::generate_rbs_file`
 //! directly, the same seam `ruby_rbs_regression.rs` uses.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_backend::naming::{fn_name, row_struct_name};
 use scythe_codegen::resolve::{resolve_columns, resolve_params};
 use scythe_codegen::{CodegenBackend, RbsGenerationContext, RbsQueryInfo, generate_with_backend, get_backend};
@@ -94,6 +104,14 @@ const RUBY_CASES: &[RubyCase] = &[
     },
 ];
 
+#[cfg(all(
+    feature = "lang-ruby",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "sqlite"
+))]
 #[test]
 fn ruby_one_raises_record_not_found_and_never_returns_nil() {
     for case in RUBY_CASES {
@@ -111,6 +129,14 @@ fn ruby_one_raises_record_not_found_and_never_returns_nil() {
     }
 }
 
+#[cfg(all(
+    feature = "lang-ruby",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "sqlite"
+))]
 #[test]
 fn ruby_opt_still_returns_nil_and_never_raises_record_not_found() {
     for case in RUBY_CASES {
@@ -128,6 +154,14 @@ fn ruby_opt_still_returns_nil_and_never_raises_record_not_found() {
     }
 }
 
+#[cfg(all(
+    feature = "lang-ruby",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "sqlite"
+))]
 #[test]
 fn ruby_one_and_opt_render_different_code() {
     for case in RUBY_CASES {
@@ -166,6 +200,7 @@ const PHP_CASES: &[PhpCase] = &[
     },
 ];
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_one_throws_record_not_found_exception_and_never_returns_null() {
     for case in PHP_CASES {
@@ -188,6 +223,7 @@ fn php_one_throws_record_not_found_exception_and_never_returns_null() {
     }
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_opt_still_returns_null_and_never_throws_record_not_found_exception() {
     for case in PHP_CASES {
@@ -210,6 +246,7 @@ fn php_opt_still_returns_null_and_never_throws_record_not_found_exception() {
     }
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_one_and_opt_render_different_code() {
     for case in PHP_CASES {
@@ -250,6 +287,7 @@ fn flat_rbs_context(analyzed: &AnalyzedQuery, backend: &dyn CodegenBackend) -> R
     }
 }
 
+#[cfg(all(feature = "lang-ruby", feature = "postgres"))]
 #[test]
 fn ruby_rbs_one_signature_is_non_nullable_and_opt_stays_nullable() {
     let backend = get_backend("ruby-pg", "postgresql").expect("ruby-pg/postgresql must construct");

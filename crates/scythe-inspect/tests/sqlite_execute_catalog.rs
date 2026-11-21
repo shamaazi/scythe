@@ -1,3 +1,5 @@
+#![cfg(feature = "sqlite")]
+
 use std::path::{Path, PathBuf};
 
 use scythe_core::catalog::{Catalog, CatalogObjectName, Column, GeneratedColumnKind, RelationKind};

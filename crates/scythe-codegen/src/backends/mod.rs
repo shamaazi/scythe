@@ -1,61 +1,125 @@
+// The helpers below are shared by the backends of several languages. A build that
+// compiles only some languages leaves some of them unused; the default build,
+// which compiles every language, is the one dead-code analysis applies to.
+#![cfg_attr(not(feature = "all-languages"), allow(dead_code))]
+
+#[cfg(feature = "lang-csharp")]
 pub(crate) mod csharp_microsoft_sqlite;
+#[cfg(feature = "lang-csharp")]
 pub(crate) mod csharp_mysqlconnector;
+#[cfg(feature = "lang-csharp")]
 pub(crate) mod csharp_npgsql;
+#[cfg(feature = "lang-csharp")]
 pub(crate) mod csharp_oracle;
+#[cfg(feature = "lang-csharp")]
 pub(crate) mod csharp_snowflake;
+#[cfg(feature = "lang-csharp")]
 pub(crate) mod csharp_sqlclient;
+#[cfg(feature = "lang-elixir")]
 pub(crate) mod elixir_common;
+#[cfg(feature = "lang-elixir")]
 pub(crate) mod elixir_ecto;
+#[cfg(feature = "lang-elixir")]
 pub(crate) mod elixir_exqlite;
+#[cfg(feature = "lang-elixir")]
 pub(crate) mod elixir_jamdb;
+#[cfg(feature = "lang-elixir")]
 pub(crate) mod elixir_myxql;
+#[cfg(feature = "lang-elixir")]
 pub(crate) mod elixir_postgrex;
+#[cfg(feature = "lang-elixir")]
 pub(crate) mod elixir_tds;
+#[cfg(feature = "lang-go")]
 pub(crate) mod go_common;
+#[cfg(feature = "lang-go")]
 pub(crate) mod go_database_sql;
+#[cfg(feature = "lang-go")]
 pub(crate) mod go_godror;
+#[cfg(feature = "lang-go")]
 pub(crate) mod go_gosnowflake;
+#[cfg(feature = "lang-go")]
 pub(crate) mod go_pgx;
+#[cfg(feature = "lang-java")]
 pub(crate) mod java_jdbc;
+#[cfg(feature = "lang-java")]
 pub(crate) mod java_r2dbc;
+#[cfg(any(feature = "lang-java", feature = "lang-kotlin"))]
 pub(crate) mod jvm_common;
+#[cfg(feature = "lang-kotlin")]
 pub(crate) mod kotlin_exposed;
+#[cfg(feature = "lang-kotlin")]
 pub(crate) mod kotlin_jdbc;
+#[cfg(feature = "lang-kotlin")]
 pub(crate) mod kotlin_r2dbc;
+#[cfg(feature = "lang-php")]
 pub(crate) mod php_amphp;
+#[cfg(feature = "lang-php")]
 pub(crate) mod php_common;
+#[cfg(feature = "lang-php")]
 pub(crate) mod php_pdo;
+#[cfg(feature = "lang-python")]
 pub(crate) mod python_aiomysql;
+#[cfg(feature = "lang-python")]
 pub(crate) mod python_aiosqlite;
+#[cfg(feature = "lang-python")]
 pub(crate) mod python_asyncpg;
+#[cfg(feature = "lang-python")]
 pub(crate) mod python_common;
+#[cfg(feature = "lang-python")]
 pub(crate) mod python_duckdb;
+#[cfg(feature = "lang-python")]
 pub(crate) mod python_oracledb;
+#[cfg(feature = "lang-python")]
 pub(crate) mod python_psycopg3;
+#[cfg(feature = "lang-python")]
 pub(crate) mod python_pyodbc;
+#[cfg(feature = "lang-python")]
 pub(crate) mod python_snowflake;
+#[cfg(feature = "lang-ruby")]
 pub(crate) mod ruby_mysql2;
+#[cfg(feature = "lang-ruby")]
 pub(crate) mod ruby_oci8;
+#[cfg(feature = "lang-ruby")]
 pub(crate) mod ruby_pg;
+#[cfg(feature = "lang-ruby")]
 pub(crate) mod ruby_rbs;
+#[cfg(feature = "lang-ruby")]
 pub(crate) mod ruby_sqlite3;
+#[cfg(feature = "lang-ruby")]
 pub(crate) mod ruby_tiny_tds;
+#[cfg(feature = "lang-ruby")]
 pub(crate) mod ruby_trilogy;
+#[cfg(feature = "lang-rust")]
 pub(crate) mod rust_sibyl;
+#[cfg(feature = "lang-rust")]
 pub(crate) mod rust_tiberius;
+#[cfg(feature = "lang-rust")]
 pub(crate) mod sqlx;
+#[cfg(feature = "lang-rust")]
 pub(crate) mod tokio_postgres;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_better_sqlite3;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_common;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_duckdb;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_kysely;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_mssql;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_mysql2;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_node_sqlite;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_oracledb;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_pg;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_postgres;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_snowflake;
+#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_wasm_sqlite;
 
 use scythe_backend::manifest::BackendManifest;
@@ -122,6 +186,23 @@ pub(crate) fn apply_field_case_option(
 ///
 /// Kept as one predicate so all four backends answer the question the same
 /// way instead of each spelling out its own engine list.
+/// Parse a boolean backend option strictly.
+///
+/// Accepts (case-insensitively) `true`/`false`, `1`/`0`, and `yes`/`no`. Any
+/// other value — a typo, `"on"`, an empty string — is rejected with an error
+/// naming the option and the offending value, rather than being silently
+/// coerced to `false` as `matches!` or `== "true"` would do.
+pub(crate) fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, ScytheError> {
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" => Ok(true),
+        "false" | "0" | "no" => Ok(false),
+        _ => Err(ScytheError::new(
+            ErrorCode::InvalidConfig,
+            format!("invalid {option_name} '{value}': expected 'true'/'false', '1'/'0', or 'yes'/'no'"),
+        )),
+    }
+}
+
 pub(crate) fn engine_supports_nested_aggregates(engine: &str) -> bool {
     matches!(engine, "postgresql" | "postgres" | "pg")
 }
@@ -990,107 +1071,218 @@ fn rewrite_code_span_placeholders(
 ///
 /// The `engine` parameter (e.g., "postgresql", "mysql", "sqlite") determines
 /// which manifest is loaded for type mappings. PG-only backends reject non-PG engines.
+///
+/// A backend or engine whose Cargo feature this build was compiled without is
+/// rejected with an error naming that feature.
 pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, ScytheError> {
     let canonical_engine = normalize_engine(engine);
+    if let Some(feature) = disabled_engine_feature(canonical_engine) {
+        return Err(disabled_feature(&format!("engine '{engine}'"), feature));
+    }
+
+    // Constructs a backend whose module `$feature` compiles in, or reports
+    // the feature that would.
+    macro_rules! backend {
+        ($feature:literal, $construct:expr) => {{
+            #[cfg(feature = $feature)]
+            let backend: Result<Box<dyn CodegenBackend>, ScytheError> =
+                $construct.map(|backend| Box::new(backend) as Box<dyn CodegenBackend>);
+            #[cfg(not(feature = $feature))]
+            let backend: Result<Box<dyn CodegenBackend>, ScytheError> =
+                Err(disabled_feature(&format!("backend '{name}'"), $feature));
+            backend?
+        }};
+    }
+
     let backend: Box<dyn CodegenBackend> = match name {
-        "rust-sqlx" | "sqlx" | "rust" => Box::new(sqlx::SqlxBackend::new(canonical_engine)?),
+        "rust-sqlx" | "sqlx" | "rust" => backend!("lang-rust", sqlx::SqlxBackend::new(canonical_engine)),
         "rust-tokio-postgres" | "tokio-postgres" => {
-            Box::new(tokio_postgres::TokioPostgresBackend::new(canonical_engine)?)
+            backend!("lang-rust", tokio_postgres::TokioPostgresBackend::new(canonical_engine))
         }
-        "python-psycopg3" | "python" => Box::new(python_psycopg3::PythonPsycopg3Backend::new(canonical_engine)?),
-        "python-asyncpg" => Box::new(python_asyncpg::PythonAsyncpgBackend::new(canonical_engine)?),
-        "python-aiomysql" => Box::new(python_aiomysql::PythonAiomysqlBackend::new(canonical_engine)?),
-        "python-aiosqlite" => Box::new(python_aiosqlite::PythonAiosqliteBackend::new(canonical_engine)?),
-        "python-duckdb" => Box::new(python_duckdb::PythonDuckdbBackend::new(canonical_engine)?),
-        "typescript-postgres" | "ts" | "typescript" => {
-            Box::new(typescript_postgres::TypescriptPostgresBackend::new(canonical_engine)?)
+        "python-psycopg3" | "python" => backend!(
+            "lang-python",
+            python_psycopg3::PythonPsycopg3Backend::new(canonical_engine)
+        ),
+        "python-asyncpg" => backend!(
+            "lang-python",
+            python_asyncpg::PythonAsyncpgBackend::new(canonical_engine)
+        ),
+        "python-aiomysql" => backend!(
+            "lang-python",
+            python_aiomysql::PythonAiomysqlBackend::new(canonical_engine)
+        ),
+        "python-aiosqlite" => backend!(
+            "lang-python",
+            python_aiosqlite::PythonAiosqliteBackend::new(canonical_engine)
+        ),
+        "python-duckdb" => backend!("lang-python", python_duckdb::PythonDuckdbBackend::new(canonical_engine)),
+        "typescript-postgres" | "ts" | "typescript" => backend!(
+            "lang-typescript",
+            typescript_postgres::TypescriptPostgresBackend::new(canonical_engine)
+        ),
+        "javascript-postgres" => backend!(
+            "lang-typescript",
+            typescript_postgres::TypescriptPostgresBackend::new_js(canonical_engine)
+        ),
+        "typescript-bun" => backend!(
+            "lang-typescript",
+            typescript_postgres::TypescriptPostgresBackend::new_bun(canonical_engine)
+        ),
+        "javascript-bun" => backend!(
+            "lang-typescript",
+            typescript_postgres::TypescriptPostgresBackend::new_bun_js(canonical_engine)
+        ),
+        "typescript-pg" => backend!(
+            "lang-typescript",
+            typescript_pg::TypescriptPgBackend::new(canonical_engine)
+        ),
+        "javascript-pg" => backend!(
+            "lang-typescript",
+            typescript_pg::TypescriptPgBackend::new_js(canonical_engine)
+        ),
+        "typescript-mysql2" => backend!(
+            "lang-typescript",
+            typescript_mysql2::TypescriptMysql2Backend::new(canonical_engine)
+        ),
+        "javascript-mysql2" => backend!(
+            "lang-typescript",
+            typescript_mysql2::TypescriptMysql2Backend::new_js(canonical_engine)
+        ),
+        "typescript-better-sqlite3" => backend!(
+            "lang-typescript",
+            typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new(canonical_engine)
+        ),
+        "javascript-better-sqlite3" => backend!(
+            "lang-typescript",
+            typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new_js(canonical_engine)
+        ),
+        "typescript-duckdb" => backend!(
+            "lang-typescript",
+            typescript_duckdb::TypescriptDuckdbBackend::new(canonical_engine)
+        ),
+        "javascript-duckdb" => backend!(
+            "lang-typescript",
+            typescript_duckdb::TypescriptDuckdbBackend::new_js(canonical_engine)
+        ),
+        "typescript-node-sqlite" => backend!(
+            "lang-typescript",
+            typescript_node_sqlite::TypescriptNodeSqliteBackend::new(canonical_engine)
+        ),
+        "javascript-node-sqlite" => backend!(
+            "lang-typescript",
+            typescript_node_sqlite::TypescriptNodeSqliteBackend::new_js(canonical_engine)
+        ),
+        "typescript-wasm-sqlite" => backend!(
+            "lang-typescript",
+            typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new(canonical_engine)
+        ),
+        "javascript-wasm-sqlite" => backend!(
+            "lang-typescript",
+            typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new_js(canonical_engine)
+        ),
+        "typescript-kysely" | "kysely" => backend!(
+            "lang-typescript",
+            typescript_kysely::TypescriptKyselyBackend::new(canonical_engine)
+        ),
+        "go-database-sql" => backend!("lang-go", go_database_sql::GoDatabaseSqlBackend::new(canonical_engine)),
+        "go-pgx" | "go" => backend!("lang-go", go_pgx::GoPgxBackend::new(canonical_engine)),
+        "java-jdbc" | "java" => backend!("lang-java", java_jdbc::JavaJdbcBackend::new(canonical_engine)),
+        "java-r2dbc" | "r2dbc-java" => backend!("lang-java", java_r2dbc::JavaR2dbcBackend::new(canonical_engine)),
+        "kotlin-exposed" | "exposed" => backend!(
+            "lang-kotlin",
+            kotlin_exposed::KotlinExposedBackend::new(canonical_engine)
+        ),
+        "kotlin-jdbc" | "kotlin" | "kt" => {
+            backend!("lang-kotlin", kotlin_jdbc::KotlinJdbcBackend::new(canonical_engine))
         }
-        "javascript-postgres" => Box::new(typescript_postgres::TypescriptPostgresBackend::new_js(
-            canonical_engine,
-        )?),
-        "typescript-bun" => Box::new(typescript_postgres::TypescriptPostgresBackend::new_bun(
-            canonical_engine,
-        )?),
-        "javascript-bun" => Box::new(typescript_postgres::TypescriptPostgresBackend::new_bun_js(
-            canonical_engine,
-        )?),
-        "typescript-pg" => Box::new(typescript_pg::TypescriptPgBackend::new(canonical_engine)?),
-        "javascript-pg" => Box::new(typescript_pg::TypescriptPgBackend::new_js(canonical_engine)?),
-        "typescript-mysql2" => Box::new(typescript_mysql2::TypescriptMysql2Backend::new(canonical_engine)?),
-        "javascript-mysql2" => Box::new(typescript_mysql2::TypescriptMysql2Backend::new_js(canonical_engine)?),
-        "typescript-better-sqlite3" => Box::new(typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new(
-            canonical_engine,
-        )?),
-        "javascript-better-sqlite3" => Box::new(typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new_js(
-            canonical_engine,
-        )?),
-        "typescript-duckdb" => Box::new(typescript_duckdb::TypescriptDuckdbBackend::new(canonical_engine)?),
-        "javascript-duckdb" => Box::new(typescript_duckdb::TypescriptDuckdbBackend::new_js(canonical_engine)?),
-        "typescript-node-sqlite" => Box::new(typescript_node_sqlite::TypescriptNodeSqliteBackend::new(
-            canonical_engine,
-        )?),
-        "javascript-node-sqlite" => Box::new(typescript_node_sqlite::TypescriptNodeSqliteBackend::new_js(
-            canonical_engine,
-        )?),
-        "typescript-wasm-sqlite" => Box::new(typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new(
-            canonical_engine,
-        )?),
-        "javascript-wasm-sqlite" => Box::new(typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new_js(
-            canonical_engine,
-        )?),
-        "typescript-kysely" | "kysely" => Box::new(typescript_kysely::TypescriptKyselyBackend::new(canonical_engine)?),
-        "go-database-sql" => Box::new(go_database_sql::GoDatabaseSqlBackend::new(canonical_engine)?),
-        "go-pgx" | "go" => Box::new(go_pgx::GoPgxBackend::new(canonical_engine)?),
-        "java-jdbc" | "java" => Box::new(java_jdbc::JavaJdbcBackend::new(canonical_engine)?),
-        "java-r2dbc" | "r2dbc-java" => Box::new(java_r2dbc::JavaR2dbcBackend::new(canonical_engine)?),
-        "kotlin-exposed" | "exposed" => Box::new(kotlin_exposed::KotlinExposedBackend::new(canonical_engine)?),
-        "kotlin-jdbc" | "kotlin" | "kt" => Box::new(kotlin_jdbc::KotlinJdbcBackend::new(canonical_engine)?),
-        "kotlin-r2dbc" | "r2dbc-kotlin" => Box::new(kotlin_r2dbc::KotlinR2dbcBackend::new(canonical_engine)?),
+        "kotlin-r2dbc" | "r2dbc-kotlin" => {
+            backend!("lang-kotlin", kotlin_r2dbc::KotlinR2dbcBackend::new(canonical_engine))
+        }
         "csharp-npgsql" | "csharp" | "c#" | "dotnet" => {
-            Box::new(csharp_npgsql::CsharpNpgsqlBackend::new(canonical_engine)?)
+            backend!("lang-csharp", csharp_npgsql::CsharpNpgsqlBackend::new(canonical_engine))
         }
-        "csharp-mysqlconnector" => Box::new(csharp_mysqlconnector::CsharpMysqlConnectorBackend::new(
-            canonical_engine,
-        )?),
-        "csharp-microsoft-sqlite" => Box::new(csharp_microsoft_sqlite::CsharpMicrosoftSqliteBackend::new(
-            canonical_engine,
-        )?),
-        "elixir-postgrex" | "elixir" | "ex" => Box::new(elixir_postgrex::ElixirPostgrexBackend::new(canonical_engine)?),
-        "elixir-ecto" | "ecto" => Box::new(elixir_ecto::ElixirEctoBackend::new(canonical_engine)?),
-        "elixir-myxql" => Box::new(elixir_myxql::ElixirMyxqlBackend::new(canonical_engine)?),
-        "elixir-exqlite" => Box::new(elixir_exqlite::ElixirExqliteBackend::new(canonical_engine)?),
-        "ruby-pg" | "ruby" | "rb" => Box::new(ruby_pg::RubyPgBackend::new(canonical_engine)?),
-        "ruby-mysql2" => Box::new(ruby_mysql2::RubyMysql2Backend::new(canonical_engine)?),
-        "ruby-sqlite3" => Box::new(ruby_sqlite3::RubySqlite3Backend::new(canonical_engine)?),
-        "ruby-trilogy" | "trilogy" => Box::new(ruby_trilogy::RubyTrilogyBackend::new(canonical_engine)?),
-        "php-pdo" | "php" => Box::new(php_pdo::PhpPdoBackend::new(canonical_engine)?),
-        "php-amphp" | "amphp" => Box::new(php_amphp::PhpAmphpBackend::new(canonical_engine)?),
-        "rust-tiberius" | "tiberius" => Box::new(rust_tiberius::RustTiberiusBackend::new(canonical_engine)?),
-        "python-pyodbc" | "pyodbc" => Box::new(python_pyodbc::PythonPyodbcBackend::new(canonical_engine)?),
-        "typescript-mssql" | "tedious" => Box::new(typescript_mssql::TypescriptMssqlBackend::new(canonical_engine)?),
-        "javascript-mssql" => Box::new(typescript_mssql::TypescriptMssqlBackend::new_js(canonical_engine)?),
-        "csharp-sqlclient" => Box::new(csharp_sqlclient::CsharpSqlClientBackend::new(canonical_engine)?),
+        "csharp-mysqlconnector" => backend!(
+            "lang-csharp",
+            csharp_mysqlconnector::CsharpMysqlConnectorBackend::new(canonical_engine)
+        ),
+        "csharp-microsoft-sqlite" => backend!(
+            "lang-csharp",
+            csharp_microsoft_sqlite::CsharpMicrosoftSqliteBackend::new(canonical_engine)
+        ),
+        "elixir-postgrex" | "elixir" | "ex" => backend!(
+            "lang-elixir",
+            elixir_postgrex::ElixirPostgrexBackend::new(canonical_engine)
+        ),
+        "elixir-ecto" | "ecto" => backend!("lang-elixir", elixir_ecto::ElixirEctoBackend::new(canonical_engine)),
+        "elixir-myxql" => backend!("lang-elixir", elixir_myxql::ElixirMyxqlBackend::new(canonical_engine)),
+        "elixir-exqlite" => backend!(
+            "lang-elixir",
+            elixir_exqlite::ElixirExqliteBackend::new(canonical_engine)
+        ),
+        "ruby-pg" | "ruby" | "rb" => backend!("lang-ruby", ruby_pg::RubyPgBackend::new(canonical_engine)),
+        "ruby-mysql2" => backend!("lang-ruby", ruby_mysql2::RubyMysql2Backend::new(canonical_engine)),
+        "ruby-sqlite3" => backend!("lang-ruby", ruby_sqlite3::RubySqlite3Backend::new(canonical_engine)),
+        "ruby-trilogy" | "trilogy" => backend!("lang-ruby", ruby_trilogy::RubyTrilogyBackend::new(canonical_engine)),
+        "php-pdo" | "php" => backend!("lang-php", php_pdo::PhpPdoBackend::new(canonical_engine)),
+        "php-amphp" | "amphp" => backend!("lang-php", php_amphp::PhpAmphpBackend::new(canonical_engine)),
+        "rust-tiberius" | "tiberius" => {
+            backend!("lang-rust", rust_tiberius::RustTiberiusBackend::new(canonical_engine))
+        }
+        "python-pyodbc" | "pyodbc" => {
+            backend!("lang-python", python_pyodbc::PythonPyodbcBackend::new(canonical_engine))
+        }
+        "typescript-mssql" | "tedious" => backend!(
+            "lang-typescript",
+            typescript_mssql::TypescriptMssqlBackend::new(canonical_engine)
+        ),
+        "javascript-mssql" => backend!(
+            "lang-typescript",
+            typescript_mssql::TypescriptMssqlBackend::new_js(canonical_engine)
+        ),
+        "csharp-sqlclient" => backend!(
+            "lang-csharp",
+            csharp_sqlclient::CsharpSqlClientBackend::new(canonical_engine)
+        ),
         "ruby-tiny-tds" | "tiny-tds" | "tiny_tds" => {
-            Box::new(ruby_tiny_tds::RubyTinyTdsBackend::new(canonical_engine)?)
+            backend!("lang-ruby", ruby_tiny_tds::RubyTinyTdsBackend::new(canonical_engine))
         }
-        "elixir-tds" | "tds" => Box::new(elixir_tds::ElixirTdsBackend::new(canonical_engine)?),
-        "rust-sibyl" | "sibyl" => Box::new(rust_sibyl::RustSibylBackend::new(canonical_engine)?),
-        "python-oracledb" | "oracledb" => Box::new(python_oracledb::PythonOracledbBackend::new(canonical_engine)?),
-        "typescript-oracledb" => Box::new(typescript_oracledb::TypescriptOracledbBackend::new(canonical_engine)?),
-        "javascript-oracledb" => Box::new(typescript_oracledb::TypescriptOracledbBackend::new_js(
-            canonical_engine,
-        )?),
-        "go-godror" | "godror" => Box::new(go_godror::GoGodrorBackend::new(canonical_engine)?),
-        "csharp-oracle" => Box::new(csharp_oracle::CsharpOracleBackend::new(canonical_engine)?),
-        "ruby-oci8" | "oci8" => Box::new(ruby_oci8::RubyOci8Backend::new(canonical_engine)?),
-        "elixir-jamdb" | "jamdb" => Box::new(elixir_jamdb::ElixirJamdbBackend::new(canonical_engine)?),
-        "python-snowflake" => Box::new(python_snowflake::PythonSnowflakeBackend::new(canonical_engine)?),
-        "typescript-snowflake" => Box::new(typescript_snowflake::TypescriptSnowflakeBackend::new(canonical_engine)?),
-        "javascript-snowflake" => Box::new(typescript_snowflake::TypescriptSnowflakeBackend::new_js(
-            canonical_engine,
-        )?),
-        "go-gosnowflake" | "gosnowflake" => Box::new(go_gosnowflake::GoGosnowflakeBackend::new(canonical_engine)?),
-        "csharp-snowflake" => Box::new(csharp_snowflake::CsharpSnowflakeBackend::new(canonical_engine)?),
+        "elixir-tds" | "tds" => backend!("lang-elixir", elixir_tds::ElixirTdsBackend::new(canonical_engine)),
+        "rust-sibyl" | "sibyl" => backend!("lang-rust", rust_sibyl::RustSibylBackend::new(canonical_engine)),
+        "python-oracledb" | "oracledb" => backend!(
+            "lang-python",
+            python_oracledb::PythonOracledbBackend::new(canonical_engine)
+        ),
+        "typescript-oracledb" => backend!(
+            "lang-typescript",
+            typescript_oracledb::TypescriptOracledbBackend::new(canonical_engine)
+        ),
+        "javascript-oracledb" => backend!(
+            "lang-typescript",
+            typescript_oracledb::TypescriptOracledbBackend::new_js(canonical_engine)
+        ),
+        "go-godror" | "godror" => backend!("lang-go", go_godror::GoGodrorBackend::new(canonical_engine)),
+        "csharp-oracle" => backend!("lang-csharp", csharp_oracle::CsharpOracleBackend::new(canonical_engine)),
+        "ruby-oci8" | "oci8" => backend!("lang-ruby", ruby_oci8::RubyOci8Backend::new(canonical_engine)),
+        "elixir-jamdb" | "jamdb" => backend!("lang-elixir", elixir_jamdb::ElixirJamdbBackend::new(canonical_engine)),
+        "python-snowflake" => backend!(
+            "lang-python",
+            python_snowflake::PythonSnowflakeBackend::new(canonical_engine)
+        ),
+        "typescript-snowflake" => backend!(
+            "lang-typescript",
+            typescript_snowflake::TypescriptSnowflakeBackend::new(canonical_engine)
+        ),
+        "javascript-snowflake" => backend!(
+            "lang-typescript",
+            typescript_snowflake::TypescriptSnowflakeBackend::new_js(canonical_engine)
+        ),
+        "go-gosnowflake" | "gosnowflake" => {
+            backend!("lang-go", go_gosnowflake::GoGosnowflakeBackend::new(canonical_engine))
+        }
+        "csharp-snowflake" => backend!(
+            "lang-csharp",
+            csharp_snowflake::CsharpSnowflakeBackend::new(canonical_engine)
+        ),
         _ => {
             return Err(ScytheError::new(
                 ErrorCode::InvalidConfig,
@@ -1116,6 +1308,50 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
     }
 
     Ok(backend)
+}
+
+/// Each engine Cargo feature, the canonical engines it enables, and whether
+/// this build was compiled with it.
+const ENGINE_FEATURES: &[(&str, &[&str], bool)] = &[
+    ("duckdb", &["duckdb"], cfg!(feature = "duckdb")),
+    ("mssql", &["mssql"], cfg!(feature = "mssql")),
+    ("mysql", &["mysql", "mariadb"], cfg!(feature = "mysql")),
+    ("oracle", &["oracle"], cfg!(feature = "oracle")),
+    ("postgres", &["postgresql"], cfg!(feature = "postgres")),
+    ("redshift", &["redshift"], cfg!(feature = "redshift")),
+    ("snowflake", &["snowflake"], cfg!(feature = "snowflake")),
+    ("sqlite", &["sqlite"], cfg!(feature = "sqlite")),
+];
+
+/// The Cargo feature that enables `engine`, in any of its alias spellings, or
+/// `None` for an engine this crate does not know.
+pub fn engine_feature(engine: &str) -> Option<&'static str> {
+    engine_feature_entry(engine).map(|(feature, _, _)| *feature)
+}
+
+/// The Cargo feature `engine` needs when this build was compiled without it.
+fn disabled_engine_feature(engine: &str) -> Option<&'static str> {
+    engine_feature_entry(engine)
+        .filter(|(_, _, enabled)| !enabled)
+        .map(|(feature, _, _)| *feature)
+}
+
+fn engine_feature_entry(engine: &str) -> Option<&'static (&'static str, &'static [&'static str], bool)> {
+    let canonical = normalize_engine(engine);
+    ENGINE_FEATURES
+        .iter()
+        .find(|(_, engines, _)| engines.contains(&canonical))
+}
+
+/// The error for a backend or engine left out of this build.
+fn disabled_feature(subject: &str, feature: &str) -> ScytheError {
+    ScytheError::new(
+        ErrorCode::InvalidConfig,
+        format!(
+            "{subject} is not available in this build: it was compiled without the `{feature}` Cargo feature \
+             (rebuild with `--features {feature}` or with default features)"
+        ),
+    )
 }
 
 /// Normalize engine name to canonical form.
@@ -1253,6 +1489,7 @@ mod tests {
     /// path (`backends/<name>/manifest.toml`) but supporting different
     /// engines would have silently shared one manifest file on disk. Pure
     /// `(backend, engine)` selection must not exhibit this collision.
+    #[cfg(all(feature = "lang-rust", feature = "mysql"))]
     #[test]
     fn test_get_backend_rust_sqlx_mysql_has_no_postgresql_scalars() {
         let backend = get_backend("rust-sqlx", "mysql").expect("rust-sqlx should support mysql");
@@ -1269,6 +1506,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "lang-java", feature = "sqlite"))]
     #[test]
     fn test_get_backend_java_jdbc_sqlite_has_no_postgresql_scalars() {
         let backend = get_backend("java-jdbc", "sqlite").expect("java-jdbc should support sqlite");
@@ -1291,6 +1529,17 @@ mod tests {
         assert_eq!(normalize_engine("crdb"), "postgresql");
     }
 
+    #[cfg(all(
+        feature = "lang-csharp",
+        feature = "lang-elixir",
+        feature = "lang-go",
+        feature = "lang-php",
+        feature = "lang-python",
+        feature = "lang-ruby",
+        feature = "lang-rust",
+        feature = "lang-typescript",
+        feature = "postgres"
+    ))]
     #[test]
     fn test_get_backend_cockroachdb_with_pg_backends() {
         let pg_backends = [
@@ -1321,6 +1570,47 @@ mod tests {
     }
 
     #[test]
+    fn engine_feature_covers_every_alias_of_an_engine() {
+        assert_eq!(engine_feature("cockroachdb"), Some("postgres"));
+        assert_eq!(engine_feature("pg"), Some("postgres"));
+        assert_eq!(engine_feature("mariadb"), Some("mysql"));
+        assert_eq!(engine_feature("sqlserver"), Some("mssql"));
+        assert_eq!(engine_feature("sqlite3"), Some("sqlite"));
+        assert_eq!(engine_feature("klingon"), None);
+    }
+
+    #[cfg(not(feature = "lang-go"))]
+    #[test]
+    fn get_backend_names_the_language_feature_a_disabled_backend_needs() {
+        let error = get_backend("go", "postgresql")
+            .err()
+            .expect("go-pgx is not compiled in");
+        assert_eq!(error.code, ErrorCode::InvalidConfig);
+        assert!(
+            error
+                .to_string()
+                .contains("backend 'go' is not available in this build: it was compiled without the `lang-go`"),
+            "{error}"
+        );
+    }
+
+    #[cfg(not(feature = "mysql"))]
+    #[test]
+    fn get_backend_names_the_engine_feature_a_disabled_engine_needs() {
+        let error = get_backend("rust-sqlx", "mariadb")
+            .err()
+            .expect("mysql is not compiled in");
+        assert!(
+            error
+                .to_string()
+                .contains("engine 'mariadb' is not available in this build")
+                && error.to_string().contains("`--features mysql`"),
+            "{error}"
+        );
+    }
+
+    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[test]
     fn test_get_backend_crdb_alias() {
         let result = get_backend("rust-sqlx", "crdb");
         assert!(result.is_ok(), "rust-sqlx should accept 'crdb' engine alias");
@@ -1331,6 +1621,14 @@ mod tests {
         assert_eq!(normalize_engine("duckdb"), "duckdb");
     }
 
+    #[cfg(all(
+        feature = "lang-go",
+        feature = "lang-java",
+        feature = "lang-kotlin",
+        feature = "lang-python",
+        feature = "lang-typescript",
+        feature = "duckdb"
+    ))]
     #[test]
     fn test_get_backend_duckdb_with_compatible_backends() {
         let duckdb_backends = [
@@ -1456,6 +1754,19 @@ mod tests {
         assert_eq!(normalize_engine("mariadb"), "mariadb");
     }
 
+    #[cfg(all(
+        feature = "lang-csharp",
+        feature = "lang-elixir",
+        feature = "lang-go",
+        feature = "lang-java",
+        feature = "lang-kotlin",
+        feature = "lang-php",
+        feature = "lang-python",
+        feature = "lang-ruby",
+        feature = "lang-rust",
+        feature = "lang-typescript",
+        feature = "mysql"
+    ))]
     #[test]
     fn test_get_backend_mariadb_with_mysql_backends() {
         let mariadb_backends = [

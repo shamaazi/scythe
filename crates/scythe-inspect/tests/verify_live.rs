@@ -10,7 +10,7 @@
 //! `pg_live.rs` these are genuinely independent — a prepared statement only
 //! sees the objects its own query names — so they are safe to run in parallel.
 
-#![cfg(feature = "live-tests")]
+#![cfg(all(feature = "live-tests", feature = "postgres"))]
 
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;

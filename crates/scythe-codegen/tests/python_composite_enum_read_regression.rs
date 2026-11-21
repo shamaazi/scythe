@@ -26,6 +26,8 @@
 //!   Enum` subclass, so `T(raw)` is its value-lookup constructor; calling it unguarded on `None`
 //!   raises `ValueError` instead of producing the column's actual SQL NULL.
 
+#![cfg(all(feature = "lang-python", feature = "postgres"))]
+
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_with_tools};
 use scythe_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;

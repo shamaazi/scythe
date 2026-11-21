@@ -23,6 +23,8 @@
 //! Ruby source shape. See `ruby_oci8.rs`'s `READ_LOB_METHOD` doc comment for the vendored gem
 //! source evidence backing the wrapper's own logic (nil passthrough, `#read` semantics).
 
+#![cfg(all(feature = "lang-ruby", feature = "oracle"))]
+
 use scythe_codegen::{CodegenBackend, generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
 use scythe_core::parser::QueryCommand;

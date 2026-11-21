@@ -24,6 +24,16 @@
 //! declaration and reference disagreeing the same way #164 did, a mismatch that does not compile
 //! rather than merely mis-parsing.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{GeneratedCode, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;
@@ -52,6 +62,7 @@ const SIMPLE_QUERY: &str = "-- @name GetWidget\n-- @returns :one\n\
 
 /// Rust: before the fix this line read `pub struct Public.widgetShape {`, which does not parse
 /// -- a `.` is not a valid character inside a Rust identifier.
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]
 fn composite_declaration_sanitizes_schema_qualified_dot_in_rust() {
     let code = generate(SIMPLE_SCHEMA, SIMPLE_QUERY, "rust-sqlx").expect("codegen must succeed");
@@ -67,6 +78,7 @@ fn composite_declaration_sanitizes_schema_qualified_dot_in_rust() {
 }
 
 /// Go: before the fix this line read `type Public.widgetShape struct {`, which does not parse.
+#[cfg(all(feature = "lang-go", feature = "postgres"))]
 #[test]
 fn composite_declaration_sanitizes_schema_qualified_dot_in_go() {
     let code = generate(SIMPLE_SCHEMA, SIMPLE_QUERY, "go-pgx").expect("codegen must succeed");
@@ -83,6 +95,7 @@ fn composite_declaration_sanitizes_schema_qualified_dot_in_go() {
 
 /// TypeScript: before the fix this line read `export interface Public.widgetShape {`, which does
 /// not parse -- `.` cannot appear in a TypeScript interface name.
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn composite_declaration_sanitizes_schema_qualified_dot_in_typescript() {
     let code = generate(SIMPLE_SCHEMA, SIMPLE_QUERY, "typescript-pg").expect("codegen must succeed");
@@ -98,6 +111,7 @@ fn composite_declaration_sanitizes_schema_qualified_dot_in_typescript() {
 }
 
 /// C#: before the fix this line read `public record Public.widgetShape(`, which does not parse.
+#[cfg(all(feature = "lang-csharp", feature = "postgres"))]
 #[test]
 fn composite_declaration_sanitizes_schema_qualified_dot_in_csharp() {
     let code = generate(SIMPLE_SCHEMA, SIMPLE_QUERY, "csharp-npgsql").expect("codegen must succeed");
@@ -114,6 +128,7 @@ fn composite_declaration_sanitizes_schema_qualified_dot_in_csharp() {
 
 /// Python: before the fix this line read `class Public.widgetShape:`, which does not parse --
 /// `.` cannot appear in a Python class name.
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn composite_declaration_sanitizes_schema_qualified_dot_in_python() {
     let code = generate(SIMPLE_SCHEMA, SIMPLE_QUERY, "python-asyncpg").expect("codegen must succeed");
@@ -165,6 +180,7 @@ const NESTED_QUERY: &str = "-- @name GetWidgetOutline\n-- @returns :one\n\
 /// still calls raw `to_pascal_case` -- and is out of scope for this fix (see this crate's
 /// commit history / the accompanying report). Asserting the field-type annotation here would
 /// pin a still-open, separately-owned defect as if this fix closed it.
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn nested_composite_reference_matches_its_own_declaration_in_java_jdbc() {
     let code = generate(NESTED_SCHEMA, NESTED_QUERY, "java-jdbc").expect("codegen must succeed");
@@ -192,6 +208,7 @@ fn nested_composite_reference_matches_its_own_declaration_in_java_jdbc() {
 /// kotlin-jdbc: same defect, `T::class.java`-adjacent companion-object `fromText` instead of a
 /// Java static method. See the java-jdbc test above for why the negative assertion is scoped to
 /// the `.fromText(` call rather than the whole composite definition.
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn nested_composite_reference_matches_its_own_declaration_in_kotlin_jdbc() {
     let code = generate(NESTED_SCHEMA, NESTED_QUERY, "kotlin-jdbc").expect("codegen must succeed");

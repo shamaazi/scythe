@@ -49,18 +49,27 @@ fn test_mariadb_insert_returning() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mariadb";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "mysql"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-typescript", feature = "mysql"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-java", feature = "mysql"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "mysql"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mysql"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mysql"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-ruby", feature = "mysql"))]
         "ruby-trilogy",
+        #[cfg(all(feature = "lang-php", feature = "mysql"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "mysql"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -209,18 +218,27 @@ fn test_mariadb_uuid_type() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mariadb";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "mysql"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-typescript", feature = "mysql"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-java", feature = "mysql"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-java", feature = "mysql"))]
         "java-r2dbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mysql"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mysql"))]
         "kotlin-r2dbc",
+        #[cfg(all(feature = "lang-ruby", feature = "mysql"))]
         "ruby-trilogy",
+        #[cfg(all(feature = "lang-php", feature = "mysql"))]
         "php-pdo",
+        #[cfg(all(feature = "lang-php", feature = "mysql"))]
         "php-amphp",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -383,14 +401,19 @@ fn test_mssql_basic_types() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mssql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "mssql"))]
         "rust-tiberius",
+        #[cfg(all(feature = "lang-typescript", feature = "mssql"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-java", feature = "mssql"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mssql"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-php", feature = "mssql"))]
         "php-pdo",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -559,14 +582,19 @@ fn test_mssql_datetime_types() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mssql";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "mssql"))]
         "rust-tiberius",
+        #[cfg(all(feature = "lang-typescript", feature = "mssql"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-java", feature = "mssql"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "mssql"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-php", feature = "mssql"))]
         "php-pdo",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -729,8 +757,15 @@ fn test_oracle_number_types() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "oracle";
-    let all_backends = ["rust-sibyl", "java-jdbc", "kotlin-jdbc"];
-    for backend_name in &all_backends {
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "oracle"))]
+        "rust-sibyl",
+        #[cfg(all(feature = "lang-java", feature = "oracle"))]
+        "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "oracle"))]
+        "kotlin-jdbc",
+    ];
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -885,8 +920,15 @@ fn test_oracle_varchar2_clob() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "oracle";
-    let all_backends = ["rust-sibyl", "java-jdbc", "kotlin-jdbc"];
-    for backend_name in &all_backends {
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "oracle"))]
+        "rust-sibyl",
+        #[cfg(all(feature = "lang-java", feature = "oracle"))]
+        "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "oracle"))]
+        "kotlin-jdbc",
+    ];
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1038,23 +1080,37 @@ fn test_redshift_identity_column() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "redshift";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "redshift"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "redshift"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "redshift"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "redshift"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "redshift"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "redshift"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "redshift"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-csharp", feature = "redshift"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "redshift"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-ruby", feature = "redshift"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "redshift"))]
         "php-pdo",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1209,23 +1265,37 @@ fn test_redshift_no_enum() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "redshift";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "redshift"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "redshift"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "redshift"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "redshift"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "redshift"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "redshift"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "redshift"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-csharp", feature = "redshift"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "redshift"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-ruby", feature = "redshift"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "redshift"))]
         "php-pdo",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1370,23 +1440,37 @@ fn test_redshift_super_type() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "redshift";
-    let all_backends = [
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-rust", feature = "redshift"))]
         "rust-sqlx",
+        #[cfg(all(feature = "lang-rust", feature = "redshift"))]
         "rust-tokio-postgres",
+        #[cfg(all(feature = "lang-python", feature = "redshift"))]
         "python-psycopg3",
+        #[cfg(all(feature = "lang-python", feature = "redshift"))]
         "python-asyncpg",
+        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
         "typescript-postgres",
+        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
         "typescript-pg",
+        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
         "typescript-kysely",
+        #[cfg(all(feature = "lang-go", feature = "redshift"))]
         "go-pgx",
+        #[cfg(all(feature = "lang-java", feature = "redshift"))]
         "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "redshift"))]
         "kotlin-jdbc",
+        #[cfg(all(feature = "lang-csharp", feature = "redshift"))]
         "csharp-npgsql",
+        #[cfg(all(feature = "lang-elixir", feature = "redshift"))]
         "elixir-postgrex",
+        #[cfg(all(feature = "lang-ruby", feature = "redshift"))]
         "ruby-pg",
+        #[cfg(all(feature = "lang-php", feature = "redshift"))]
         "php-pdo",
     ];
-    for backend_name in &all_backends {
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1543,8 +1627,15 @@ fn test_snowflake_timestamp_variants() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "snowflake";
-    let all_backends = ["java-jdbc", "kotlin-jdbc", "php-pdo"];
-    for backend_name in &all_backends {
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-java", feature = "snowflake"))]
+        "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "snowflake"))]
+        "kotlin-jdbc",
+        #[cfg(all(feature = "lang-php", feature = "snowflake"))]
+        "php-pdo",
+    ];
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(
@@ -1693,8 +1784,15 @@ fn test_snowflake_variant_type() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "snowflake";
-    let all_backends = ["java-jdbc", "kotlin-jdbc", "php-pdo"];
-    for backend_name in &all_backends {
+    let all_backends: &[&str] = &[
+        #[cfg(all(feature = "lang-java", feature = "snowflake"))]
+        "java-jdbc",
+        #[cfg(all(feature = "lang-kotlin", feature = "snowflake"))]
+        "kotlin-jdbc",
+        #[cfg(all(feature = "lang-php", feature = "snowflake"))]
+        "php-pdo",
+    ];
+    for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
             Err(e) => panic!(

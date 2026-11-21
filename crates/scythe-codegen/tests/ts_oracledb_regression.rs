@@ -20,6 +20,8 @@
 //! tests`; these go through the real parse -> analyze -> codegen pipeline
 //! and check the assembled file.
 
+#![cfg(all(feature = "lang-typescript", feature = "oracle"))]
+
 use std::collections::HashMap;
 
 use scythe_codegen::validation::{strict_mode_enabled, validate_with_tools};

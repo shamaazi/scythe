@@ -16,6 +16,16 @@
 //! genuinely supports the struct, so a regression that silently drops the
 //! third tuple element or forgets to assign the field fails loudly here.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{GeneratedCode, generate_with_backend, get_backend};
 use scythe_core::analyzer::{NestedFieldInfo, NestedStructInfo, analyze};
 use scythe_core::catalog::Catalog;
@@ -46,6 +56,7 @@ fn generate(backend_name: &str) -> Result<GeneratedCode, ScytheError> {
 /// still succeed (this is not a hard error by default), but the result must
 /// name the column, the struct that could not be built, the fallback it got
 /// instead, and the backend responsible.
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn unsupported_backend_reports_the_degraded_column_struct_and_backend() {
     let code = generate("java-jdbc").expect("degradation is not a hard error by default");
@@ -67,6 +78,7 @@ fn unsupported_backend_reports_the_degraded_column_struct_and_backend() {
     assert!(code.row_struct.is_some(), "codegen must still produce a row struct");
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn typescript_postgresql_backends_emit_native_nested_structs() {
     for backend in ["typescript-pg", "typescript-postgres", "typescript-kysely"] {
@@ -94,6 +106,7 @@ fn typescript_postgresql_backends_emit_native_nested_structs() {
     }
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn javascript_aliases_keep_the_plain_json_fallback() {
     for backend in ["javascript-pg", "javascript-postgres"] {
@@ -104,6 +117,7 @@ fn javascript_aliases_keep_the_plain_json_fallback() {
     }
 }
 
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn unsupported_future_json_field_degrades_the_entire_nested_struct() {
     let nested = NestedStructInfo {
@@ -129,6 +143,7 @@ fn unsupported_future_json_field_degrades_the_entire_nested_struct() {
 /// `rust-sqlx` implements `generate_nested_struct_def`, so nothing here was
 /// degraded: the field must stay empty rather than report a false positive
 /// for a backend that actually generated the struct.
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]
 fn supporting_backend_reports_no_degradation() {
     let code = generate("rust-sqlx").expect("codegen must succeed");

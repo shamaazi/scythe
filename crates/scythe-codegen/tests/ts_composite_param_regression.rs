@@ -19,6 +19,8 @@
 //! spliced in as literal SQL text around them -- see `pg_composite_bind_expr`
 //! and `pg_bind_expr` in `typescript_postgres.rs`.
 
+#![cfg(all(feature = "lang-typescript", feature = "postgres"))]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, analyze};
 use scythe_core::catalog::Catalog;

@@ -26,7 +26,7 @@
 //! `crates/scythe-cli/src/commands/generate.rs` as
 //! `partition_verifiable_blocks_*` unit tests.
 
-#![cfg(feature = "live-tests")]
+#![cfg(all(feature = "live-tests", feature = "postgres"))]
 
 use std::fs;
 

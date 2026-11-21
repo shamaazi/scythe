@@ -486,6 +486,10 @@ pub fn assemble_file(preamble: &str, header: &str, body: &str) -> String {
 }
 
 #[cfg(test)]
+#[cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(dead_code, reason = "helpers shared with tests of backends this build leaves out")
+)]
 mod tests {
     use super::*;
 
@@ -548,6 +552,16 @@ mod tests {
     /// not to need one. It still fails loudly if the suffix is dropped: the
     /// shortest Python backend name in the tree today still produces a line
     /// well past 88 characters, which the premise assertion below pins.
+    #[cfg(all(
+        feature = "lang-python",
+        feature = "duckdb",
+        feature = "mssql",
+        feature = "mysql",
+        feature = "oracle",
+        feature = "postgres",
+        feature = "snowflake",
+        feature = "sqlite"
+    ))]
     #[test]
     fn python_header_lines_never_trip_ruffs_default_line_length() {
         for (backend_name, engine) in [
@@ -589,6 +603,7 @@ mod tests {
     /// The suppression must not leak into a language that shares Python's
     /// `#` comment token. Ruby is the case that would actually ship broken:
     /// its header is emitted into `queries.rb` *and* `queries.rbs`.
+    #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
     #[test]
     fn hash_comment_languages_other_than_python_get_no_suffix() {
         let backend = crate::get_backend("ruby-pg", "postgresql").expect("ruby-pg should support postgresql");
@@ -730,6 +745,7 @@ mod tests {
     /// Also asserts the two structural guarantees a caller cannot recover
     /// from if they are lost: the header stays exactly one line, and it
     /// stays behind a comment token.
+    #[cfg(all(feature = "lang-python", feature = "lang-rust", feature = "postgres"))]
     #[test]
     fn header_line_round_trips_adversarial_field_values() {
         // Two backends, because the emitted line differs by language:
@@ -777,6 +793,7 @@ mod tests {
     /// The round trip must also survive assembly, where the header is one
     /// line among many rather than the whole string — the shape a verifier
     /// actually reads off disk.
+    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
     #[test]
     fn assembled_file_round_trips_a_space_bearing_field_value() {
         let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
@@ -815,6 +832,7 @@ mod tests {
     /// Tokens with no `=` must be skipped, or Python's `# noqa: E501`
     /// suffix would be read as fields. Asserted on the real emitted line
     /// rather than a hand-written one.
+    #[cfg(all(feature = "lang-python", feature = "postgres"))]
     #[test]
     fn parse_header_fields_skips_the_python_noqa_suffix() {
         let backend =
@@ -888,6 +906,7 @@ mod tests {
         }
     }
 
+    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
     #[test]
     fn header_line_embeds_the_caller_supplied_version_not_this_crates_own() {
         let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
@@ -930,6 +949,7 @@ mod tests {
     /// still constructs. Pinned as a literal, not compared against a second
     /// call to `header_line`, so a change to `build_header_line` that moved
     /// *both* callers together the same wrong way would still be caught.
+    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
     #[test]
     fn header_line_is_byte_identical_to_the_pre_options_five_field_form() {
         let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
@@ -948,6 +968,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
     #[test]
     fn header_line_with_options_appends_the_sixth_field_before_the_suffix() {
         let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
@@ -969,6 +990,7 @@ mod tests {
 
     /// The suffix (Python's `# noqa: E501`) must stay the last thing on the
     /// line, after `options=`, exactly as it already stays after `queries=`.
+    #[cfg(all(feature = "lang-python", feature = "postgres"))]
     #[test]
     fn header_line_with_options_keeps_the_python_suffix_last() {
         let backend =
@@ -988,6 +1010,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
     #[test]
     fn header_line_with_options_round_trips_through_parse_header_fields() {
         let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");

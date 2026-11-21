@@ -227,6 +227,14 @@ jobs:
           echo "All $count committed generated test file(s) in $dir match a fresh generator run."
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
+      # The workspace build enables every engine and language feature, so it
+      # cannot see code that only compiles, or only lints clean, with some of
+      # them off. A PostgreSQL + TypeScript build and a build with no engine
+      # or language at all cover both directions of that cfg-gating.
+      - name: Run clippy on a minimal PostgreSQL and TypeScript build
+        run: cargo clippy -p scythe-cli -p scythe-codegen -p scythe-inspect --all-targets --no-default-features --features postgres,lang-typescript -- -D warnings
+      - name: Run clippy on a build without engines or languages
+        run: cargo clippy -p scythe-cli -p scythe-codegen -p scythe-inspect --all-targets --no-default-features -- -D warnings
       # `deny.toml` has existed for a long time and no workflow ever invoked it.
       # The `Goldziher/poly@v0` step in the test job below installs poly to put
       # its bundled checkers on PATH; it does not run `poly lint`, so the
@@ -372,6 +380,10 @@ jobs:
       # target and excludes the lib unit tests. `tiberius` (behind `mssql`) is
       # pure Rust over `rustls`, so this needs no service container or native
       # library install, unlike the live mssql leg.
+      # Tests for backends and engines a build leaves out are cfg-gated off;
+      # this proves the rest still pass without them.
+      - name: Run core and codegen tests on a minimal PostgreSQL and TypeScript build
+        run: cargo test -p scythe-core -p scythe-codegen --no-default-features --features scythe-codegen/postgres,scythe-codegen/lang-typescript
       - name: Run scythe-conformance unit tests with the mssql driver compiled in
         run: cargo test -p scythe-conformance --features mssql --lib
 

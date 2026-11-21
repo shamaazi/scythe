@@ -46,13 +46,17 @@
 
 pub mod catalog;
 pub mod diff;
+#[cfg(feature = "postgres")]
 pub mod live;
 pub mod model;
 pub mod source;
 
+#[cfg(feature = "postgres")]
 use scythe_lint::reporters::Finding;
+#[cfg(feature = "postgres")]
 use tokio_postgres::Client;
 
+#[cfg(feature = "postgres")]
 use crate::error::InspectError;
 
 pub use catalog::describe_catalog;
@@ -60,12 +64,15 @@ pub use diff::{
     DriftSeverities, SC_DRF01, SC_DRF02, SC_DRF03, SC_DRF04, SC_DRF05, SC_DRF06, SC_DRF07, SC_DRF08, SC_DRF09,
     SC_DRF10, SC_DRF11, SC_DRF12, SC_DRF13, diff as diff_schemas,
 };
+#[cfg(feature = "postgres")]
 pub use live::{fetch_live_catalog, fetch_live_schema};
 pub use model::{
     ColumnDescription, CompositeDescription, CompositeFieldDescription, EnumDescription, SchemaDescription,
     TableDescription, object_key,
 };
-pub use source::{PostgresCatalogSource, SchemaCatalogDriver};
+#[cfg(feature = "postgres")]
+pub use source::PostgresCatalogSource;
+pub use source::SchemaCatalogDriver;
 
 /// Fetch the live schema once and diff every supplied DDL description against
 /// it.
@@ -94,6 +101,7 @@ pub use source::{PostgresCatalogSource, SchemaCatalogDriver};
 ///
 /// Everything else — including a schema scythe cannot fully interpret — comes
 /// back as findings.
+#[cfg(feature = "postgres")]
 pub async fn drift_findings(
     client: &Client,
     schemas: &[(&str, &SchemaDescription)],
@@ -126,6 +134,7 @@ pub async fn drift_findings(
 /// [`fetch_live_schema`], which in turn decides which object wins a bare-name
 /// collision — an order that varied per run would make drift findings vary
 /// per run.
+#[cfg(feature = "postgres")]
 fn declared_schemas(schemas: &[(&str, &SchemaDescription)]) -> Vec<String> {
     let mut declared: Vec<String> = schemas
         .iter()
@@ -145,6 +154,7 @@ fn declared_schemas(schemas: &[(&str, &SchemaDescription)]) -> Vec<String> {
 
 /// The schema part of a display name, or `None` when the DDL wrote the name
 /// bare.
+#[cfg(feature = "postgres")]
 fn schema_qualifier(display_name: &str) -> Option<String> {
     let (schema, _bare) = display_name.rsplit_once('.')?;
     if schema.is_empty() {
@@ -153,7 +163,7 @@ fn schema_qualifier(display_name: &str) -> Option<String> {
     Some(schema.to_lowercase())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "postgres"))]
 mod tests {
     use super::*;
     use crate::schema_diff::model::{EnumDescription, TableDescription};

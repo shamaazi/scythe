@@ -34,6 +34,48 @@ bin-dir = "{ bin }{ binary-ext }"
 name = "scythe"
 path = "src/main.rs"
 
+[features]
+# Every database engine and every target language. Building with
+# `--no-default-features` and naming only the engines and languages a project
+# uses skips the rest, including the bundled DuckDB and SQLite C/C++ builds,
+# e.g. `--no-default-features --features postgres,lang-typescript`.
+# Configuring an engine or backend left out of the build is a runtime error
+# naming the feature to enable.
+default = ["all-engines", "all-languages"]
+all-engines = ["duckdb", "mssql", "mysql", "oracle", "postgres", "redshift", "snowflake", "sqlite"]
+all-languages = [
+    "lang-csharp",
+    "lang-elixir",
+    "lang-go",
+    "lang-java",
+    "lang-kotlin",
+    "lang-php",
+    "lang-python",
+    "lang-ruby",
+    "lang-rust",
+    "lang-typescript",
+]
+# Engines. Features that include a driver also enable `scythe inspect`,
+# `schema_source = "execute"` or `scythe check --database-url` for that engine.
+duckdb = ["scythe-codegen/duckdb", "scythe-inspect/duckdb"]
+mssql = ["scythe-codegen/mssql"]
+mysql = ["scythe-codegen/mysql", "scythe-inspect/mysql"]
+oracle = ["scythe-codegen/oracle"]
+postgres = ["dep:tokio-postgres", "scythe-codegen/postgres", "scythe-inspect/postgres"]
+redshift = ["scythe-codegen/redshift"]
+snowflake = ["scythe-codegen/snowflake"]
+sqlite = ["scythe-codegen/sqlite", "scythe-inspect/sqlite"]
+# Target languages. `lang-typescript` includes the JavaScript variants.
+lang-csharp = ["scythe-codegen/lang-csharp"]
+lang-elixir = ["scythe-codegen/lang-elixir"]
+lang-go = ["scythe-codegen/lang-go"]
+lang-java = ["scythe-codegen/lang-java"]
+lang-kotlin = ["scythe-codegen/lang-kotlin"]
+lang-php = ["scythe-codegen/lang-php"]
+lang-python = ["scythe-codegen/lang-python"]
+lang-ruby = ["scythe-codegen/lang-ruby"]
+lang-rust = ["scythe-codegen/lang-rust"]
+lang-typescript = ["scythe-codegen/lang-typescript"]
 # Gates the live-PostgreSQL integration tests in `tests/lint_live.rs` and
 # `tests/check_mixed_engine_integration.rs` -- see #162. Without this feature
 # those tests do not exist as far as `cargo test` is concerned (the files
@@ -43,7 +85,6 @@ path = "src/main.rs"
 # env var it checked, so all four ran zero times while reporting success in
 # every run. Matches `scythe-inspect` and `scythe-conformance`'s own
 # `live-tests` feature.
-[features]
 live-tests = []
 
 [dependencies]
@@ -52,16 +93,16 @@ clap = { version = "4", features = ["derive"] }
 glob = "0.3"
 regex = "1"
 scythe-backend = { path = "../scythe-backend", version = "0.20.2" }
-scythe-codegen = { path = "../scythe-codegen", version = "0.20.2" }
+scythe-codegen = { path = "../scythe-codegen", version = "0.20.2", default-features = false }
 scythe-core = { path = "../scythe-core", version = "0.20.2" }
-scythe-inspect = { path = "../scythe-inspect", version = "0.20.2" }
+scythe-inspect = { path = "../scythe-inspect", version = "0.20.2", default-features = false }
 scythe-lint = { path = "../scythe-lint", version = "0.20.2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 sqlparser = "0.63"
 tokio = { version = "1", features = ["rt", "macros"] }
-tokio-postgres = "0.7"
+tokio-postgres = { version = "0.7", optional = true }
 toml = "1.1"
 tracing = "0.1"
 

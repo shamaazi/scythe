@@ -22,6 +22,8 @@
 //! already correct at runtime -- confirmed by inspecting `generate_enum_def` directly, not
 //! assumed.
 
+#![cfg(all(feature = "lang-typescript", feature = "postgres"))]
+
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_with_tools};
 use scythe_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;

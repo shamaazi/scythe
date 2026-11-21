@@ -18,6 +18,8 @@
 //! at runtime. The fix is emitting `#[sqlx(rename = "my col")]` directly
 //! ahead of any field whose generated name differs from its SQL column name.
 
+#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;

@@ -17,6 +17,16 @@
 //! seven backends this file covers as still folding `:one` into `:opt`; those
 //! entries are now stale and must be deleted by whoever owns that file.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery};
 use scythe_core::parser::QueryCommand;
@@ -67,6 +77,15 @@ const CSHARP_BACKENDS: &[(&str, &str)] = &[
 
 /// `:one` must return the bare, non-nullable record type and throw on a
 /// missing row; `:opt` must keep the nullable record type and return `null`.
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "oracle",
+    feature = "postgres",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
 #[test]
 fn csharp_backends_distinguish_one_from_opt() {
     for &(backend_name, engine) in CSHARP_BACKENDS {
@@ -117,6 +136,7 @@ fn csharp_backends_distinguish_one_from_opt() {
 
 /// `:one` must return `sibyl::Result<Struct>` and return an `Err` on a
 /// missing row; `:opt` must keep `sibyl::Result<Option<Struct>>` and `Ok(None)`.
+#[cfg(all(feature = "lang-rust", feature = "oracle"))]
 #[test]
 fn rust_sibyl_distinguishes_one_from_opt() {
     let one_fn = query_fn_for("rust-sibyl", "oracle", QueryCommand::One);

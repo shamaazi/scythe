@@ -33,6 +33,16 @@
 //! `List<Int>`/`List<Boolean>` are legal Kotlin on their own, so the manifest
 //! change alone is correct for `kotlin-jdbc`/`kotlin-r2dbc`/`kotlin-exposed`.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{CodegenBackend, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;
@@ -79,6 +89,7 @@ fn generate_query_fn(backend_name: &str) -> String {
 
 // -- java-jdbc ---------------------------------------------------------------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_declares_array_columns_as_boxed_lists() {
     let row_struct = generate_row_struct("java-jdbc");
@@ -100,6 +111,7 @@ fn java_jdbc_declares_array_columns_as_boxed_lists() {
     );
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_reads_non_nullable_array_columns_through_getarray() {
     let row_struct = generate_row_struct("java-jdbc");
@@ -119,6 +131,7 @@ fn java_jdbc_reads_non_nullable_array_columns_through_getarray() {
     }
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_null_guards_a_nullable_array_column() {
     let row_struct = generate_row_struct("java-jdbc");
@@ -136,6 +149,7 @@ fn java_jdbc_null_guards_a_nullable_array_column() {
 
 // -- java-r2dbc ---------------------------------------------------------------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_declares_array_columns_as_boxed_lists() {
     let row_struct = generate_row_struct("java-r2dbc");
@@ -153,6 +167,7 @@ fn java_r2dbc_declares_array_columns_as_boxed_lists() {
     }
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_query_fn_reads_array_columns_through_the_native_array_shape() {
     let query_fn = generate_query_fn("java-r2dbc");
@@ -173,6 +188,7 @@ fn java_r2dbc_query_fn_reads_array_columns_through_the_native_array_shape() {
 
 // -- kotlin-jdbc ---------------------------------------------------------------
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_declares_array_columns_as_lists() {
     let row_struct = generate_row_struct("kotlin-jdbc");
@@ -194,6 +210,7 @@ fn kotlin_jdbc_declares_array_columns_as_lists() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_reads_non_nullable_array_columns_through_getarray() {
     let query_fn = generate_query_fn("kotlin-jdbc");
@@ -211,6 +228,7 @@ fn kotlin_jdbc_reads_non_nullable_array_columns_through_getarray() {
     }
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_null_guards_a_nullable_array_column() {
     let query_fn = generate_query_fn("kotlin-jdbc");
@@ -228,6 +246,7 @@ fn kotlin_jdbc_null_guards_a_nullable_array_column() {
 
 // -- kotlin-exposed ------------------------------------------------------------
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_declares_array_columns_as_lists() {
     let row_struct = generate_row_struct("kotlin-exposed");
@@ -245,6 +264,7 @@ fn kotlin_exposed_declares_array_columns_as_lists() {
     }
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_reads_non_nullable_array_columns_through_getarray() {
     let query_fn = generate_query_fn("kotlin-exposed");
@@ -264,6 +284,7 @@ fn kotlin_exposed_reads_non_nullable_array_columns_through_getarray() {
 
 // -- kotlin-r2dbc ---------------------------------------------------------------
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_r2dbc_declares_array_columns_as_lists() {
     let row_struct = generate_row_struct("kotlin-r2dbc");
@@ -281,6 +302,7 @@ fn kotlin_r2dbc_declares_array_columns_as_lists() {
     }
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_r2dbc_query_fn_reads_array_columns_through_the_native_array_shape() {
     let query_fn = generate_query_fn("kotlin-r2dbc");
@@ -304,6 +326,7 @@ fn kotlin_r2dbc_query_fn_reads_array_columns_through_the_native_array_shape() {
 /// never fall back to a bare, class-less `getObject`/`getString` for an array
 /// column -- that untyped accessor (or the plain-text degradation) is exactly
 /// what this file exists to keep out.
+#[cfg(all(feature = "lang-java", feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn jdbc_backends_never_read_array_columns_as_plain_strings() {
     for backend_name in ["java-jdbc", "kotlin-jdbc", "kotlin-exposed"] {
@@ -397,6 +420,7 @@ fn declares_tags_as_typed_list(backend_name: &str, row_struct: &str) -> bool {
 /// every backend in that allowlist must actually be degraded, and the set as
 /// a whole can never end up with zero typed members even if every backend
 /// were (wrongly) added to the allowlist at once.
+#[cfg(all(feature = "lang-java", feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn jvm_array_backend_set_keeps_at_least_one_typed_member() {
     let mut regressions = Vec::new();

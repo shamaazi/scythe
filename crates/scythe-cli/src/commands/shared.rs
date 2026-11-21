@@ -103,13 +103,17 @@ pub fn load_catalog(request: CatalogLoadRequest<'_>) -> Result<LoadedCatalog, Bo
             })?
         }
         SchemaSource::Execute => {
+            #[cfg(any(feature = "duckdb", feature = "sqlite"))]
             let paths = request.schema_files.iter().map(PathBuf::from).collect::<Vec<_>>();
             let result = match request.engine.to_ascii_lowercase().as_str() {
+                #[cfg(feature = "sqlite")]
                 "sqlite" | "sqlite3" => scythe_inspect::execute_sqlite_schema_files(&paths),
+                #[cfg(feature = "duckdb")]
                 "duckdb" => scythe_inspect::execute_duckdb_schema_files(&paths),
-                _ => {
-                    return Err(unsupported_schema_source(request.command, request.config_name, request.engine).into());
-                }
+                // An engine left out of this build is reported as such; any
+                // other engine has no embedded execution path at all.
+                other => Err(scythe_inspect::disabled_engine(other)
+                    .ok_or_else(|| unsupported_schema_source(request.command, request.config_name, request.engine))?),
             };
             result.map_err(|error| {
                 format!(
@@ -601,6 +605,7 @@ mod tests {
         assert_eq!(loaded.catalog.fingerprint(), expected.fingerprint());
     }
 
+    #[cfg(all(feature = "duckdb", feature = "sqlite"))]
     #[test]
     fn execute_source_loads_sqlite_and_duckdb_catalogs() {
         let directory = tempfile::tempdir().unwrap();
@@ -632,6 +637,29 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "duckdb"))]
+    #[test]
+    fn execute_source_names_the_feature_when_the_engine_is_disabled() {
+        let error = load_catalog(CatalogLoadRequest {
+            command: "generate",
+            config_name: "main",
+            engine: "duckdb",
+            dialect: SqlDialect::PostgreSQL,
+            schema_files: &[],
+            source: SchemaSource::Execute,
+        })
+        .err()
+        .expect("a disabled engine must fail")
+        .to_string();
+
+        assert!(
+            error.contains("generate [main] schema_source=execute engine `duckdb` failed"),
+            "{error}"
+        );
+        assert!(error.contains("`--features duckdb`"), "{error}");
+    }
+
+    #[cfg(feature = "sqlite")]
     #[test]
     fn execute_failure_reports_command_config_engine_source_and_file() {
         let directory = tempfile::tempdir().unwrap();

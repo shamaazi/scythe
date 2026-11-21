@@ -24,6 +24,16 @@
 //!   terminal `awaitFirstOrNull()` for `awaitFirst()` so the now-non-nullable
 //!   `suspend fun` return type is honest about never receiving `null`.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery};
 use scythe_core::parser::QueryCommand;
@@ -76,6 +86,7 @@ fn assert_absent(backend: &str, command: QueryCommand, code: &str, needle: &str)
 // java-jdbc / kotlin-jdbc / kotlin-exposed: blocking, throw NoSuchElementException
 // ---------------------------------------------------------------------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_one_returns_the_bare_row_type_and_throws_on_a_missing_row() {
     let code = query_fn_for("java-jdbc", QueryCommand::One);
@@ -95,6 +106,7 @@ fn java_jdbc_one_returns_the_bare_row_type_and_throws_on_a_missing_row() {
     assert_absent("java-jdbc", QueryCommand::One, &code, "return null;");
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_opt_keeps_the_nullable_shape_and_never_throws() {
     let code = query_fn_for("java-jdbc", QueryCommand::Opt);
@@ -108,6 +120,7 @@ fn java_jdbc_opt_keeps_the_nullable_shape_and_never_throws() {
     assert_absent("java-jdbc", QueryCommand::Opt, &code, "NoSuchElementException");
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_one_returns_the_bare_row_type_and_throws_on_a_missing_row() {
     let code = query_fn_for("kotlin-jdbc", QueryCommand::One);
@@ -127,6 +140,7 @@ fn kotlin_jdbc_one_returns_the_bare_row_type_and_throws_on_a_missing_row() {
     assert_absent("kotlin-jdbc", QueryCommand::One, &code, "                null\n");
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_opt_keeps_the_nullable_shape_and_never_throws() {
     let code = query_fn_for("kotlin-jdbc", QueryCommand::Opt);
@@ -140,6 +154,7 @@ fn kotlin_jdbc_opt_keeps_the_nullable_shape_and_never_throws() {
     assert_absent("kotlin-jdbc", QueryCommand::Opt, &code, "NoSuchElementException");
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_one_returns_the_bare_row_type_and_throws_on_a_missing_row() {
     let code = query_fn_for("kotlin-exposed", QueryCommand::One);
@@ -165,6 +180,7 @@ fn kotlin_exposed_one_returns_the_bare_row_type_and_throws_on_a_missing_row() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_opt_keeps_the_nullable_shape_and_never_throws() {
     let code = query_fn_for("kotlin-exposed", QueryCommand::Opt);
@@ -182,6 +198,7 @@ fn kotlin_exposed_opt_keeps_the_nullable_shape_and_never_throws() {
 // java-r2dbc / kotlin-r2dbc: reactive, error the publisher instead of throwing
 // ---------------------------------------------------------------------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_one_errors_the_publisher_on_a_missing_row() {
     let code = query_fn_for("java-r2dbc", QueryCommand::One);
@@ -199,6 +216,7 @@ fn java_r2dbc_one_errors_the_publisher_on_a_missing_row() {
     );
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_opt_never_errors_the_publisher_on_a_missing_row() {
     let code = query_fn_for("java-r2dbc", QueryCommand::Opt);
@@ -212,6 +230,7 @@ fn java_r2dbc_opt_never_errors_the_publisher_on_a_missing_row() {
     assert_absent("java-r2dbc", QueryCommand::Opt, &code, "NoSuchElementException");
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_r2dbc_one_returns_the_bare_row_type_and_errors_the_publisher() {
     let code = query_fn_for("kotlin-r2dbc", QueryCommand::One);
@@ -237,6 +256,7 @@ fn kotlin_r2dbc_one_returns_the_bare_row_type_and_errors_the_publisher() {
     assert_absent("kotlin-r2dbc", QueryCommand::One, &code, "}.awaitFirstOrNull()");
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_r2dbc_opt_keeps_the_nullable_shape_and_never_errors_the_publisher() {
     let code = query_fn_for("kotlin-r2dbc", QueryCommand::Opt);
@@ -258,6 +278,7 @@ fn kotlin_r2dbc_opt_keeps_the_nullable_shape_and_never_errors_the_publisher() {
 // Cross-backend: :one and :opt must never render identical code
 // ---------------------------------------------------------------------
 
+#[cfg(all(feature = "lang-java", feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn every_jvm_backend_renders_different_code_for_one_and_opt() {
     for backend in [

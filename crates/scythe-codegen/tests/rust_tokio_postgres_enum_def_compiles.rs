@@ -18,6 +18,8 @@
 //! the identical reason: `tokio_postgres::types::{FromSql, ToSql}` are
 //! referenced by fully-qualified path with no `use` to stub around.
 
+#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;

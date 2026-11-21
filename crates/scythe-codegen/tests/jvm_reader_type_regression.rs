@@ -72,6 +72,16 @@
 //! `tests/jvm_composite_read_regression.rs` for the fuller composite coverage (nested composites,
 //! NULL handling, the text-form escaping rules, scalar field conversion).
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::provenance;
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_with_tools};
 use scythe_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
@@ -278,6 +288,7 @@ fn assert_absent(backend: &str, code: &str, needle: &str, why: &str) {
 /// driver's text form. `uuid`'s assertions are untouched -- pgjdbc does have a built-in `UUID`
 /// codec, so `getObject(col, UUID.class)` was, and still is, correct there. See
 /// `tests/jvm_composite_read_regression.rs` for the fuller composite coverage.
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_reads_uuid_columns_through_a_class_literal_and_composites_through_text_form() {
     let code = generated_text("java-jdbc");
@@ -314,6 +325,7 @@ fn java_jdbc_reads_uuid_columns_through_a_class_literal_and_composites_through_t
 }
 
 /// Inverted with board #196 -- see the java-jdbc twin above for the full reasoning.
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_reads_uuid_columns_through_a_class_literal_and_composites_through_text_form() {
     let code = generated_text("kotlin-jdbc");
@@ -351,6 +363,7 @@ fn kotlin_jdbc_reads_uuid_columns_through_a_class_literal_and_composites_through
 
 /// Inverted with board #196 -- see the java-jdbc twin above for the full reasoning. The uuid and
 /// `scheduled_at` assertions are untouched: `getObject(col, T.class)` remains correct for both.
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_reads_uuid_columns_through_a_class_literal_and_composites_through_text_form() {
     let code = generated_text("kotlin-exposed");
@@ -394,6 +407,7 @@ fn kotlin_exposed_reads_uuid_columns_through_a_class_literal_and_composites_thro
     );
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_row_get_uses_the_declared_class_never_object() {
     let code = generated_text("java-r2dbc");
@@ -447,6 +461,7 @@ fn java_r2dbc_row_get_uses_the_declared_class_never_object() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_r2dbc_row_get_uses_the_declared_class_never_any() {
     let code = generated_text("kotlin-r2dbc");
@@ -514,6 +529,7 @@ fn kotlin_r2dbc_row_get_uses_the_declared_class_never_any() {
 
 // -- #191: java-r2dbc emitted no enclosing class ---------------------------
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_wraps_its_output_in_a_single_public_class() {
     let file = generated_file("java-r2dbc");
@@ -539,6 +555,7 @@ fn java_r2dbc_wraps_its_output_in_a_single_public_class() {
 /// `java-jdbc` already paired every nullable primitive with `wasNull()`; this
 /// pins that it stays that way, and is the shape `kotlin-exposed` was missing
 /// entirely.
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_guards_every_nullable_primitive_with_was_null() {
     let code = generated_text("java-jdbc");
@@ -558,6 +575,7 @@ fn java_jdbc_guards_every_nullable_primitive_with_was_null() {
     }
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_guards_every_nullable_primitive_with_was_null() {
     let code = generated_text("kotlin-jdbc");
@@ -580,6 +598,7 @@ fn kotlin_jdbc_guards_every_nullable_primitive_with_was_null() {
 /// The `kotlin-exposed` half of #192: this backend read every nullable
 /// primitive column inline with `rs.getInt(...)`/`rs.getBoolean(...)` and had
 /// no `wasNull()` call anywhere in its output.
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_guards_every_nullable_primitive_with_was_null() {
     let code = generated_text("kotlin-exposed");
@@ -623,6 +642,7 @@ fn kotlin_exposed_guards_every_nullable_primitive_with_was_null() {
 /// variant, regardless of how the variant name was sanitised. The NULL guard
 /// itself is unchanged: `getString` still returns `null` for SQL NULL, so the
 /// check still runs on the raw string before `fromValue` is called.
+#[cfg(all(feature = "lang-java", feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn jdbc_backends_null_guard_a_nullable_enum_column() {
     let java = generated_text("java-jdbc");
@@ -725,16 +745,19 @@ fn assert_file_compiles(backend_name: &str, file: String) {
     }
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_composite_uuid_and_nullable_file_compiles() {
     assert_compiles("java-jdbc");
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_composite_uuid_and_nullable_file_compiles() {
     assert_compiles("java-r2dbc");
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_composite_uuid_and_nullable_file_compiles() {
     assert_compiles("kotlin-jdbc");
@@ -747,6 +770,7 @@ fn kotlin_jdbc_composite_uuid_and_nullable_file_compiles() {
 /// `.flatMap(` open: `error: ')' or ',' expected`. That is a plain syntax
 /// defect, unrelated to any reader, and it made *every* `:grouped` query this
 /// backend emitted unbuildable.
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_grouped_closes_its_row_buffer_lambda() {
     let code = generated_grouped_text("java-r2dbc");
@@ -766,6 +790,7 @@ fn java_r2dbc_grouped_closes_its_row_buffer_lambda() {
 
 /// The `:grouped` fold reads every column a second time, on a code path none
 /// of the `:one`/`:many` assertions above touch.
+#[cfg(all(feature = "lang-java", feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn grouped_row_folds_use_typed_readers_on_every_jvm_backend() {
     for (backend, uuid_read) in [
@@ -794,6 +819,7 @@ fn grouped_row_folds_use_typed_readers_on_every_jvm_backend() {
 
 /// The `kotlin-exposed` grouped fold had the same missing `wasNull()` as its
 /// `:one`/`:many` paths, on both the parent and the child row.
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_exposed_grouped_fold_guards_nullable_columns() {
     let code = generated_grouped_text("kotlin-exposed");
@@ -820,16 +846,19 @@ fn kotlin_exposed_grouped_fold_guards_nullable_columns() {
     );
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_grouped_file_compiles() {
     assert_grouped_compiles("java-jdbc");
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_r2dbc_grouped_file_compiles() {
     assert_grouped_compiles("java-r2dbc");
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_grouped_file_compiles() {
     assert_grouped_compiles("kotlin-jdbc");

@@ -12,6 +12,8 @@
 //! `clean_sql`/`clean_sql_oneline`/`rewrite_pg_placeholders` would have seen
 //! it too.
 
+#![cfg(all(feature = "lang-java", feature = "mssql", feature = "mysql", feature = "postgres"))]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::AnalyzedQuery;
 use scythe_core::parser::QueryCommand;

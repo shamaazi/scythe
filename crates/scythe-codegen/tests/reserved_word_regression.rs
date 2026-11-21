@@ -16,6 +16,16 @@
 //! `typescript_pg_mangles_class_in_a_binding_but_leaves_the_row_key_alone`
 //! at the bottom of this file for why the row key must not be mangled.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use std::process::Command;
 
 use scythe_codegen::{generate_with_backend, get_backend};
@@ -42,6 +52,7 @@ fn generate_row_struct(backend_name: &str) -> String {
     code.row_struct.expect("expected a row struct")
 }
 
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]
 fn rust_sqlx_mangles_the_type_keyword() {
     let row_struct = generate_row_struct("rust-sqlx");
@@ -55,6 +66,7 @@ fn rust_sqlx_mangles_the_type_keyword() {
     );
 }
 
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn python_psycopg3_mangles_the_class_keyword() {
     let row_struct = generate_row_struct("python-psycopg3");
@@ -68,6 +80,7 @@ fn python_psycopg3_mangles_the_class_keyword() {
     );
 }
 
+#[cfg(all(feature = "lang-java", feature = "postgres"))]
 #[test]
 fn java_jdbc_mangles_the_class_keyword() {
     let row_struct = generate_row_struct("java-jdbc");
@@ -81,6 +94,7 @@ fn java_jdbc_mangles_the_class_keyword() {
     );
 }
 
+#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
 #[test]
 fn kotlin_jdbc_mangles_the_class_keyword() {
     let row_struct = generate_row_struct("kotlin-jdbc");
@@ -94,6 +108,7 @@ fn kotlin_jdbc_mangles_the_class_keyword() {
     );
 }
 
+#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
 #[test]
 fn elixir_postgrex_mangles_the_fn_keyword() {
     let row_struct = generate_row_struct("elixir-postgrex");
@@ -108,6 +123,7 @@ fn elixir_postgrex_mangles_the_fn_keyword() {
     );
 }
 
+#[cfg(all(feature = "lang-go", feature = "postgres"))]
 #[test]
 fn go_pgx_leaves_pascal_cased_field_alone() {
     // Go PascalCases exported struct fields (`Type`), which never collides
@@ -143,6 +159,7 @@ fn go_pgx_leaves_pascal_cased_field_alone() {
     }
 }
 
+#[cfg(all(feature = "lang-csharp", feature = "postgres"))]
 #[test]
 fn csharp_npgsql_mangles_the_class_keyword_in_the_function_parameter_list() {
     // C# backends emit function *parameters* with the raw field_name
@@ -175,6 +192,7 @@ fn csharp_npgsql_mangles_the_class_keyword_in_the_function_parameter_list() {
 /// it (`client.query<FindByClassRow>(...)`). Mangling the column instead
 /// would have swapped a compile error for a row type that describes an
 /// object `pg` never returns.
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn typescript_pg_mangles_class_in_a_binding_but_leaves_the_row_key_alone() {
     let backend = get_backend("typescript-pg", "postgresql").unwrap();

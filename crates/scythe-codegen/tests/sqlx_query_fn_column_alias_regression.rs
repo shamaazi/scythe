@@ -20,6 +20,8 @@
 //! backslash and quote *again*. The SQL text sqlx actually receives at
 //! compile time ends up with a literal backslash sqlx never asked for.
 
+#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;

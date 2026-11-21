@@ -17,6 +17,8 @@
 //! the exported type name, and that no `stmt.run(` call is ever handed an
 //! argument.
 
+#![cfg(all(feature = "lang-typescript", feature = "duckdb"))]
+
 use scythe_codegen::validation::{strict_mode_enabled, validate_with_tools};
 use scythe_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;

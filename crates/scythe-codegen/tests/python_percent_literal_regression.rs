@@ -17,6 +17,16 @@
 //! `python_named_placeholder_regression.rs`, so each test exercises exactly
 //! what a user's `scythe.toml` run produces.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;
@@ -40,6 +50,7 @@ fn generate_query_fn(backend_name: &str, engine: &str, dialect: &SqlDialect, sch
 
 // --- psycopg3 (%(name)s paramstyle) -----------------------------------
 
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn psycopg3_doubles_a_literal_percent_in_a_like_pattern() {
     const QUERY: &str = "-- @name FindItem\n-- @returns :many\n\
@@ -58,6 +69,7 @@ fn psycopg3_doubles_a_literal_percent_in_a_like_pattern() {
     );
 }
 
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn psycopg3_emitted_named_placeholder_is_not_doubled() {
     // Deliberately does not assert on a specific placeholder spelling like
@@ -87,6 +99,7 @@ fn psycopg3_emitted_named_placeholder_is_not_doubled() {
 
 // --- aiomysql (%s paramstyle) -------------------------------------------
 
+#[cfg(all(feature = "lang-python", feature = "mysql"))]
 #[test]
 fn aiomysql_doubles_a_literal_percent_in_a_like_pattern() {
     const QUERY: &str = "-- @name FindItem\n-- @returns :many\n\
@@ -99,6 +112,7 @@ fn aiomysql_doubles_a_literal_percent_in_a_like_pattern() {
     );
 }
 
+#[cfg(all(feature = "lang-python", feature = "mysql"))]
 #[test]
 fn aiomysql_emitted_positional_placeholder_is_not_doubled() {
     const QUERY: &str = "-- @name FindItem\n-- @returns :many\n\
@@ -116,6 +130,7 @@ fn aiomysql_emitted_positional_placeholder_is_not_doubled() {
 }
 
 /// Direct regression test for the aiomysql half of #153 item 2.
+#[cfg(all(feature = "lang-python", feature = "mysql"))]
 #[test]
 fn aiomysql_preserves_a_question_mark_inside_a_string_literal() {
     const QUERY: &str = "-- @name FindReally\n-- @returns :many\n\
@@ -143,6 +158,7 @@ fn aiomysql_preserves_a_question_mark_inside_a_string_literal() {
 ///
 /// That is the same class of silent wrong answer #201 is about, merely inverted, so
 /// it gets its own guard rather than riding on the doubling tests above.
+#[cfg(all(feature = "lang-python", feature = "postgres"))]
 #[test]
 fn psycopg3_leaves_a_literal_percent_alone_when_the_query_binds_nothing() {
     const QUERY: &str = "-- @name AllHundreds\n-- @returns :many\n\
@@ -166,6 +182,7 @@ fn psycopg3_leaves_a_literal_percent_alone_when_the_query_binds_nothing() {
     );
 }
 
+#[cfg(all(feature = "lang-python", feature = "mysql"))]
 #[test]
 fn aiomysql_leaves_a_literal_percent_alone_when_the_query_binds_nothing() {
     const QUERY: &str = "-- @name AllHundreds\n-- @returns :many\n\

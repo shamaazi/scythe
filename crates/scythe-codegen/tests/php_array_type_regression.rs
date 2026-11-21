@@ -35,6 +35,16 @@
 //! just as happily when the element type has been thrown away everywhere --
 //! which is exactly the state this file used to pin.
 
+#![cfg_attr(
+    not(all(feature = "all-engines", feature = "all-languages")),
+    allow(
+        dead_code,
+        unused_imports,
+        unused_macros,
+        reason = "helpers shared with tests of backends this build leaves out"
+    )
+)]
+
 use std::path::PathBuf;
 
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_structural, validate_with_tools};
@@ -215,6 +225,7 @@ fn assert_php_file_is_valid(backend_name: &str, code: &str) {
     }
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_pdo_array_columns_parse() {
     let code = generate_full_file("php-pdo", "postgresql", &SqlDialect::PostgreSQL, PG_SCHEMA, PG_QUERY);
@@ -229,6 +240,7 @@ fn php_pdo_array_columns_parse() {
     assert_php_file_is_valid("php-pdo", &code);
 }
 
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_amphp_array_columns_parse() {
     let code = generate_full_file("php-amphp", "postgresql", &SqlDialect::PostgreSQL, PG_SCHEMA, PG_QUERY);
@@ -242,6 +254,7 @@ fn php_amphp_array_columns_parse() {
 /// the native halves of these same three columns. Either assertion alone is
 /// satisfied by a regression: dropping the docblocks passes the native test,
 /// and moving `array<T>` back into `[types.containers]` passes this one.
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_array_docblocks_carry_the_element_type() {
     for backend_name in ["php-pdo", "php-amphp"] {
@@ -278,6 +291,7 @@ fn php_array_docblocks_carry_the_element_type() {
 ///
 /// `= ANY(...)` synthesises an `array<int32>` parameter, so the element type
 /// is available in exactly the position PHP's signature cannot express it.
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_any_param_docblocks_carry_the_element_type() {
     for backend_name in ["php-pdo", "php-amphp"] {
@@ -295,6 +309,7 @@ fn php_any_param_docblocks_carry_the_element_type() {
 /// A type that needs no docblock must not get one. Otherwise every generated
 /// file grows a `/** @var string */` above every string property, which says
 /// nothing PHP's own type did not already say.
+#[cfg(all(feature = "lang-php", feature = "postgres"))]
 #[test]
 fn php_scalar_columns_get_no_docblock() {
     let code = generate_full_file("php-pdo", "postgresql", &SqlDialect::PostgreSQL, PG_SCHEMA, PG_QUERY);
@@ -314,6 +329,15 @@ fn php_scalar_columns_get_no_docblock() {
 /// Shared with [`php_any_param_docblocks_carry_the_element_type_on_every_reachable_engine`]
 /// so both tests see the same reachable set by construction -- a case added
 /// to only one of them would leave the other one silently short.
+#[cfg(all(
+    feature = "lang-php",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "postgres",
+    feature = "redshift",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
 fn any_param_reachable_cases() -> &'static [(&'static str, &'static str, SqlDialect)] {
     &[
         ("php-pdo", "postgresql", SqlDialect::PostgreSQL),
@@ -329,6 +353,15 @@ fn any_param_reachable_cases() -> &'static [(&'static str, &'static str, SqlDial
     ]
 }
 
+#[cfg(all(
+    feature = "lang-php",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "postgres",
+    feature = "redshift",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
 #[test]
 fn php_any_params_parse_on_every_reachable_engine() {
     for (backend_name, engine, dialect) in any_param_reachable_cases() {
@@ -352,6 +385,15 @@ fn php_any_params_parse_on_every_reachable_engine() {
 /// side is the only thing any of them checked on those nine. That is
 /// exactly the shape #164 exists to catch: a whole set that only ever
 /// degrades, verified to agree with itself and nothing else.
+#[cfg(all(
+    feature = "lang-php",
+    feature = "mssql",
+    feature = "mysql",
+    feature = "postgres",
+    feature = "redshift",
+    feature = "snowflake",
+    feature = "sqlite"
+))]
 #[test]
 fn php_any_param_docblocks_carry_the_element_type_on_every_reachable_engine() {
     for (backend_name, engine, dialect) in any_param_reachable_cases() {
