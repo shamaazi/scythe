@@ -3,6 +3,7 @@ use sqlparser::ast::{self, BinaryOperator, Expr, FunctionArg, FunctionArgExpr, U
 use crate::catalog::{Function, FunctionArgumentMode, FunctionReturn};
 use crate::dialect::SqlDialect;
 
+use super::builtins::builtin_functions;
 use super::helpers::*;
 use super::type_conversion::{datatype_to_neutral, sql_type_to_neutral};
 use super::types::*;
@@ -11,22 +12,18 @@ impl<'a> Analyzer<'a> {
     pub(super) fn infer_expr_type(&mut self, expr: &Expr, scope: &Scope) -> TypeInfo {
         match expr {
             Expr::Identifier(ident) => {
-                let col_name = if ident.quote_style.is_some() {
-                    ident.value.clone()
-                } else {
-                    ident.value.to_lowercase()
-                };
+                let col_name = ident_name(ident);
                 self.resolve_column_in_scope(&col_name, None, scope)
             }
 
             Expr::CompoundIdentifier(parts) => {
                 if parts.len() == 2 {
-                    let qualifier = parts[0].value.to_lowercase();
-                    let col_name = parts[1].value.to_lowercase();
+                    let qualifier = ident_name(&parts[0]);
+                    let col_name = ident_name(&parts[1]);
                     self.resolve_column_in_scope(&col_name, Some(&qualifier), scope)
                 } else if parts.len() >= 3 {
-                    let qualifier = parts[parts.len() - 2].value.to_lowercase();
-                    let col_name = parts[parts.len() - 1].value.to_lowercase();
+                    let qualifier = ident_name(&parts[parts.len() - 2]);
+                    let col_name = ident_name(&parts[parts.len() - 1]);
                     self.resolve_column_in_scope(&col_name, Some(&qualifier), scope)
                 } else {
                     // Unreachable via `Parser::parse_sql` -- sqlparser never emits a
@@ -103,6 +100,7 @@ impl<'a> Analyzer<'a> {
             Expr::BinaryOp { left, op, right } => {
                 let left_ti = self.infer_expr_type(left, scope);
                 let right_ti = self.infer_expr_type(right, scope);
+                self.bind_operator_placeholders(left, op, right, &left_ti, &right_ti);
 
                 match op {
                     BinaryOperator::StringConcat => TypeInfo::new("string", left_ti.nullable || right_ti.nullable),
@@ -411,7 +409,7 @@ impl<'a> Analyzer<'a> {
                     && let Some(last) = access_chain.last()
                     && let ast::AccessExpr::Dot(Expr::Identifier(ident)) = last
                 {
-                    let field_name = ident.value.to_lowercase();
+                    let field_name = ident_name(ident);
                     if let Some(field) = comp.fields.iter().find(|f| f.name == field_name) {
                         let neutral = sql_type_to_neutral(&field.sql_type, self.catalog);
                         return TypeInfo::new(neutral, true);
@@ -524,6 +522,10 @@ impl<'a> Analyzer<'a> {
         // `array` whose arguments are the subquery.
         if let ast::FunctionArguments::Subquery(query) = &func.args {
             return self.infer_array_subquery_type(query, scope);
+        }
+
+        if let Some(overloads) = self.builtin_overloads(&func_name) {
+            self.bind_builtin_arguments(func, overloads, scope);
         }
 
         let first_arg_ti = self.get_first_arg_type(func, scope);
@@ -1013,7 +1015,11 @@ impl<'a> Analyzer<'a> {
 
     fn infer_catalog_function_type(&mut self, func: &ast::Function, scope: &Scope) -> Option<TypeInfo> {
         let function_name = object_name_to_string(&func.name).to_lowercase();
-        let overloads = self.catalog.get_functions(&function_name)?;
+        let builtin = self.catalog.get_functions(&function_name).is_none();
+        let overloads = match self.catalog.get_functions(&function_name) {
+            Some(overloads) => overloads,
+            None => self.builtin_overloads(&function_name)?,
+        };
         let call_arguments = catalog_call_arguments(func)?;
         let inferred = call_arguments
             .iter()
@@ -1038,7 +1044,10 @@ impl<'a> Analyzer<'a> {
             ));
         }
 
-        self.register_catalog_function_params(best, &call_arguments);
+        // A built-in's placeholders were bound by `bind_builtin_arguments`.
+        if !builtin {
+            self.register_catalog_function_params(best, &call_arguments);
+        }
 
         let strict_null = best.strict_null_input(&inferred);
         Some(match &best.function.return_type {
@@ -1050,6 +1059,46 @@ impl<'a> Analyzer<'a> {
             }
             FunctionReturn::Table { .. } => TypeInfo::new(UNRESOLVED_EXPR_MARKER, true),
         })
+    }
+
+    /// The PostgreSQL built-in overloads of `name`, unless the schema defines
+    /// a function by that name.
+    pub(super) fn builtin_overloads(&self, name: &str) -> Option<&'static [Function]> {
+        if self.catalog.dialect() != SqlDialect::PostgreSQL || self.catalog.get_functions(name).is_some() {
+            return None;
+        }
+        builtin_functions(name)
+    }
+
+    /// Type the placeholders passed to a built-in function by the overload
+    /// the call resolves to. A call no overload accepts, or more than one
+    /// equally, binds nothing: inference arms type such calls themselves.
+    /// A placeholder argument is not nullable for being one.
+    fn bind_builtin_arguments(&mut self, func: &ast::Function, overloads: &[Function], scope: &Scope) {
+        let Some(call_arguments) = catalog_call_arguments(func) else {
+            return;
+        };
+        let inferred = call_arguments
+            .iter()
+            .map(|(_, expression)| self.infer_expr_type(expression, scope))
+            .collect::<Vec<_>>();
+        let mut matches = overloads
+            .iter()
+            .filter_map(|function| match_catalog_function(function, &call_arguments, &inferred, self.catalog))
+            .collect::<Vec<_>>();
+        matches.sort_by_key(|matched| matched.score);
+        let [best, rest @ ..] = matches.as_slice() else {
+            return;
+        };
+        if rest.first().is_some_and(|other| other.score == best.score) {
+            return;
+        }
+        for (call_index, declaration_index) in &best.bindings {
+            let declaration = &best.function.arguments[*declaration_index];
+            let neutral_type = sql_type_to_neutral(&declaration.sql_type, self.catalog);
+            let name = declaration.name.as_deref().unwrap_or("value");
+            self.collect_param_from_expr(call_arguments[*call_index].1, name, &neutral_type);
+        }
     }
 
     pub(super) fn register_catalog_function_params(
@@ -1140,11 +1189,7 @@ impl<'a> Analyzer<'a> {
     fn classify_function_arg_expr(&self, fae: &FunctionArgExpr, scope: &Scope) -> FuncArgShape {
         match fae {
             FunctionArgExpr::Expr(Expr::Identifier(ident)) => {
-                let name = if ident.quote_style.is_some() {
-                    ident.value.clone()
-                } else {
-                    ident.value.to_lowercase()
-                };
+                let name = ident_name(ident);
                 match self.scope_relation_alias(&name, scope) {
                     Some(alias) => FuncArgShape::Relation(alias),
                     None => FuncArgShape::Expr(Box::new(Expr::Identifier(ident.clone()))),
@@ -1152,7 +1197,7 @@ impl<'a> Analyzer<'a> {
             }
             FunctionArgExpr::Expr(e) => FuncArgShape::Expr(Box::new(e.clone())),
             FunctionArgExpr::QualifiedWildcard(object_name) => {
-                let qualifier = object_name_to_string(object_name).to_lowercase();
+                let qualifier = object_column_name(object_name);
                 match self.find_scope_source_alias(&qualifier, scope) {
                     Some(alias) => FuncArgShape::Relation(alias),
                     None => FuncArgShape::Wildcard,
@@ -1531,6 +1576,16 @@ pub(super) fn match_catalog_function<'a>(
         } else {
             declared.as_ref()
         };
+        // An undecorated string literal has PostgreSQL's `unknown` type and
+        // converts to whatever the argument declares (`record_type('x')` with
+        // an enum argument), though a string argument is preferred.
+        if let Some(literal) = untyped_string_literal(call_arguments[*call_index].1) {
+            if !literal_converts_to(literal, declared, catalog) {
+                return None;
+            }
+            score += u32::from(declared != "string");
+            continue;
+        }
         let neutral_score = numeric_promotion_distance(actual, declared)?;
         score += neutral_score;
         if neutral_score == 0
@@ -1551,6 +1606,40 @@ pub(super) fn match_catalog_function<'a>(
         score,
         bindings,
     })
+}
+
+fn untyped_string_literal(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Nested(inner) => untyped_string_literal(inner),
+        Expr::Value(vws) => match &vws.value {
+            ast::Value::SingleQuotedString(text) | ast::Value::EscapedStringLiteral(text) => Some(text),
+            ast::Value::DollarQuotedString(quoted) => Some(&quoted.value),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether PostgreSQL accepts `literal` as input to a `declared` argument.
+/// Only the types whose input is checked cheaply are checked: an enum takes
+/// one of its labels, a number a numeric literal and a boolean a boolean
+/// spelling; anything else is left to the database.
+fn literal_converts_to(literal: &str, declared: &str, catalog: &crate::catalog::Catalog) -> bool {
+    let literal = literal.trim();
+    if let Some(name) = declared.strip_prefix("enum::") {
+        return catalog
+            .get_enum(name)
+            .is_none_or(|enum_type| enum_type.values.iter().any(|value| value == literal));
+    }
+    match declared {
+        "int16" | "int32" | "int64" => literal.parse::<i64>().is_ok(),
+        "decimal" | "float32" | "float64" => literal.parse::<f64>().is_ok(),
+        "bool" => matches!(
+            literal.to_ascii_lowercase().as_str(),
+            "t" | "true" | "y" | "yes" | "on" | "1" | "f" | "false" | "n" | "no" | "off" | "0"
+        ),
+        _ => true,
+    }
 }
 
 fn array_element_type(neutral_type: &str) -> Option<&str> {

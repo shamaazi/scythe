@@ -495,7 +495,8 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
         let parse_sql = preprocess_mssql_sql(&sql);
         (codegen_sql, parse_sql)
     } else if *dialect == SqlDialect::PostgreSQL {
-        let parse_sql = spell_out_default_trim_characters(&preprocess_postgres_sql(&sql));
+        let parse_sql =
+            spell_out_default_trim_characters(&end_select_list_before_on_conflict(&preprocess_postgres_sql(&sql)));
         (sql.clone(), parse_sql)
     } else {
         (sql.clone(), sql)
@@ -660,6 +661,63 @@ pub(crate) fn spell_out_default_trim_characters(sql: &str) -> String {
             result.push_str("' ' ");
             last = cursor;
         }
+    }
+    result.push_str(&sql[last..]);
+    result
+}
+
+/// End an `INSERT ... SELECT` list that runs into `ON CONFLICT` with
+/// `WHERE true`.
+///
+/// PostgreSQL reserves `ON`, so in `INSERT INTO t (a, b) SELECT $1, x ON
+/// CONFLICT DO NOTHING` the select list ends at `ON`. sqlparser 0.63 reads a
+/// bare `ON` after a select item as the item's alias and then fails on
+/// `CONFLICT`. Where the clause before `ON CONFLICT` at its nesting level is
+/// the select list itself, `WHERE true` is inserted before `ON`: it ends the
+/// list for sqlparser and filters nothing. Comments, string literals and
+/// quoted identifiers are skipped; every other byte is copied unchanged.
+fn end_select_list_before_on_conflict(sql: &str) -> String {
+    const CLAUSES: &[&str] = &[
+        "SELECT", "FROM", "WHERE", "GROUP", "HAVING", "WINDOW", "ORDER", "LIMIT", "OFFSET", "FETCH", "VALUES",
+    ];
+    let mask = mask_postgres_for_scan(sql);
+    let bytes = mask.as_bytes();
+    let sql_bytes = sql.as_bytes();
+    // The last clause keyword seen at each parenthesis depth.
+    let mut clauses: Vec<Option<&str>> = vec![None];
+    let mut in_identifier = false;
+    let mut insertions = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b'"' {
+            in_identifier = !in_identifier;
+        } else if in_identifier {
+            // A quoted identifier is a name, never a keyword.
+        } else if byte == b'(' {
+            clauses.push(None);
+        } else if byte == b')' {
+            if clauses.len() > 1 {
+                clauses.pop();
+            }
+        } else if is_word_byte(byte) && (index == 0 || !is_word_byte(bytes[index - 1])) {
+            if let Some(clause) = CLAUSES.iter().find(|clause| word_at(&mask, index, clause)) {
+                *clauses.last_mut().expect("depth 0 is never popped") = Some(clause);
+            } else if word_at(&mask, index, "ON")
+                && word_at(&mask, skip_blank(bytes, sql_bytes, index + "ON".len()), "CONFLICT")
+                && clauses.last().copied().flatten() == Some("SELECT")
+            {
+                insertions.push(index);
+            }
+        }
+        index += 1;
+    }
+    let mut result = String::with_capacity(sql.len() + insertions.len() * "WHERE true ".len());
+    let mut last = 0;
+    for position in insertions {
+        result.push_str(&sql[last..position]);
+        result.push_str("WHERE true ");
+        last = position;
     }
     result.push_str(&sql[last..]);
     result
@@ -1565,6 +1623,48 @@ SELECT id FROM users WHERE id = $1";
             query.sql.contains("TRIM(LEADING FROM name)"),
             "codegen keeps the original SQL"
         );
+    }
+
+    #[test]
+    fn test_end_select_list_before_on_conflict_inserts_where_true() {
+        assert_eq!(
+            end_select_list_before_on_conflict(
+                "INSERT INTO t (a, b) SELECT $1, unnest($2::text[])\nON CONFLICT DO NOTHING"
+            ),
+            "INSERT INTO t (a, b) SELECT $1, unnest($2::text[])\nWHERE true ON CONFLICT DO NOTHING"
+        );
+        assert_eq!(
+            end_select_list_before_on_conflict(
+                "WITH x AS (SELECT 1) INSERT INTO t SELECT DISTINCT ON (a) a on  conflict (a) do nothing"
+            ),
+            "WITH x AS (SELECT 1) INSERT INTO t SELECT DISTINCT ON (a) a WHERE true on  conflict (a) do nothing"
+        );
+        assert_eq!(
+            end_select_list_before_on_conflict("INSERT INTO t (a) SELECT (SELECT 1 FROM u) ON CONFLICT DO NOTHING"),
+            "INSERT INTO t (a) SELECT (SELECT 1 FROM u) WHERE true ON CONFLICT DO NOTHING"
+        );
+    }
+
+    #[test]
+    fn test_end_select_list_before_on_conflict_leaves_other_forms_alone() {
+        for sql in [
+            "INSERT INTO t (a) SELECT x FROM y ON CONFLICT DO NOTHING",
+            "INSERT INTO t (a) SELECT x FROM y WHERE z ON CONFLICT DO NOTHING",
+            "INSERT INTO t (a) VALUES ($1) ON CONFLICT DO NOTHING",
+            "INSERT INTO t (a) SELECT 'ON CONFLICT' FROM y",
+            "INSERT INTO t (a) SELECT \"on\" FROM y ON CONFLICT DO NOTHING",
+            "SELECT a FROM t JOIN u ON t.id = u.id",
+        ] {
+            assert_eq!(end_select_list_before_on_conflict(sql), sql);
+        }
+    }
+
+    #[test]
+    fn test_insert_select_without_from_before_on_conflict_parses_and_keeps_original_sql() {
+        let sql = "INSERT INTO reminders (\"userId\", topic)\nSELECT $1, unnest($2::text[])\nON CONFLICT DO NOTHING";
+        let query = parse_query(&format!("-- @name AddReminders\n-- @returns :exec\n{sql};"))
+            .expect("an INSERT ... SELECT list ending at ON CONFLICT should parse");
+        assert_eq!(query.sql, format!("{sql};"), "codegen keeps the original SQL");
     }
 
     #[test]

@@ -1,3 +1,4 @@
+mod builtins;
 mod expressions;
 mod function_body;
 mod helpers;
@@ -44,6 +45,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
     };
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;
+    register_unvisited_placeholders(&mut analyzer, &query.stmt);
 
     if let Some(err_msg) = analyzer.type_errors.first() {
         return Err(ScytheError::type_mismatch(err_msg.clone()));
@@ -343,6 +345,25 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         custom: query.annotations.custom.clone(),
         nested_structs,
     })
+}
+
+/// Register every `$N` the statement holds that inference never reached, so
+/// a parameter is never silently missing from the signature while the SQL
+/// still binds it. Such a parameter has no type until something gives it one;
+/// codegen then reports it rather than generating a call with too few values.
+fn register_unvisited_placeholders(analyzer: &mut Analyzer<'_>, stmt: &sqlparser::ast::Statement) {
+    let mut positions = Vec::new();
+    let _ = sqlparser::ast::visit_expressions(stmt, |expr| {
+        if let sqlparser::ast::Expr::Value(vws) = expr
+            && let Some(position) = helpers::value_is_placeholder(vws).and_then(helpers::parse_placeholder)
+        {
+            positions.push(position);
+        }
+        std::ops::ControlFlow::<()>::Continue(())
+    });
+    for position in positions {
+        analyzer.register_param(position, None, None, false, None);
+    }
 }
 
 /// The constraints a parameter written into `columns` must satisfy: every
@@ -2925,5 +2946,383 @@ SELECT id, moods FROM t WHERE id = $1;",
             .map(|p| (p.position, p.neutral_type.as_str()))
             .collect();
         assert_eq!(types, [(1, "bool"), (2, "bool"), (3, "bool")]);
+    }
+
+    fn param_types(result: &AnalyzedQuery) -> Vec<(i64, &str)> {
+        result
+            .params
+            .iter()
+            .map(|p| (p.position, p.neutral_type.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn should_collect_placeholders_inside_case_branches_and_their_subqueries() {
+        let result = analyze_sql(
+            "-- @name Search\n-- @returns :many\n\
+             SELECT u.id FROM users u WHERE CASE WHEN $1::boolean THEN u.id = $2 \
+             ELSE ($3::text IS NOT NULL AND EXISTS (SELECT 1 FROM posts p WHERE p.user_id = u.id AND p.title = $3)) \
+             END;",
+        )
+        .expect("every CASE branch is analyzed");
+        assert_eq!(param_types(&result), [(1, "bool"), (2, "int32"), (3, "string")]);
+    }
+
+    #[test]
+    fn should_collect_placeholders_in_order_by_group_by_and_join_conditions() {
+        let result = analyze_sql(
+            "-- @name Sorted\n-- @returns :many\n\
+             SELECT u.id, count(p.id) AS posts FROM users u \
+             JOIN posts p ON p.user_id = u.id AND p.published = $1 \
+             GROUP BY u.id, $2::text \
+             ORDER BY (CASE WHEN $3 THEN u.name END) ASC, CASE WHEN $4 = 'age' THEN u.age END;",
+        )
+        .expect("ON, GROUP BY and ORDER BY placeholders are parameters");
+        assert_eq!(
+            param_types(&result),
+            [(1, "bool"), (2, "string"), (3, "bool"), (4, "string")]
+        );
+    }
+
+    #[test]
+    fn should_type_unnest_and_ordinality_columns_in_from() {
+        let result = analyze_sql(
+            "-- @name Tags\n-- @returns :many\n\
+             SELECT tag, e.item, e.n FROM unnest($1::text[]) AS tag, \
+             jsonb_array_elements($2::jsonb) WITH ORDINALITY AS e(item, n);",
+        )
+        .expect("FROM-clause function arguments and columns resolve");
+        assert_eq!(param_types(&result), [(1, "array<string>"), (2, "json")]);
+        let columns: Vec<_> = result
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.neutral_type.as_str(), c.nullable))
+            .collect();
+        assert_eq!(
+            columns,
+            [("tag", "string", true), ("item", "json", true), ("n", "int64", false)]
+        );
+    }
+
+    #[test]
+    fn should_type_rows_of_a_multi_array_unnest_in_a_subquery() {
+        let result = analyze_sql(
+            "-- @name DeletePairs\n-- @returns :exec\n\
+             DELETE FROM posts WHERE (user_id, title) IN (SELECT * FROM unnest($1::integer[], $2::text[]));",
+        )
+        .expect("an IN subquery's FROM placeholders are parameters");
+        assert_eq!(param_types(&result), [(1, "array<int32>"), (2, "array<string>")]);
+    }
+
+    #[test]
+    fn should_collect_placeholders_of_data_modifying_ctes() {
+        let result = analyze_sql(
+            "-- @name DeleteUsers\n-- @returns :exec\n\
+             WITH removed AS (DELETE FROM posts WHERE user_id = ANY($1::integer[])), \
+             renamed AS (UPDATE comments SET body = $2 WHERE user_id = ANY($1)) \
+             DELETE FROM users WHERE id = ANY($1);",
+        )
+        .expect("data-modifying CTEs are analyzed");
+        assert_eq!(param_types(&result), [(1, "array<int32>"), (2, "string")]);
+    }
+
+    #[test]
+    fn should_type_insert_select_placeholders_by_their_target_columns() {
+        let result = analyze_sql(
+            "-- @name CopyTitles\n-- @returns :exec\n\
+             INSERT INTO posts (user_id, title) \
+             SELECT $1, t FROM unnest($2::text[]) WITH ORDINALITY AS x(t, n) ORDER BY x.n \
+             ON CONFLICT DO NOTHING;",
+        )
+        .expect("a select-list placeholder takes its target column's type");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "array<string>")]);
+        assert_eq!(result.params[0].name, "user_id");
+    }
+
+    #[test]
+    fn should_type_a_placeholder_compared_with_any_of_an_array_expression() {
+        let catalog =
+            Catalog::from_ddl(&["CREATE TABLE teams (id integer PRIMARY KEY, member_ids integer[] NOT NULL);"])
+                .expect("schema should parse");
+        let query = parse_query(
+            "-- @name Teams\n-- @returns :many\n\
+             SELECT id FROM teams WHERE $1 = ANY(member_ids) AND $2::bigint <> ALL(member_ids);",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the placeholder is an array element");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "int64")]);
+    }
+
+    #[test]
+    fn should_collect_placeholders_nested_in_update_assignments() {
+        let result = analyze_sql(
+            "-- @name Retitle\n-- @returns :exec\n\
+             UPDATE posts SET title = (SELECT u.name FROM users u WHERE u.id = $1) WHERE id = $2;",
+        )
+        .expect("a subquery in SET is analyzed");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "int32")]);
+    }
+
+    #[test]
+    fn should_register_placeholders_inference_never_reaches() {
+        let result = analyze_sql(
+            "-- @name Page\n-- @returns :many\n\
+             SELECT id FROM users ORDER BY id OFFSET $1 ROWS FETCH NEXT $2 ROWS ONLY;",
+        )
+        .expect("query should analyze");
+        let positions: Vec<_> = result.params.iter().map(|p| p.position).collect();
+        assert_eq!(positions, [1, 2], "no placeholder is dropped from the signature");
+    }
+
+    fn reminder_catalog() -> Catalog {
+        Catalog::from_ddl(&[
+            "CREATE TABLE users (id text PRIMARY KEY, email text NOT NULL);",
+            "CREATE TABLE reminders (\"userId\" text NOT NULL, topic text NOT NULL, PRIMARY KEY (\"userId\", topic));",
+        ])
+        .expect("schema should parse")
+    }
+
+    #[test]
+    fn should_keep_the_case_of_quoted_column_identifiers() {
+        let catalog = reminder_catalog();
+        let query = parse_query(
+            "-- @name Subscriber\n-- @returns :many\n\
+             SELECT u.email, r.\"userId\", \"userId\" AS \"ownerId\" FROM reminders r \
+             JOIN users u ON u.id = r.\"userId\" WHERE r.\"userId\" = $1 AND r.topic = $2;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("a quoted identifier names its exact column");
+        let names: Vec<_> = result.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["email", "userId", "ownerId"]);
+        assert_eq!(param_types(&result), [(1, "string"), (2, "string")]);
+    }
+
+    #[test]
+    fn should_bind_writes_to_quoted_columns_by_their_exact_name() {
+        let catalog = reminder_catalog();
+        let query = parse_query(
+            "-- @name Save\n-- @returns :exec\n\
+             INSERT INTO reminders (\"userId\", topic) VALUES ($1, $2) ON CONFLICT (\"userId\", topic) \
+             DO UPDATE SET \"userId\" = $3;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("quoted target columns resolve");
+        assert_eq!(param_types(&result), [(1, "string"), (2, "string"), (3, "string")]);
+        let names: Vec<_> = result.params.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["userId_1", "topic", "userId_2"]);
+    }
+
+    #[test]
+    fn should_fold_unquoted_identifiers_that_name_a_quoted_column() {
+        let catalog = reminder_catalog();
+        let query = parse_query("-- @name Folded\n-- @returns :many\nSELECT r.userId FROM reminders r;")
+            .expect("query should parse");
+        let error = analyze(&catalog, &query).expect_err("an unquoted userId folds to userid, which does not exist");
+        assert!(error.message.contains("userid"), "got: {}", error.message);
+    }
+
+    #[test]
+    fn should_resolve_aliased_update_targets_in_correlated_subqueries_and_returning() {
+        let result = analyze_sql(
+            "-- @name Unpublish\n-- @returns :many\n\
+             UPDATE posts p SET published = false, title = (SELECT u.name FROM users u WHERE u.id = p.user_id) \
+             WHERE p.user_id = $1 AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.post_id = p.id AND c.user_id = $2) \
+             RETURNING p.id, (SELECT u.email FROM users u WHERE u.id = p.user_id) AS email;",
+        )
+        .expect("the target alias is in scope everywhere");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "int32")]);
+        let columns: Vec<_> = result
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.neutral_type.as_str()))
+            .collect();
+        assert_eq!(columns, [("id", "int32"), ("email", "string")]);
+    }
+
+    #[test]
+    fn should_resolve_aliased_delete_targets_in_correlated_subqueries() {
+        let result = analyze_sql(
+            "-- @name DeleteSilent\n-- @returns :many\n\
+             DELETE FROM posts p WHERE p.user_id = $1 \
+             AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.post_id = p.id) RETURNING p.title;",
+        )
+        .expect("the target alias is in scope");
+        assert_eq!(param_types(&result), [(1, "int32")]);
+        assert_eq!(result.columns[0].neutral_type, "string");
+    }
+
+    #[test]
+    fn should_resolve_aliased_insert_targets_and_excluded_in_on_conflict() {
+        let result = analyze_sql(
+            "-- @name Upsert\n-- @returns :many\n\
+             INSERT INTO posts AS p (id, user_id, title) VALUES ($1, $2, $3) \
+             ON CONFLICT (id) DO UPDATE SET title = excluded.title WHERE p.title <> $4 \
+             RETURNING p.id;",
+        )
+        .expect("the insert alias and excluded are in scope");
+        assert_eq!(
+            param_types(&result),
+            [(1, "int32"), (2, "int32"), (3, "string"), (4, "string")]
+        );
+    }
+
+    fn brand_catalog() -> Catalog {
+        Catalog::from_ddl(&[
+            "CREATE TYPE brand AS ENUM ('myfajr', 'myfridays');",
+            "CREATE DOMAIN code AS character varying(8);",
+            "CREATE FUNCTION record_type(brand brand) RETURNS character varying LANGUAGE sql IMMUTABLE STRICT \
+             RETURN brand::text;",
+            "CREATE FUNCTION described(value text) RETURNS text LANGUAGE sql RETURN value;",
+            "CREATE FUNCTION described(value brand) RETURNS integer LANGUAGE sql RETURN 1;",
+            "CREATE FUNCTION decoded(value code) RETURNS brand LANGUAGE sql RETURN 'myfajr';",
+            "CREATE TABLE schedules (id integer PRIMARY KEY, brand brand NOT NULL, \
+             record_type character varying(255) NOT NULL);",
+        ])
+        .expect("schema should parse")
+    }
+
+    #[test]
+    fn should_resolve_enum_function_arguments_from_literals_columns_and_casts() {
+        let catalog = brand_catalog();
+        let query = parse_query(
+            "-- @name Friday\n-- @returns :many\n\
+             SELECT record_type(brand) AS code, decoded(record_type) AS decoded FROM schedules \
+             WHERE record_type = record_type('myfridays') AND record_type = record_type($1::brand) \
+             AND record_type <> record_type($2);",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("enum and domain arguments resolve");
+        let columns: Vec<_> = result.columns.iter().map(|c| c.neutral_type.as_str()).collect();
+        assert_eq!(columns, ["string", "enum::brand"]);
+        assert_eq!(param_types(&result), [(1, "enum::brand"), (2, "enum::brand")]);
+    }
+
+    #[test]
+    fn should_prefer_a_string_overload_for_an_untyped_literal() {
+        let catalog = brand_catalog();
+        let query = parse_query(
+            "-- @name Described\n-- @returns :one\nSELECT described('myfajr') AS text_overload, \
+             described('myfajr'::brand) AS enum_overload;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("a literal prefers the string overload");
+        let columns: Vec<_> = result.columns.iter().map(|c| c.neutral_type.as_str()).collect();
+        assert_eq!(columns, ["string", "int32"]);
+    }
+
+    #[test]
+    fn should_reject_a_literal_that_is_not_a_label_of_the_enum_argument() {
+        let catalog = brand_catalog();
+        let query = parse_query("-- @name Unknown\n-- @returns :one\nSELECT record_type('mytuesdays') AS code;")
+            .expect("query should parse");
+        let error = analyze(&catalog, &query).expect_err("mytuesdays is not a brand");
+        assert_eq!(error.code, crate::errors::ErrorCode::TypeMismatch);
+    }
+
+    #[test]
+    fn should_resolve_postgres_builtin_lock_hash_and_setting_functions() {
+        let result = analyze_sql(
+            "-- @name Lock\n-- @returns :one\n\
+             SELECT pg_advisory_xact_lock(hashtextextended($1, 0)) AS locked, \
+             pg_try_advisory_xact_lock($2, $3) AS tried, \
+             set_config('statement_timeout', $4::text, true) AS timeout, \
+             current_setting('app.user', true) AS app_user;",
+        )
+        .expect("built-in functions resolve");
+        let columns: Vec<_> = result
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.neutral_type.as_str()))
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                ("locked", "string"),
+                ("tried", "bool"),
+                ("timeout", "string"),
+                ("app_user", "string")
+            ]
+        );
+        assert!(result.columns[3].nullable, "a missing setting reads as null");
+        assert_eq!(
+            param_types(&result),
+            [(1, "string"), (2, "int32"), (3, "int32"), (4, "string")]
+        );
+        assert!(result.params.iter().all(|p| !p.nullable));
+    }
+
+    #[test]
+    fn should_prefer_a_schema_function_over_a_builtin_of_the_same_name() {
+        let catalog =
+            Catalog::from_ddl(&["CREATE FUNCTION hashtext(value integer) RETURNS integer LANGUAGE sql RETURN value;"])
+                .expect("schema should parse");
+        let query =
+            parse_query("-- @name Hash\n-- @returns :one\nSELECT hashtext($1) AS hash;").expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the schema's function resolves");
+        assert_eq!(param_types(&result), [(1, "int32")]);
+    }
+
+    #[test]
+    fn should_resolve_pg_stat_activity_and_pg_blocking_pids() {
+        let result = analyze_sql(
+            "-- @name Blocked\n-- @returns :one\n\
+             SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1::integer = ANY(pg_blocking_pids(pid))) AS blocked, \
+             (SELECT count(*) FROM pg_catalog.pg_stat_activity a WHERE a.state = $2) AS active;",
+        )
+        .expect("the system view resolves");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "string")]);
+        let error = analyze_sql("-- @name Oids\n-- @returns :many\nSELECT datid FROM pg_stat_activity;")
+            .expect_err("an oid column has no neutral type");
+        assert!(error.message.contains("datid"), "got: {}", error.message);
+    }
+
+    #[test]
+    fn should_type_placeholders_of_builtin_date_and_string_functions() {
+        let result = analyze_sql(
+            "-- @name Series\n-- @returns :many\n\
+             SELECT to_char(date_trunc($1, created_at AT TIME ZONE 'UTC'), $2) AS bucket FROM users \
+             WHERE starts_with(name, $3) GROUP BY 1;",
+        )
+        .expect("built-in argument types type the placeholders");
+        assert_eq!(param_types(&result), [(1, "string"), (2, "string"), (3, "string")]);
+        let names: Vec<_> = result.params.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["field", "format", "prefix"]);
+    }
+
+    #[test]
+    fn should_type_placeholder_operands_of_json_operators() {
+        let catalog = Catalog::from_ddl(&["CREATE TABLE audit_logs (id integer PRIMARY KEY, data jsonb NOT NULL);"])
+            .expect("schema should parse");
+        let query = parse_query(
+            "-- @name Recorded\n-- @returns :many\n\
+             SELECT id FROM audit_logs WHERE data->>$1 = $2 AND data #>> $3 IS NOT NULL \
+             AND data @> $4 AND data ? $5 AND data->$6 IS NOT NULL;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("JSON operator operands are typed");
+        assert_eq!(
+            param_types(&result),
+            [
+                (1, "string"),
+                (2, "string"),
+                (3, "array<string>"),
+                (4, "json"),
+                (5, "string"),
+                (6, "string")
+            ]
+        );
+    }
+
+    #[test]
+    fn should_analyze_an_insert_select_list_that_ends_at_on_conflict() {
+        let catalog = reminder_catalog();
+        let query = parse_query(
+            "-- @name AddReminders\n-- @returns :exec\n\
+             INSERT INTO reminders (\"userId\", topic) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the select list binds the target columns");
+        assert_eq!(param_types(&result), [(1, "string"), (2, "array<string>")]);
+        assert!(!result.sql.contains("WHERE true"), "codegen keeps the original SQL");
     }
 }

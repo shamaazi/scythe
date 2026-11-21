@@ -258,6 +258,31 @@ pub(super) fn object_name_to_string(name: &ObjectName) -> String {
         .join(".")
 }
 
+/// An identifier as the database resolves it: PostgreSQL (and the SQL
+/// standard) folds an unquoted name and keeps a quoted one exactly, so
+/// `"userId"` names a different column than `userId`. The catalog stores
+/// column names by the same rule.
+pub(super) fn ident_name(ident: &ast::Ident) -> String {
+    if ident.quote_style.is_some() {
+        ident.value.clone()
+    } else {
+        ident.value.to_lowercase()
+    }
+}
+
+/// A column named by an object name (an INSERT column list entry, a SET
+/// target), folded per part by [`ident_name`].
+pub(super) fn object_column_name(name: &ObjectName) -> String {
+    name.0
+        .iter()
+        .map(|part| match part {
+            ast::ObjectNamePart::Identifier(ident) => ident_name(ident),
+            _ => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
 pub(super) fn table_factor_name(tf: &TableFactor) -> String {
     match tf {
         TableFactor::Table { name, .. } => object_name_to_string(name).to_lowercase(),
@@ -265,29 +290,26 @@ pub(super) fn table_factor_name(tf: &TableFactor) -> String {
     }
 }
 
+/// The alias a DML target table is given (`UPDATE schedules s`), folded by
+/// [`ident_name`].
+pub(super) fn table_factor_alias(tf: &TableFactor) -> Option<String> {
+    match tf {
+        TableFactor::Table { alias: Some(alias), .. } => Some(ident_name(&alias.name)),
+        _ => None,
+    }
+}
+
 pub(super) fn assignment_target_name(target: &ast::AssignmentTarget) -> String {
     match target {
-        ast::AssignmentTarget::ColumnName(name) => object_name_to_string(name).to_lowercase(),
-        ast::AssignmentTarget::Tuple(names) => names
-            .first()
-            .map(|n| object_name_to_string(n).to_lowercase())
-            .unwrap_or_default(),
+        ast::AssignmentTarget::ColumnName(name) => object_column_name(name),
+        ast::AssignmentTarget::Tuple(names) => names.first().map(object_column_name).unwrap_or_default(),
     }
 }
 
 pub(super) fn expr_to_name(expr: &Expr) -> String {
     match expr {
-        Expr::Identifier(ident) => {
-            if ident.quote_style.is_some() {
-                ident.value.clone()
-            } else {
-                ident.value.to_lowercase()
-            }
-        }
-        Expr::CompoundIdentifier(parts) => parts
-            .last()
-            .map(|i| i.value.to_lowercase())
-            .unwrap_or_else(|| "unknown".to_string()),
+        Expr::Identifier(ident) => ident_name(ident),
+        Expr::CompoundIdentifier(parts) => parts.last().map(ident_name).unwrap_or_else(|| "unknown".to_string()),
         Expr::Function(func) => object_name_to_string(&func.name).to_lowercase(),
         Expr::Cast { expr: inner, .. } => expr_to_name(inner),
         Expr::Nested(inner) => expr_to_name(inner),
@@ -350,6 +372,15 @@ pub(super) fn is_positional_placeholder(s: &str) -> bool {
     s == "?"
 }
 
+/// Whether `expr` is a placeholder, parenthesised or cast, and nothing more.
+pub(super) fn is_placeholder_operand(expr: &Expr) -> bool {
+    match expr {
+        Expr::Nested(inner) | Expr::Cast { expr: inner, .. } => is_placeholder_operand(inner),
+        Expr::Value(vws) => value_is_placeholder(vws).is_some(),
+        _ => false,
+    }
+}
+
 /// Derive a param name from a comparison context.
 /// For aggregate functions in HAVING (e.g., COUNT(*) > $1), adds a semantic prefix.
 pub(super) fn derive_param_name_from_comparison(
@@ -397,8 +428,8 @@ pub(super) fn is_not_null_guard(condition: &Expr, result: &Expr, scope: &Scope) 
 fn expr_to_qualified_name(expr: &Expr) -> (Option<String>, String) {
     match expr {
         Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
-            let qualifier = parts[parts.len() - 2].value.to_lowercase();
-            let name = parts[parts.len() - 1].value.to_lowercase();
+            let qualifier = ident_name(&parts[parts.len() - 2]);
+            let name = ident_name(&parts[parts.len() - 1]);
             (Some(qualifier), name)
         }
         _ => (None, expr_to_name(expr)),

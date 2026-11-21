@@ -24,7 +24,7 @@ fn apply_cte_alias_columns(
         ));
     }
     for (col, alias) in cols.iter_mut().zip(&cte_alias.columns) {
-        col.name = alias.name.value.to_lowercase();
+        col.name = ident_name(&alias.name);
     }
     Ok(cols)
 }
@@ -113,7 +113,29 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        let result = self.analyze_set_expr(&query.body)?;
+        let order_by = query.order_by.as_ref().and_then(|order_by| match &order_by.kind {
+            ast::OrderByKind::Expressions(items) => Some(items.as_slice()),
+            ast::OrderByKind::All(_) => None,
+        });
+        let result = match query.body.as_ref() {
+            SetExpr::Select(select) => self.analyze_select(select, order_by.unwrap_or_default())?,
+            body => {
+                let columns = self.analyze_set_expr(body)?;
+                // A set operation is ordered by its output columns.
+                let scope = Scope {
+                    sources: vec![ScopeSource {
+                        alias: String::new(),
+                        table_name: String::new(),
+                        columns: columns.iter().map(ScopeColumn::from_analyzed_column).collect(),
+                        nullable_from_join: false,
+                    }],
+                };
+                for item in order_by.unwrap_or_default() {
+                    self.collect_params_from_where(&item.expr, &scope);
+                }
+                columns
+            }
+        };
 
         if let Some(ref limit_clause) = query.limit_clause {
             match limit_clause {
@@ -137,7 +159,7 @@ impl<'a> Analyzer<'a> {
 
     pub(super) fn analyze_set_expr(&mut self, set_expr: &SetExpr) -> Result<Vec<AnalyzedColumn>, ScytheError> {
         match set_expr {
-            SetExpr::Select(select) => self.analyze_select(select),
+            SetExpr::Select(select) => self.analyze_select(select, &[]),
             SetExpr::Query(query) => self.analyze_query(query),
             SetExpr::SetOperation { left, right, .. } => {
                 let left_cols = self.analyze_set_expr(left)?;
@@ -182,6 +204,11 @@ impl<'a> Analyzer<'a> {
                     .collect();
                 Ok(widened)
             }
+            // A data-modifying statement in a CTE yields its RETURNING columns.
+            SetExpr::Insert(statement)
+            | SetExpr::Update(statement)
+            | SetExpr::Delete(statement)
+            | SetExpr::Merge(statement) => Ok(self.analyze_statement(statement)?.0),
             SetExpr::Values(values) => {
                 // Widen every row's type and OR its nullability into the
                 // running per-column result instead of reading only the
@@ -314,7 +341,11 @@ impl<'a> Analyzer<'a> {
         left.to_string()
     }
 
-    pub(super) fn analyze_select(&mut self, select: &ast::Select) -> Result<Vec<AnalyzedColumn>, ScytheError> {
+    pub(super) fn analyze_select(
+        &mut self,
+        select: &ast::Select,
+        order_by: &[ast::OrderByExpr],
+    ) -> Result<Vec<AnalyzedColumn>, ScytheError> {
         let scope = self.build_scope_from_from(&select.from)?;
 
         // ~keep Projection is analyzed before WHERE/HAVING even though the scope-building
@@ -336,13 +367,13 @@ impl<'a> Analyzer<'a> {
                 SelectItem::ExprWithAlias { expr, alias } => {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
-                    columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti));
+                    columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti));
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
                     for alias in aliases {
-                        columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti.clone()));
+                        columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti.clone()));
                     }
                 }
                 SelectItem::Wildcard(_) => {
@@ -357,9 +388,7 @@ impl<'a> Analyzer<'a> {
                 }
                 SelectItem::QualifiedWildcard(kind, _) => {
                     let qualifier = match kind {
-                        ast::SelectItemQualifiedWildcardKind::ObjectName(name) => {
-                            object_name_to_string(name).to_lowercase()
-                        }
+                        ast::SelectItemQualifiedWildcardKind::ObjectName(name) => object_column_name(name),
                         ast::SelectItemQualifiedWildcardKind::Expr(expr) => expr_to_name(expr),
                     };
                     for source in &scope.sources {
@@ -380,8 +409,18 @@ impl<'a> Analyzer<'a> {
             self.collect_params_from_where(selection, &scope);
         }
 
+        if let ast::GroupByExpr::Expressions(group_by, _) = &select.group_by {
+            for expr in group_by {
+                self.collect_params_from_where(expr, &scope);
+            }
+        }
+
         if let Some(ref having) = select.having {
             self.collect_params_from_where(having, &scope);
+        }
+
+        for item in order_by {
+            self.collect_params_from_where(&item.expr, &scope);
         }
 
         reject_unresolved_columns(&columns)?;
@@ -416,29 +455,38 @@ impl<'a> Analyzer<'a> {
             }
         };
 
-        let target_cols: Vec<String> = insert
-            .columns
-            .iter()
-            .map(|name| object_name_to_string(name).to_lowercase())
-            .collect();
+        let target_scope = self.build_target_scope(
+            &table_name,
+            insert.table_alias.as_ref().map(|alias| ident_name(&alias.alias)),
+        )?;
+        let target_cols: Vec<String> = insert.columns.iter().map(object_column_name).collect();
 
         if let Some(ref source) = insert.source {
-            self.collect_insert_params(&table_name, &target_cols, &source.body)?;
+            self.collect_insert_params(&table_name, &target_cols, source)?;
         }
 
         if let Some(ref on_conflict) = insert.on
             && let ast::OnInsert::OnConflict(oc) = on_conflict
             && let ast::OnConflictAction::DoUpdate(do_update) = &oc.action
         {
-            let scope = self.build_scope_for_table(&table_name)?;
-            self.collect_assignment_params(&table_name, &do_update.assignments);
+            // `excluded` is the row proposed for insertion.
+            let mut scope = target_scope.clone();
+            if let Some(target) = target_scope.sources.first() {
+                scope.sources.push(ScopeSource {
+                    alias: "excluded".to_string(),
+                    table_name: "excluded".to_string(),
+                    columns: target.columns.clone(),
+                    nullable_from_join: false,
+                });
+            }
+            self.collect_assignment_params(&table_name, &do_update.assignments, &scope);
             if let Some(ref selection) = do_update.selection {
                 self.collect_params_from_where(selection, &scope);
             }
         }
 
         let columns = if let Some(ref returning) = insert.returning {
-            self.analyze_returning(&table_name, returning)?
+            self.analyze_returning(&target_scope, returning)?
         } else {
             Vec::new()
         };
@@ -450,38 +498,39 @@ impl<'a> Analyzer<'a> {
         &mut self,
         table_name: &str,
         target_cols: &[String],
-        source: &SetExpr,
+        source: &ast::Query,
     ) -> Result<(), ScytheError> {
-        match source {
-            SetExpr::Values(values) => {
-                // Resolve the column each VALUES position binds to: the explicit
-                // column list, or — when omitted — every column of the table in
-                // catalog order (standard SQL positional binding for
-                // `INSERT INTO t VALUES (...)`). A position with no known column
-                // falls back to inferring the expression's own type, so
-                // placeholders are never dropped silently.
-                let effective_cols: Vec<Option<(String, String, bool)>> = if target_cols.is_empty() {
-                    match self.catalog.get_table(table_name) {
-                        Some(table) => table
-                            .columns
-                            .iter()
-                            .map(|c| Some((c.name.clone(), self.get_column_type(table_name, &c.name)?, c.nullable)))
-                            .collect(),
-                        None => Vec::new(),
-                    }
-                } else {
-                    target_cols
-                        .iter()
-                        .map(|n| {
-                            Some((
-                                n.clone(),
-                                self.get_column_type(table_name, n)?,
-                                self.is_column_nullable(table_name, n),
-                            ))
-                        })
-                        .collect()
-                };
+        // Resolve the column each source position binds to: the explicit
+        // column list, or — when omitted — every column of the table in
+        // catalog order (standard SQL positional binding for
+        // `INSERT INTO t VALUES (...)`).
+        let effective_cols: Vec<Option<(String, String, bool)>> = if target_cols.is_empty() {
+            match self.catalog.get_table(table_name) {
+                Some(table) => table
+                    .columns
+                    .iter()
+                    .map(|c| Some((c.name.clone(), self.get_column_type(table_name, &c.name)?, c.nullable)))
+                    .collect(),
+                None => Vec::new(),
+            }
+        } else {
+            target_cols
+                .iter()
+                .map(|n| {
+                    Some((
+                        n.clone(),
+                        self.get_column_type(table_name, n)?,
+                        self.is_column_nullable(table_name, n),
+                    ))
+                })
+                .collect()
+        };
 
+        match source.body.as_ref() {
+            SetExpr::Values(values) => {
+                // A position with no known column falls back to inferring the
+                // expression's own type, so placeholders are never dropped
+                // silently.
                 for row in &values.rows {
                     for (i, expr) in row.iter().enumerate() {
                         if let Some((col_name, col_type, nullable)) = effective_cols.get(i).and_then(|c| c.as_ref()) {
@@ -495,20 +544,34 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
-            SetExpr::Select(select) => {
-                let _ = self.analyze_select(select)?;
+            body => {
+                // `INSERT ... SELECT $1, x FROM ...`: a placeholder that is a
+                // whole select-list item is the value written into its column,
+                // as PostgreSQL types it.
+                if let SetExpr::Select(select) = body {
+                    for (i, item) in select.projection.iter().enumerate() {
+                        let (SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. }) = item else {
+                            continue;
+                        };
+                        if let Some((col_name, col_type, nullable)) = effective_cols.get(i).and_then(|c| c.as_ref())
+                            && is_placeholder_operand(expr)
+                        {
+                            self.collect_param_from_expr_with_type_nullable(expr, col_type, col_name, *nullable);
+                            self.bind_written_param(expr, table_name, col_name);
+                        }
+                    }
+                }
+                let _ = self.analyze_query(source)?;
             }
-            SetExpr::Query(query) => {
-                let _ = self.analyze_query(query)?;
-            }
-            _ => {}
         }
         Ok(())
     }
 
     /// Bind the parameters a `SET col = ...` list writes, typed by their
     /// column and nullable when the column is -- as `INSERT ... VALUES` does.
-    fn collect_assignment_params(&mut self, table_name: &str, assignments: &[ast::Assignment]) {
+    /// Placeholders nested deeper in a value (a subquery, a function call)
+    /// are typed from their own context.
+    fn collect_assignment_params(&mut self, table_name: &str, assignments: &[ast::Assignment], scope: &Scope) {
         for assign in assignments {
             let col_name = assignment_target_name(&assign.target);
             if let Some(col_type) = self.get_column_type(table_name, &col_name) {
@@ -516,6 +579,7 @@ impl<'a> Analyzer<'a> {
                 self.collect_param_from_expr_with_type_nullable(&assign.value, &col_type, &col_name, nullable);
                 self.bind_written_param(&assign.value, table_name, &col_name);
             }
+            self.collect_params_from_where(&assign.value, scope);
         }
     }
 
@@ -529,7 +593,7 @@ impl<'a> Analyzer<'a> {
     ) -> Result<(Vec<AnalyzedColumn>, Vec<ParamInfo>), ScytheError> {
         let table_name = table_factor_name(&table.relation);
 
-        let mut scope = self.build_scope_for_table(&table_name)?;
+        let mut scope = self.build_target_scope(&table_name, table_factor_alias(&table.relation))?;
         if let Some(from_kind) = from {
             let tables = match from_kind {
                 ast::UpdateTableFromKind::BeforeSet(tables) | ast::UpdateTableFromKind::AfterSet(tables) => tables,
@@ -538,14 +602,14 @@ impl<'a> Analyzer<'a> {
             scope.sources.extend(from_scope.sources);
         }
 
-        self.collect_assignment_params(&table_name, assignments);
+        self.collect_assignment_params(&table_name, assignments, &scope);
 
         if let Some(sel) = selection {
             self.collect_params_from_where(sel, &scope);
         }
 
         let columns = if let Some(returning) = returning {
-            self.analyze_returning(&table_name, returning)?
+            self.analyze_returning(&scope, returning)?
         } else {
             Vec::new()
         };
@@ -557,17 +621,13 @@ impl<'a> Analyzer<'a> {
         &mut self,
         delete: &ast::Delete,
     ) -> Result<(Vec<AnalyzedColumn>, Vec<ParamInfo>), ScytheError> {
-        let table_name = match &delete.from {
-            ast::FromTable::WithFromKeyword(tables) | ast::FromTable::WithoutKeyword(tables) => {
-                if let Some(twj) = tables.first() {
-                    table_factor_name(&twj.relation)
-                } else {
-                    String::new()
-                }
-            }
+        let target = match &delete.from {
+            ast::FromTable::WithFromKeyword(tables) | ast::FromTable::WithoutKeyword(tables) => tables.first(),
         };
+        let table_name = target.map(|twj| table_factor_name(&twj.relation)).unwrap_or_default();
+        let alias = target.and_then(|twj| table_factor_alias(&twj.relation));
 
-        let scope = self.build_scope_for_table(&table_name)?;
+        let scope = self.build_target_scope(&table_name, alias)?;
 
         let mut full_scope = scope;
         if let Some(ref using) = delete.using {
@@ -580,7 +640,7 @@ impl<'a> Analyzer<'a> {
         }
 
         let columns = if let Some(ref returning) = delete.returning {
-            self.analyze_returning(&table_name, returning)?
+            self.analyze_returning(&full_scope, returning)?
         } else {
             Vec::new()
         };
@@ -588,29 +648,40 @@ impl<'a> Analyzer<'a> {
         Ok((columns, self.params.clone()))
     }
 
+    /// The scope of an INSERT, UPDATE or DELETE target: its table under its
+    /// alias, which correlated subqueries and RETURNING refer to it by.
+    fn build_target_scope(&self, table_name: &str, alias: Option<String>) -> Result<Scope, ScytheError> {
+        let mut scope = self.build_scope_for_table(table_name)?;
+        if let (Some(alias), Some(source)) = (alias, scope.sources.first_mut()) {
+            source.alias = alias;
+        }
+        Ok(scope)
+    }
+
+    /// RETURNING sees the target and, for UPDATE ... FROM and DELETE ...
+    /// USING, the other FROM items.
     pub(super) fn analyze_returning(
         &mut self,
-        table_name: &str,
+        scope: &Scope,
         returning: &[SelectItem],
     ) -> Result<Vec<AnalyzedColumn>, ScytheError> {
-        let scope = self.build_scope_for_table(table_name)?;
         let mut columns = Vec::new();
 
         for item in returning {
             match item {
                 SelectItem::UnnamedExpr(expr) => {
-                    let ti = self.infer_expr_type(expr, &scope);
+                    let ti = self.infer_expr_type(expr, scope);
                     let name = expr_to_name(expr);
                     columns.push(AnalyzedColumn::from_type_info(name, ti));
                 }
                 SelectItem::ExprWithAlias { expr, alias } => {
-                    let ti = self.infer_expr_type(expr, &scope);
-                    columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti));
+                    let ti = self.infer_expr_type(expr, scope);
+                    columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti));
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
-                    let ti = self.infer_expr_type(expr, &scope);
+                    let ti = self.infer_expr_type(expr, scope);
                     for alias in aliases {
-                        columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti.clone()));
+                        columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti.clone()));
                     }
                 }
                 SelectItem::Wildcard(_) => {
@@ -629,9 +700,7 @@ impl<'a> Analyzer<'a> {
                 }
                 SelectItem::QualifiedWildcard(kind, _) => {
                     let qualifier = match kind {
-                        ast::SelectItemQualifiedWildcardKind::ObjectName(name) => {
-                            object_name_to_string(name).to_lowercase()
-                        }
+                        ast::SelectItemQualifiedWildcardKind::ObjectName(name) => object_column_name(name),
                         ast::SelectItemQualifiedWildcardKind::Expr(expr) => expr_to_name(expr),
                     };
                     for source in &scope.sources {
