@@ -414,6 +414,15 @@ non-array, and other expression shapes with no nameable result type -- for both 
 query parameters (e.g. a placeholder compared against a function whose result has no nameable type,
 such as `COALESCE($1, ROW(id, data))`).
 
+## Parameter nullability
+
+A parameter is nullable when the statement accepts NULL for it: it is tested with
+`$1 IS NULL`/`$1 IS NOT NULL` (the optional-filter idiom `$1::text IS NULL OR name = $1`), passed
+to `COALESCE`, or written to a nullable column by `INSERT`, `UPDATE ... SET` or
+`ON CONFLICT DO UPDATE SET`. One such use is enough, wherever it appears in the statement. Mark any
+other parameter nullable with a trailing `?` on its
+[declared name](/scythe/guide/annotations/#parameter-declarations).
+
 ## Manual Overrides
 
 When the analyzer cannot determine nullability correctly, use annotations:

@@ -11,12 +11,13 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
-    generate_js_grouped_typedef_structs, generate_js_typedef, generate_js_typedef_row_struct, generate_jsdoc_fn_header,
-    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_json_composite_interface,
-    generate_ts_many_row_remap, generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_union_row_struct,
-    generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct,
-    js_fn_signature_line, parse_bool_option, ts_member_access, ts_property_key, ts_row_not_found_throw,
+    TsFieldCase, TsParamStyle, TsQueryParams, TsRowShape, TsRowType, escape_ts_template_literal,
+    generate_grouped_interface_structs, generate_js_grouped_typedef_structs, generate_js_typedef,
+    generate_js_typedef_row_struct, generate_jsdoc_fn_header, generate_ts_grouped_fold_body,
+    generate_ts_interface_row_struct, generate_ts_json_composite_interface, generate_ts_many_row_remap,
+    generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum,
+    generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line,
+    parse_bool_option, ts_member_access, ts_property_key, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-pg.toml");
@@ -244,6 +245,9 @@ pub struct TypescriptPgBackend {
     /// [`generate_ts_one_row_remap`]/[`generate_ts_many_row_remap`]. `Snake`
     /// (the default) keeps that generic, which is sound there.
     field_case: TsFieldCase,
+    /// Whether query functions take one argument per parameter or one
+    /// `params` object -- see [`TsParamStyle`].
+    params_style: TsParamStyle,
     /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
     /// `javascript-pg` registry name (#81). Selected once at construction by
     /// [`Self::new_js`]; not a backend option, since it changes the emitted
@@ -277,6 +281,7 @@ impl TypescriptPgBackend {
             outer_join_unions: false,
             structs_only: false,
             field_case: TsFieldCase::default(),
+            params_style: TsParamStyle::default(),
             js_mode: false,
         })
     }
@@ -371,12 +376,17 @@ impl CodegenBackend for TypescriptPgBackend {
         if self.js_mode {
             return self.generate_query_fn_js(analyzed, struct_name, params);
         }
+        let query_params = TsQueryParams::new(self.params_style, &analyzed.name, params, &self.manifest.naming);
         if self.structs_only {
-            return Ok(String::new());
+            return Ok(query_params.declaration(&analyzed.name).trim_end().to_string());
         }
+        let params = &query_params.params[..];
+        // Where a parameter is read from when no batch item is: its own
+        // binding, or the `params` object.
+        let default_receiver = query_params.interface.as_ref().map(|_| "params");
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let mut out = String::new();
+        let mut out = query_params.declaration(&analyzed.name);
 
         let sql = escape_ts_template_literal(&super::clean_sql_with_optional(
             &analyzed.sql,
@@ -403,7 +413,7 @@ impl CodegenBackend for TypescriptPgBackend {
                 })
         };
         let bind_expr = |param: &ResolvedParam, receiver: Option<&str>| {
-            let member = receiver.map_or_else(
+            let member = receiver.or(default_receiver).map_or_else(
                 || param.field_name.clone(),
                 |value| ts_member_access(value, &param.field_name),
             );
@@ -411,7 +421,7 @@ impl CodegenBackend for TypescriptPgBackend {
         };
 
         let query_sig_params: Vec<(String, String)> = std::iter::once(("client".to_string(), "PoolClient".to_string()))
-            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
+            .chain(query_params.signature())
             .collect();
 
         let write_typed_query =
@@ -590,15 +600,21 @@ impl CodegenBackend for TypescriptPgBackend {
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
-                if params.len() > 1 {
-                    let params_type_name = format!("{}BatchParams", struct_name);
-                    let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
-                    let _ = writeln!(out, "export interface {} {{", params_type_name);
-                    for p in params {
-                        let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
-                    }
-                    let _ = writeln!(out, "}}");
-                    let _ = writeln!(out);
+                if params.len() > 1 || query_params.interface.is_some() {
+                    let params_type_name = match &query_params.interface {
+                        Some(interface) => interface.clone(),
+                        None => {
+                            let params_type_name = format!("{}BatchParams", struct_name);
+                            let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
+                            let _ = writeln!(out, "export interface {} {{", params_type_name);
+                            for p in params {
+                                let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
+                            }
+                            let _ = writeln!(out, "}}");
+                            let _ = writeln!(out);
+                            params_type_name
+                        }
+                    };
                     let _ = writeln!(
                         out,
                         "/** Execute {} for each item in the batch within a transaction. */",
@@ -733,12 +749,13 @@ impl CodegenBackend for TypescriptPgBackend {
         let child_struct_name = request.child_struct_name;
         let parent_columns = request.parent_columns;
         let child_columns = request.child_columns;
-        let params = request.params;
         let key_column = request.key_column;
+        let query_params = TsQueryParams::new(self.params_style, &analyzed.name, request.params, &self.manifest.naming);
 
         if self.structs_only {
-            return Ok(String::new());
+            return Ok(query_params.declaration(&analyzed.name).trim_end().to_string());
         }
+        let params = &query_params.params[..];
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = escape_ts_template_literal(&super::clean_sql_with_optional(
@@ -746,18 +763,13 @@ impl CodegenBackend for TypescriptPgBackend {
             &analyzed.optional_params,
             &analyzed.params,
         ));
-        let mut out = String::new();
+        let mut out = query_params.declaration(&analyzed.name);
 
-        let param_list = params
-            .iter()
-            .map(|p| format!("{}: {}", p.field_name, p.full_type))
+        let signature = query_params.signature();
+        let inline_params = std::iter::once("client: PoolClient".to_string())
+            .chain(signature.iter().map(|(n, t)| format!("{n}: {t}")))
             .collect::<Vec<_>>()
             .join(", ");
-        let inline_params = if params.is_empty() {
-            "client: PoolClient".to_string()
-        } else {
-            format!("client: PoolClient, {}", param_list)
-        };
         let ret = format!("Promise<{parent_struct_name}[]>");
 
         let oneliner = format!("export async function {func_name}({inline_params}): {ret} {{");
@@ -768,8 +780,8 @@ impl CodegenBackend for TypescriptPgBackend {
             let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
             let _ = writeln!(out, "export async function {func_name}(");
             let _ = writeln!(out, "\tclient: PoolClient,");
-            for p in params {
-                let _ = writeln!(out, "\t{}: {},", p.field_name, p.full_type);
+            for (n, t) in &signature {
+                let _ = writeln!(out, "\t{n}: {t},");
             }
             let _ = writeln!(out, "): {ret} {{");
         }
@@ -777,7 +789,7 @@ impl CodegenBackend for TypescriptPgBackend {
         let _ = writeln!(out, "\tconst {{ rows: flatRows }} = await client.query(");
         let _ = writeln!(out, "\t\t`{sql}`,");
         if !params.is_empty() {
-            let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+            let args: Vec<String> = params.iter().map(|p| query_params.access(p)).collect();
             let _ = writeln!(out, "\t\t[{}],", args.join(", "));
         }
         let _ = writeln!(out, "\t);");
@@ -920,7 +932,7 @@ impl CodegenBackend for TypescriptPgBackend {
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         reject_unknown_options(
-            &["row_type", "outer_join_unions", "structs_only", "field_case"],
+            &["row_type", "outer_join_unions", "structs_only", "field_case", "params"],
             options,
         )?;
 
@@ -937,6 +949,9 @@ impl CodegenBackend for TypescriptPgBackend {
             self.field_case = TsFieldCase::from_option(value)?;
             self.manifest.naming.field_case = value.clone();
         }
+        if let Some(value) = options.get("params") {
+            self.params_style = TsParamStyle::from_option(value)?;
+        }
 
         // Plain `.js` has no `type`/`interface` alias syntax and no `as T`
         // assertion, so none of these three TypeScript-shape options has
@@ -946,6 +961,12 @@ impl CodegenBackend for TypescriptPgBackend {
         // manifest that requests one of these an explicit, caught error
         // instead of quietly emitting `typescript-pg`'s default shape.
         if self.js_mode {
+            if self.params_style == TsParamStyle::Object {
+                return Err(ScytheError::new(
+                    ErrorCode::InvalidConfig,
+                    "javascript-pg does not support params = \"object\" -- use typescript-pg".to_string(),
+                ));
+            }
             if self.row_type == TsRowType::Zod {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,

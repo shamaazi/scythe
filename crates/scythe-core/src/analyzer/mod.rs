@@ -99,25 +99,28 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         .params
         .iter()
         .map(|p| {
-            // Apply explicit @param $N name override first; fall back to the
-            let name = query
+            // An explicit `@param $N name` / `-- $N: name` wins over the
+            // inferred name, which wins over the `pN` fallback.
+            let doc = query
                 .annotations
                 .positional_param_docs
                 .iter()
-                .find(|doc| doc.position == p.position)
+                .find(|doc| doc.position == p.position);
+            let name = doc
                 .map(|doc| doc.name.clone())
                 .unwrap_or_else(|| p.name.clone().unwrap_or_else(|| format!("p{}", p.position)));
             let neutral_type = p.neutral_type.clone().unwrap_or_else(|| "unknown".to_string());
             AnalyzedParam {
                 name,
                 neutral_type,
-                nullable: p.nullable,
+                nullable: p.nullable || doc.is_some_and(|doc| doc.nullable),
                 position: p.position,
                 source_relation: p.source_relation.clone(),
             }
         })
         .collect();
 
+    check_param_names(query, &params)?;
     reject_unresolved_params(&params)?;
 
     for opt_name in &query.annotations.optional_params {
@@ -325,6 +328,43 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         custom: query.annotations.custom.clone(),
         nested_structs,
     })
+}
+
+/// Reject a parameter name that names no parameter, and -- once the query
+/// declares its parameters with `-- $N: name` -- a parameter left unnamed.
+///
+/// A name for an absent position is always a mistake (a renumbered query, a
+/// typo), and would otherwise be dropped without a word. Completeness is only
+/// demanded of the declaration form: `@param $N name` has always named a
+/// subset, and `scythe migrate` relies on that.
+fn check_param_names(query: &Query, params: &[AnalyzedParam]) -> Result<(), ScytheError> {
+    let docs = &query.annotations.positional_param_docs;
+    if let Some(doc) = docs
+        .iter()
+        .find(|doc| !params.iter().any(|p| p.position == doc.position))
+    {
+        return Err(ScytheError::invalid_annotation(format!(
+            "query \"{}\": `{}` names ${}, but the query has no ${}",
+            query.name, doc.name, doc.position, doc.position
+        )));
+    }
+    if docs.iter().any(|doc| doc.declared) {
+        let missing: Vec<String> = params
+            .iter()
+            .filter(|p| !docs.iter().any(|doc| doc.position == p.position))
+            .map(|p| format!("${}", p.position))
+            .collect();
+        if !missing.is_empty() {
+            return Err(ScytheError::invalid_annotation(format!(
+                "query \"{}\": {} {} not named; a query that declares its parameters with `-- $N: name` \
+                 must declare every one",
+                query.name,
+                missing.join(", "),
+                if missing.len() == 1 { "is" } else { "are" }
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Strip any number of `array<...>` / `nullable<...>` container wrappers from a
@@ -912,6 +952,121 @@ UPDATE users SET name = $1 WHERE id = $2;",
         assert_eq!(result.params.len(), 2);
         assert_eq!(result.params[0].name, "name");
         assert_eq!(result.params[1].name, "target_id");
+    }
+
+    fn analyze_sql(sql: &str) -> Result<AnalyzedQuery, ScytheError> {
+        analyze(&make_catalog(), &parse_query(sql)?)
+    }
+
+    #[test]
+    fn test_param_tested_for_null_is_nullable() {
+        let result = analyze_sql(
+            "-- @name FindUsers
+-- @returns :many
+SELECT id FROM users WHERE (name = $1 OR $1 IS NULL) AND ($2::text IS NOT NULL OR bio = $2) AND id = $3;",
+        )
+        .unwrap();
+        assert!(result.params[0].nullable, "tested after its comparison still counts");
+        assert_eq!(result.params[0].neutral_type, "string");
+        assert!(result.params[1].nullable);
+        assert_eq!(result.params[1].neutral_type, "string", "typed by its cast");
+        assert!(!result.params[2].nullable);
+    }
+
+    #[test]
+    fn test_update_set_nullable_column_makes_param_nullable() {
+        let result = analyze_sql(
+            "-- @name UpdateUser
+-- @returns :exec
+UPDATE users SET bio = $1, name = $2 WHERE id = $3;",
+        )
+        .unwrap();
+        assert!(result.params[0].nullable, "bio is nullable");
+        assert!(!result.params[1].nullable, "name is NOT NULL");
+        assert!(!result.params[2].nullable);
+    }
+
+    #[test]
+    fn test_on_conflict_update_nullable_column_makes_param_nullable() {
+        let result = analyze_sql(
+            "-- @name UpsertUser
+-- @returns :exec
+INSERT INTO users (id, name, email) VALUES ($1, $2, $3)
+ON CONFLICT (id) DO UPDATE SET bio = $4, name = EXCLUDED.name;",
+        )
+        .unwrap();
+        assert!(!result.params[1].nullable);
+        assert!(result.params[3].nullable, "bio is nullable");
+    }
+
+    #[test]
+    fn test_param_declarations_name_and_mark_nullable() {
+        let result = analyze_sql(
+            "-- @name RecentPosts
+-- @returns :many
+-- $1: author
+-- $2: since?
+SELECT id FROM posts WHERE user_id = $1 AND created_at >= $2;",
+        )
+        .unwrap();
+        assert_eq!(result.params[0].name, "author");
+        assert!(!result.params[0].nullable);
+        assert_eq!(result.params[0].neutral_type, "int32", "the inferred type is kept");
+        assert_eq!(result.params[1].name, "since");
+        assert!(result.params[1].nullable, "`?` makes the parameter nullable");
+    }
+
+    #[test]
+    fn test_param_declaration_question_mark_is_optional_for_inferred_nullable() {
+        let result = analyze_sql(
+            "-- @name FindUsers
+-- @returns :many
+-- $1: min_age
+SELECT id FROM users WHERE ($1::int IS NULL OR age >= $1);",
+        )
+        .unwrap();
+        assert_eq!(result.params[0].name, "min_age");
+        assert!(result.params[0].nullable, "already nullable from `IS NULL`");
+    }
+
+    #[test]
+    fn test_param_declarations_must_cover_every_param() {
+        let err = analyze_sql(
+            "-- @name RecentPosts
+-- @returns :many
+-- $2: since
+SELECT id FROM posts WHERE user_id = $1 AND created_at >= $2 AND id > $3;",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("query \"RecentPosts\": $1, $3 are not named"), "{err}");
+    }
+
+    #[test]
+    fn test_param_declaration_for_absent_position_errors() {
+        let err = analyze_sql(
+            "-- @name GetUser
+-- @returns :one
+-- $1: id
+-- $2: extra
+SELECT id FROM users WHERE id = $1;",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("`extra` names $2, but the query has no $2"), "{err}");
+    }
+
+    #[test]
+    fn test_positional_param_for_absent_position_errors() {
+        let err = analyze_sql(
+            "-- @name GetUser
+-- @returns :one
+-- @param $3 extra
+SELECT id FROM users WHERE id = $1;",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("`extra` names $3"), "{err}");
     }
 
     #[test]

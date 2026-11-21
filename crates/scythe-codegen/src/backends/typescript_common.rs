@@ -1,12 +1,14 @@
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{composite_type_name, enum_type_name, to_camel_case, to_pascal_case};
+use scythe_backend::naming::{
+    NamingConfig, apply_case, composite_type_name, enum_type_name, field_name, to_camel_case, to_pascal_case,
+};
 use scythe_core::analyzer::{CompositeInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::ResolvedColumn;
+use crate::backend_trait::{ResolvedColumn, ResolvedParam};
 
 /// Supported TypeScript row type styles for generated code.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -60,6 +62,105 @@ impl TsFieldCase {
                 format!("invalid field_case '{}': expected 'snake_case' or 'camelCase'", value),
             )),
         }
+    }
+}
+
+/// How a generated query function takes its parameters, as selected by the
+/// `params` backend option.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TsParamStyle {
+    /// One function argument per parameter, in placeholder order.
+    #[default]
+    Positional,
+    /// One `params` argument typed by an exported `<Query>Params` interface,
+    /// whose properties are named by `field_case`. A `:batch` function takes
+    /// an array of the same interface.
+    Object,
+}
+
+impl TsParamStyle {
+    /// Parse a params option string into a `TsParamStyle`.
+    pub fn from_option(value: &str) -> Result<Self, ScytheError> {
+        match value {
+            "positional" => Ok(Self::Positional),
+            "object" => Ok(Self::Object),
+            _ => Err(ScytheError::new(
+                ErrorCode::InvalidConfig,
+                format!("invalid params '{value}': expected 'positional' or 'object'"),
+            )),
+        }
+    }
+}
+
+/// A query function's parameters as its backend's [`TsParamStyle`] has it
+/// take them.
+pub struct TsQueryParams {
+    /// The params, each `field_name` the property name under
+    /// [`TsParamStyle::Object`]. A property is not a binding, so it takes the
+    /// plain field spelling: a parameter named `from` is `params.from`, not
+    /// the `from_` its binding needs.
+    pub params: Vec<ResolvedParam>,
+    /// Under [`TsParamStyle::Object`], for a query with parameters: the
+    /// exported interface's name (`GetUser` -> `GetUserParams`).
+    pub interface: Option<String>,
+}
+
+impl TsQueryParams {
+    pub fn new(style: TsParamStyle, query_name: &str, params: &[ResolvedParam], naming: &NamingConfig) -> Self {
+        if style == TsParamStyle::Positional || params.is_empty() {
+            return Self {
+                params: params.to_vec(),
+                interface: None,
+            };
+        }
+        Self {
+            params: params
+                .iter()
+                .map(|param| ResolvedParam {
+                    field_name: field_name(&param.name, naming).into_owned(),
+                    ..param.clone()
+                })
+                .collect(),
+            interface: Some(format!("{}Params", apply_case(query_name, &naming.struct_case))),
+        }
+    }
+
+    /// The expression reading `param` inside the query function: its binding,
+    /// or its property of the `params` argument.
+    pub fn access(&self, param: &ResolvedParam) -> String {
+        match self.interface {
+            Some(_) => ts_member_access("params", &param.field_name),
+            None => param.field_name.clone(),
+        }
+    }
+
+    /// The query function's signature entries after the database handle.
+    pub fn signature(&self) -> Vec<(String, String)> {
+        match &self.interface {
+            Some(interface) => vec![("params".to_string(), interface.clone())],
+            None => self
+                .params
+                .iter()
+                .map(|param| (param.field_name.clone(), param.full_type.clone()))
+                .collect(),
+        }
+    }
+
+    /// The exported interface declaration, followed by a blank line, for the
+    /// query function's output to open with; empty when there is none.
+    pub fn declaration(&self, query_name: &str) -> String {
+        let Some(interface) = &self.interface else {
+            return String::new();
+        };
+        let mut out = String::new();
+        let _ = writeln!(out, "/** Parameters for {query_name} queries. */");
+        let _ = writeln!(out, "export interface {interface} {{");
+        for param in &self.params {
+            let _ = writeln!(out, "\t{}: {};", ts_property_key(&param.field_name), param.full_type);
+        }
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        out
     }
 }
 

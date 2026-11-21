@@ -447,12 +447,7 @@ impl<'a> Analyzer<'a> {
             && let ast::OnConflictAction::DoUpdate(do_update) = &oc.action
         {
             let scope = self.build_scope_for_table(&table_name)?;
-            for assign in &do_update.assignments {
-                let col_name = assignment_target_name(&assign.target);
-                if let Some(col_type) = self.get_column_type(&table_name, &col_name) {
-                    self.collect_param_from_expr_with_type(&assign.value, &col_type, &col_name);
-                }
-            }
+            self.collect_assignment_params(&table_name, &do_update.assignments);
             if let Some(ref selection) = do_update.selection {
                 self.collect_params_from_where(selection, &scope);
             }
@@ -526,6 +521,18 @@ impl<'a> Analyzer<'a> {
         Ok(())
     }
 
+    /// Bind the parameters a `SET col = ...` list writes, typed by their
+    /// column and nullable when the column is -- as `INSERT ... VALUES` does.
+    fn collect_assignment_params(&mut self, table_name: &str, assignments: &[ast::Assignment]) {
+        for assign in assignments {
+            let col_name = assignment_target_name(&assign.target);
+            if let Some(col_type) = self.get_column_type(table_name, &col_name) {
+                let nullable = self.is_column_nullable(table_name, &col_name);
+                self.collect_param_from_expr_with_type_nullable(&assign.value, &col_type, &col_name, nullable);
+            }
+        }
+    }
+
     pub(super) fn analyze_update(
         &mut self,
         table: &ast::TableWithJoins,
@@ -545,12 +552,7 @@ impl<'a> Analyzer<'a> {
             scope.sources.extend(from_scope.sources);
         }
 
-        for assign in assignments {
-            let col_name = assignment_target_name(&assign.target);
-            if let Some(col_type) = self.get_column_type(&table_name, &col_name) {
-                self.collect_param_from_expr_with_type(&assign.value, &col_type, &col_name);
-            }
-        }
+        self.collect_assignment_params(&table_name, assignments);
 
         if let Some(sel) = selection {
             self.collect_params_from_where(sel, &scope);
