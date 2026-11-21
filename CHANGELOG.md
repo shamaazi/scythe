@@ -100,6 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A query whose function name is a reserved binding in TypeScript (`@name
+  Public`) gains a `_` (`public_`), as a parameter does, instead of emitting
+  `export async function public(`, a strict-mode syntax error.
 - A searched `CASE WHEN $1 THEN ... END` written into a column types the
   condition placeholder as a boolean instead of the column's type.
 - A `COALESCE` argument placeholder is inferred nullable when it is cast

@@ -236,9 +236,15 @@ pub fn row_struct_name(query_name: &str, naming: &NamingConfig) -> String {
 
 /// Generate the function name for a query.
 ///
-/// E.g., query "GetUser" with snake_case -> "get_user"
+/// E.g., query "GetUser" with snake_case -> "get_user". A function name is a
+/// binding, so one in [`NamingConfig::reserved_bindings`] gains a `_`, as
+/// [`param_name`] does: query "Public" -> `public_` in TypeScript.
 pub fn fn_name(query_name: &str, naming: &NamingConfig) -> String {
-    apply_case(query_name, &naming.fn_case).into_owned()
+    let mut name = apply_case(query_name, &naming.fn_case).into_owned();
+    if naming.reserved_bindings.contains(&name) {
+        name.push('_');
+    }
+    name
 }
 
 /// Generate the type name for an enum from its SQL name.
@@ -789,6 +795,15 @@ mod tests {
         // TypeScript row key named `class` is legal and must stay as the
         // driver spells it.
         assert_eq!(&*field_name("class", &config), "class");
+    }
+
+    #[test]
+    fn test_fn_name_avoids_reserved_bindings() {
+        let mut config = test_config();
+        config.fn_case = "camelCase".to_string();
+        config.reserved_bindings = vec!["public".to_string()];
+        assert_eq!(fn_name("Public", &config), "public_");
+        assert_eq!(fn_name("PublicPlans", &config), "publicPlans");
     }
 
     #[test]
