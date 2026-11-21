@@ -693,6 +693,7 @@ impl<'a> Analyzer<'a> {
                                 neutral_type: col.neutral_type.clone(),
                                 nullable: col.base_nullable,
                                 source_relation: Some(source.table_name.clone()),
+                                origin: col.origin.clone(),
                                 ..Default::default()
                             });
                         }
@@ -712,6 +713,7 @@ impl<'a> Analyzer<'a> {
                                     neutral_type: col.neutral_type.clone(),
                                     nullable: col.base_nullable,
                                     source_relation: Some(source.table_name.clone()),
+                                    origin: col.origin.clone(),
                                     ..Default::default()
                                 });
                             }

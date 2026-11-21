@@ -96,6 +96,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `FunctionReturn::SetOf` gain `nullable`. A `RETURNS TABLE` function is
   cataloged as set-returning, distinct from output parameters alone.
 
+### Fixed
+
+- `RETURNING *` and `RETURNING t.*` columns carry the column they read, so
+  `column_types` and schema constraints apply to them as they do to
+  `SELECT *`.
+
 ## [0.20.2] - 2026-10-31
 
 ### Changed

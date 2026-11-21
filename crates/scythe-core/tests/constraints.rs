@@ -271,3 +271,21 @@ fn should_name_the_base_column_of_columns_and_written_parameters() {
     assert_eq!(two.params[0].base_column, None, "written into two columns");
     assert_eq!(two.params[1].base_column, None, "a comparison is not a write");
 }
+
+#[test]
+fn should_name_the_base_column_of_returning_wildcards() {
+    let name = |column: Option<&scythe_core::catalog::ColumnOrigin>| column.map(|c| c.name());
+    for returning in ["*", "c.*", "c.id, c.title"] {
+        let query = analyzed(&format!(
+            "-- @name Add\n-- @returns :one\n\
+             INSERT INTO causes AS c (slug, title, currency, status) VALUES ($1, $2, $3, $4) RETURNING {returning};"
+        ));
+        let columns: Vec<_> = query
+            .columns
+            .iter()
+            .filter(|c| c.name == "id" || c.name == "title")
+            .map(|c| name(c.base_column.as_ref()))
+            .collect();
+        assert_eq!(columns, [s("causes.id"), s("causes.title")], "RETURNING {returning}");
+    }
+}
