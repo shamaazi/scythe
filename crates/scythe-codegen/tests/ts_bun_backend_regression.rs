@@ -139,7 +139,9 @@ fn one_binds_through_the_tagged_template_and_throws_when_missing() {
     let code = generate(&*backend("typescript-bun", &[]), GET);
     let f = query_fn(&code);
     assert!(
-        f.contains("export async function getDonation(\n\tsql: SQL,\n\tid: string,\n): Promise<GetDonationRow> {"),
+        f.contains(
+            "export async function getDonation(\n\tsql: SQL,\n\tid: number | string,\n): Promise<GetDonationRow> {"
+        ),
         "{f}"
     );
     assert!(f.contains("await sql<GetDonationRow[]>`"), "{f}");
@@ -176,7 +178,28 @@ fn exec_wraps_json_but_leaves_builtin_arrays_bare() {
     assert!(f.contains("${tags}"), "{f}");
     assert!(f.contains("${weights}"), "{f}");
     assert!(f.contains("given_on: Date"), "{f}");
-    assert!(f.contains("amount: string"), "{f}");
+}
+
+#[test]
+fn parameters_take_what_bun_binds() {
+    for name in ["typescript-bun", "javascript-bun"] {
+        let f = query_fn(&generate(&*backend(name, &[]), CREATE)).to_string();
+        let (numeric, json) = if name == "typescript-bun" {
+            ("amount: number | string", "metadata: unknown | null")
+        } else {
+            ("{number | string} amount", "{unknown | null} metadata")
+        };
+        assert!(f.contains(numeric), "numeric binds from a number or its text: {f}");
+        assert!(f.contains(json), "sql.json takes any value: {f}");
+        assert!(!f.contains("SqlJsonValue"), "{f}");
+    }
+    let f = query_fn(&generate(&*backend("typescript-bun", &[]), GET)).to_string();
+    assert!(
+        f.contains("id: number | string"),
+        "int8 binds from a number or its text: {f}"
+    );
+    let row = row_struct(&generate(&*backend("typescript-bun", &[]), GET)).to_string();
+    assert!(row.contains("id: string;"), "but is returned as text: {row}");
 }
 
 #[test]

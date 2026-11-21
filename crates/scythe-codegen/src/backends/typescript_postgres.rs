@@ -138,6 +138,46 @@ fn bun_columns(columns: &[ResolvedColumn]) -> std::borrow::Cow<'_, [ResolvedColu
     std::borrow::Cow::Owned(widened)
 }
 
+/// What Bun binds for a parameter, where that is wider than what it returns
+/// for the same type: an `int8` or `numeric` value from a `number` as well as
+/// its text, and a `json`/`jsonb` value from anything `sql.json` serialises.
+/// A parameter whose type a user override replaced is left alone.
+fn bun_param_type(param: &ResolvedParam) -> Option<&'static str> {
+    match (param.neutral_type.as_str(), ts_own_type(&param.lang_type)) {
+        ("int64" | "decimal", "string") => Some("number | string"),
+        ("json", "SqlJsonValue") => Some("unknown"),
+        _ => None,
+    }
+}
+
+/// `params` with every [`bun_param_type`] parameter's type widened.
+/// Borrows when nothing needs widening.
+fn bun_params(params: &[ResolvedParam]) -> std::borrow::Cow<'_, [ResolvedParam]> {
+    if !params.iter().any(|p| bun_param_type(p).is_some()) {
+        return std::borrow::Cow::Borrowed(params);
+    }
+    let widened = params
+        .iter()
+        .map(|p| {
+            let Some(own) = bun_param_type(p) else {
+                return p.clone();
+            };
+            let lang_type = ts_with_own_type(&p.lang_type, own);
+            let full_type = if p.nullable {
+                format!("{lang_type} | null")
+            } else {
+                lang_type.clone()
+            };
+            ResolvedParam {
+                lang_type,
+                full_type,
+                ..p.clone()
+            }
+        })
+        .collect();
+    std::borrow::Cow::Owned(widened)
+}
+
 /// Board #204: postgres.js registers no parser for a user-defined composite type either
 /// (verified by reading the vendored driver's own source -- `postgres/src/types.js` has no
 /// `record`/`typtype`/composite handling at all, not from memory), so a composite column
@@ -630,6 +670,14 @@ impl TypescriptPostgresBackend {
         }
     }
 
+    /// The parameters as this driver binds them -- see [`bun_params`].
+    fn driver_params<'a>(&self, params: &'a [ResolvedParam]) -> std::borrow::Cow<'a, [ResolvedParam]> {
+        match self.driver {
+            TemplateDriver::PostgresJs => std::borrow::Cow::Borrowed(params),
+            TemplateDriver::Bun => bun_params(params),
+        }
+    }
+
     /// Write a `:batch` function's body: run `statement` once per
     /// `loop_header` iteration inside one transaction, leaving the closing
     /// brace to the caller.
@@ -804,6 +852,8 @@ impl CodegenBackend for TypescriptPostgresBackend {
         columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
+        let params = self.driver_params(params);
+        let params = &*params;
         if self.js_mode {
             return self.generate_query_fn_js(analyzed, struct_name, params);
         }
@@ -1108,7 +1158,8 @@ impl CodegenBackend for TypescriptPostgresBackend {
         let child_columns = self.driver_columns(request.child_columns);
         let child_columns = &*child_columns;
         let key_column = request.key_column;
-        let query_params = TsQueryParams::new(self.params_style, &analyzed.name, request.params, &self.manifest.naming);
+        let params = self.driver_params(request.params);
+        let query_params = TsQueryParams::new(self.params_style, &analyzed.name, &params, &self.manifest.naming);
 
         if self.structs_only {
             return Ok(query_params.declaration(&analyzed.name).trim_end().to_string());
@@ -1672,7 +1723,8 @@ impl TypescriptPostgresBackend {
         let parent_columns = &*parent_columns;
         let child_columns = self.driver_columns(request.child_columns);
         let child_columns = &*child_columns;
-        let params = request.params;
+        let params = self.driver_params(request.params);
+        let params = &*params;
         let key_column = request.key_column;
 
         if self.structs_only {

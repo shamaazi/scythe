@@ -160,8 +160,10 @@ The mappings follow what Bun's adapter returns, which differs from postgres.js i
 | other arrays | `Array<T>` | |
 | enum | string union | `const` object plus derived type, as on `typescript-pg` -- Bun returns plain strings |
 
-Parameters use the same types, except that the typed-array widening applies to columns only. A few
-parameter kinds are wrapped so Bun binds them correctly; a nullable one keeps `null` as SQL `NULL`:
+Parameters use the same types, except where Bun binds more than it returns: `BIGINT` and `NUMERIC`
+take `number | string`, and `JSON` / `JSONB` take `unknown`, since `sql.json` serialises any value.
+The typed-array widening applies to columns only. A few parameter kinds are wrapped so Bun binds them
+correctly; a nullable one keeps `null` as SQL `NULL`:
 
 - `json`/`jsonb` goes through `sql.json(...)`, so a string or number is stored as JSON.
 - an array of an enum goes through `sql.array(...)`: Bun cannot tell that a user-defined type's array

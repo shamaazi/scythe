@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tagged-template codegen and map types to what Bun returns: `int8` as
   `string`, `date` as `Date`, `integer[]`/`real[]` columns as
   `Int32Array`/`Float32Array` or `Array<number>`, and enums as a string union.
+  Parameters take what Bun binds: `int8` and `numeric` as `number | string`,
+  and JSON as `unknown`, since `sql.json` serialises any value.
   JSON parameters go through `sql.json`, enum and JSON arrays through
   `sql.array`, and `:batch` opens a savepoint when handed a transaction.
 - Parameter declarations: a query's comment header can name its parameters

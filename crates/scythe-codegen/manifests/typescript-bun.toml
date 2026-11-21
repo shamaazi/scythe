@@ -13,6 +13,8 @@ description = "TypeScript code generation targeting Bun's built-in SQL client (B
 #     time, timetz and interval arrive as text.
 #   - json/jsonb arrive parsed, typed as the `SqlJsonValue` alias the backend
 #     emits in the file header.
+#   - parameters bind wider than results: the backend takes int8 and numeric as
+#     `number | string` and json/jsonb as `unknown` (whatever `sql.json` takes).
 #   - integer[] and real[] can arrive as Int32Array/Float32Array; the backend
 #     widens those two column types itself, since a manifest maps scalars, not
 #     element-specific containers.

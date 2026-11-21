@@ -121,7 +121,12 @@ fn should_declare_written_parameters_by_their_column() {
     for name in BACKENDS {
         let backend = backend(name, &[("column_types", MODULE), ("params", "object")]);
         let out = text(&generate(&*backend, ADD));
-        let json = json(name);
+        // Bun binds any value through `sql.json`.
+        let json = if name == "typescript-bun" {
+            "unknown"
+        } else {
+            json(name)
+        };
         for property in [
             format!("\tcauses: Column<'schedules.causes', {json}>;"),
             format!("\tmetadata: Column<'schedules.metadata', {json}> | null;"),
