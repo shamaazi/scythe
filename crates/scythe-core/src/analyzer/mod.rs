@@ -2710,4 +2710,21 @@ SELECT id, moods FROM t WHERE id = $1;",
         assert_eq!(result.columns[1].neutral_type, "string");
         assert!(result.columns[1].nullable, "string_agg over no rows is NULL");
     }
+
+    #[test]
+    fn should_type_placeholders_used_as_boolean_operands_as_bool() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name Filtered\n-- @returns :many\n\
+             SELECT id FROM users WHERE (NOT $1 OR age IS NULL) AND (($2) OR active) AND NOT ($3);",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("NOT, AND and OR operands are boolean");
+        let types: Vec<_> = result
+            .params
+            .iter()
+            .map(|p| (p.position, p.neutral_type.as_str()))
+            .collect();
+        assert_eq!(types, [(1, "bool"), (2, "bool"), (3, "bool")]);
+    }
 }

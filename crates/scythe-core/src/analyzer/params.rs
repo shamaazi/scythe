@@ -1,4 +1,4 @@
-use sqlparser::ast::{BinaryOperator, Expr};
+use sqlparser::ast::{BinaryOperator, Expr, UnaryOperator};
 use sqlparser::tokenizer::Span;
 
 use super::helpers::*;
@@ -109,6 +109,8 @@ impl<'a> Analyzer<'a> {
                     }
                 }
                 BinaryOperator::And | BinaryOperator::Or => {
+                    self.bind_boolean_operand(left);
+                    self.bind_boolean_operand(right);
                     self.collect_params_from_where(left, scope);
                     self.collect_params_from_where(right, scope);
                 }
@@ -177,7 +179,12 @@ impl<'a> Analyzer<'a> {
             // this node -- so this only needs to keep walking.
             Expr::IsNull(inner) | Expr::IsNotNull(inner) => self.collect_params_from_where(inner, scope),
             Expr::Nested(inner) => self.collect_params_from_where(inner, scope),
-            Expr::UnaryOp { expr: inner, .. } => self.collect_params_from_where(inner, scope),
+            Expr::UnaryOp { op, expr: inner } => {
+                if *op == UnaryOperator::Not {
+                    self.bind_boolean_operand(inner);
+                }
+                self.collect_params_from_where(inner, scope);
+            }
             Expr::AnyOp { left, right, .. } => {
                 let left_ti = self.infer_expr_type(left, scope);
                 if let Expr::Value(vws) = right.as_ref()
@@ -229,6 +236,21 @@ impl<'a> Analyzer<'a> {
             _ => {
                 let _ = self.infer_expr_type(expr, scope);
             }
+        }
+    }
+
+    /// A placeholder that is an operand of `NOT`, `AND` or `OR` is boolean, as
+    /// PostgreSQL infers it: `NOT $1` leaves no other context to type `$1` from.
+    fn bind_boolean_operand(&mut self, operand: &Expr) {
+        let mut operand = operand;
+        while let Expr::Nested(inner) = operand {
+            operand = inner;
+        }
+        if let Expr::Value(vws) = operand
+            && let Some(p) = value_is_placeholder(vws)
+            && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
+        {
+            self.register_param(pos, None, Some("bool".to_string()), false, None);
         }
     }
 
