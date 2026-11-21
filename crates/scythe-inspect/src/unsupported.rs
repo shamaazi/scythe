@@ -37,10 +37,49 @@ impl UnsupportedDriver {
     }
 
     fn unsupported(&self) -> InspectError {
-        InspectError::Unsupported {
-            engine: self.engine.clone(),
+        // Only PostgreSQL and MySQL/MariaDB have inspection drivers; every
+        // other engine is unsupported here whether or not its feature is on.
+        match disabled_engine(&self.engine) {
+            Some(
+                error @ InspectError::EngineDisabled {
+                    feature: "postgres" | "mysql",
+                    ..
+                },
+            ) => error,
+            _ => InspectError::Unsupported {
+                engine: self.engine.clone(),
+            },
         }
     }
+}
+
+/// [`InspectError::EngineDisabled`] when `engine` names an engine whose
+/// driver this build left out, `None` when its driver is compiled in or the
+/// engine has no driver at all.
+///
+/// Callers dispatch to a driver only under that driver's Cargo feature and
+/// fall back here, so a disabled engine is reported as a missing feature
+/// rather than as an engine scythe does not support.
+pub fn disabled_engine(engine: &str) -> Option<InspectError> {
+    // Each driver feature, the engine names it serves, and whether this build has it.
+    const DRIVERS: &[(&str, &[&str], bool)] = &[
+        ("duckdb", &["duckdb"], cfg!(feature = "duckdb")),
+        ("mysql", &["mysql", "mariadb"], cfg!(feature = "mysql")),
+        (
+            "postgres",
+            &["postgres", "postgresql", "pg", "cockroachdb", "crdb"],
+            cfg!(feature = "postgres"),
+        ),
+        ("sqlite", &["sqlite", "sqlite3"], cfg!(feature = "sqlite")),
+    ];
+    let engine_lower = engine.to_ascii_lowercase();
+    let (feature, _, _) = DRIVERS
+        .iter()
+        .find(|(_, names, enabled)| !enabled && names.contains(&engine_lower.as_str()))?;
+    Some(InspectError::EngineDisabled {
+        engine: engine.to_string(),
+        feature,
+    })
 }
 
 #[async_trait]
@@ -108,11 +147,33 @@ mod tests {
     /// MySQL is no more special than SQLite here — it used to be the engine
     /// every other engine was misreported as, and it must now be reported only
     /// when it is the one that was asked for.
+    #[cfg(feature = "mysql")]
     #[tokio::test]
     async fn should_fail_naming_mysql_only_when_mysql_was_requested() {
         let mut driver = UnsupportedDriver::new("mysql");
         let error = driver.connect("mysql://localhost/x").await.unwrap_err();
         assert!(matches!(&error, InspectError::Unsupported { engine } if engine == "mysql"));
+    }
+
+    #[test]
+    fn should_report_a_disabled_engine_only_when_its_feature_is_off() {
+        assert_eq!(disabled_engine("PostgreSQL").is_some(), !cfg!(feature = "postgres"));
+        assert_eq!(disabled_engine("mariadb").is_some(), !cfg!(feature = "mysql"));
+        assert_eq!(disabled_engine("sqlite3").is_some(), !cfg!(feature = "sqlite"));
+        assert_eq!(disabled_engine("duckdb").is_some(), !cfg!(feature = "duckdb"));
+        assert!(
+            disabled_engine("snowflake").is_none(),
+            "an engine with no driver is unsupported, not disabled"
+        );
+    }
+
+    #[cfg(not(feature = "postgres"))]
+    #[tokio::test]
+    async fn should_fail_naming_the_feature_when_the_engine_is_disabled() {
+        let mut driver = UnsupportedDriver::new("postgres");
+        let error = driver.connect("postgres://localhost/x").await.unwrap_err();
+        assert!(matches!(&error, InspectError::EngineDisabled { engine, feature: "postgres" } if engine == "postgres"));
+        assert!(error.to_string().contains("`--features postgres`"), "{error}");
     }
 
     #[test]

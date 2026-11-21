@@ -11,7 +11,7 @@
 //! `scythe-conformance`'s `MySqlExecutor` uses for the same reason (see
 //! `crates/scythe-conformance/src/executors/mysql.rs`).
 
-#![cfg(feature = "live-tests")]
+#![cfg(all(feature = "live-tests", feature = "mysql"))]
 
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Opts};

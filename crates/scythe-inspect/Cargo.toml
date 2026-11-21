@@ -21,24 +21,34 @@ include = [
 ]
 
 [features]
-default = []
+default = ["duckdb", "mysql", "postgres", "sqlite"]
+# One feature per database engine driver. Each pulls in that engine's native
+# client crate (DuckDB and SQLite compile their bundled C/C++ sources), so a
+# build that needs only some engines can disable the rest with
+# `default-features = false`. A disabled engine is still recognised by name:
+# requesting it fails with `InspectError::EngineDisabled`, which names the
+# feature to enable.
+duckdb = ["dep:duckdb"]
 live-tests = []
+mysql = ["dep:mysql_async"]
+postgres = ["dep:tokio", "dep:tokio-postgres", "dep:tracing"]
+sqlite = ["dep:rusqlite"]
 
 [dependencies]
 async-trait = "0.1"
-duckdb = { version = "1.20000", features = ["bundled"] }
-mysql_async = "0.37"
+duckdb = { version = "1.20000", features = ["bundled"], optional = true }
+mysql_async = { version = "0.37", optional = true }
 regex = "1"
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"], optional = true }
 scythe-core = { path = "../scythe-core", version = "0.20.2" }
 scythe-lint = { path = "../scythe-lint", version = "0.20.2" }
 serde = { version = "1", features = ["derive"] }
 sqlparser = { version = "0.63", features = ["visitor"] }
 thiserror = "2"
-tokio = { version = "1", features = ["rt"] }
-tokio-postgres = "0.7"
+tokio = { version = "1", features = ["rt"], optional = true }
+tokio-postgres = { version = "0.7", optional = true }
 toml = "1.1"
-tracing = "0.1"
+tracing = { version = "0.1", optional = true }
 
 [dev-dependencies]
 serde_json = "1"

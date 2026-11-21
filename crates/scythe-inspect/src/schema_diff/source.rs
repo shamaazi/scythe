@@ -26,11 +26,14 @@
 //! already own a `tokio_postgres::Client`.
 
 use async_trait::async_trait;
+#[cfg(feature = "postgres")]
 use scythe_core::catalog::Catalog;
+#[cfg(feature = "postgres")]
 use tokio_postgres::{Client, NoTls};
 
 use crate::error::InspectError;
 
+#[cfg(feature = "postgres")]
 use super::live::{fetch_live_catalog, fetch_live_schema};
 use super::model::SchemaDescription;
 
@@ -73,10 +76,12 @@ pub trait SchemaCatalogDriver: Send {
 }
 
 /// PostgreSQL-backed live catalog source.
+#[cfg(feature = "postgres")]
 pub struct PostgresCatalogSource {
     client: Option<Client>,
 }
 
+#[cfg(feature = "postgres")]
 impl PostgresCatalogSource {
     /// Build an unconnected source.
     pub fn new() -> Self {
@@ -103,12 +108,14 @@ impl PostgresCatalogSource {
     }
 }
 
+#[cfg(feature = "postgres")]
 impl Default for PostgresCatalogSource {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "postgres")]
 #[async_trait]
 impl SchemaCatalogDriver for PostgresCatalogSource {
     fn engine(&self) -> &'static str {
@@ -141,7 +148,7 @@ impl SchemaCatalogDriver for PostgresCatalogSource {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "postgres"))]
 mod tests {
     use super::*;
 

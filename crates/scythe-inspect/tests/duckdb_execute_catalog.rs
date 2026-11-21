@@ -1,3 +1,5 @@
+#![cfg(feature = "duckdb")]
+
 use std::path::{Path, PathBuf};
 
 use scythe_core::catalog::{Catalog, CatalogObjectName, Column, GeneratedColumnKind, RelationKind};

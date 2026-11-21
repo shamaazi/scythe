@@ -127,6 +127,22 @@ pub enum InspectError {
         engine: String,
     },
 
+    /// The requested engine has a driver, but this build was compiled
+    /// without the Cargo feature that includes it.
+    ///
+    /// Distinct from [`InspectError::Unsupported`]: the engine works in a
+    /// default build, so the remedy is rebuilding with the named feature.
+    #[error(
+        "engine `{engine}` is not available in this build: it was compiled without the `{feature}` \
+         Cargo feature (rebuild with `--features {feature}` or with default features)"
+    )]
+    EngineDisabled {
+        /// The engine name as the user spelled it.
+        engine: String,
+        /// The Cargo feature that includes the engine's driver.
+        feature: &'static str,
+    },
+
     /// A message placeholder resolved to a column whose driver-reported type
     /// this runner cannot render as text.
     ///

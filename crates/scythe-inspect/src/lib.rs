@@ -39,33 +39,45 @@
 
 pub mod config;
 pub mod driver;
+#[cfg(feature = "duckdb")]
 pub mod duckdb;
 pub mod error;
+#[cfg(feature = "mysql")]
 pub mod mysql;
 pub mod neutral;
+#[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod registry;
 pub mod schema_diff;
 pub mod spec;
+#[cfg(feature = "sqlite")]
 pub mod sqlite;
 pub mod suppression;
 pub mod unsupported;
+#[cfg(feature = "postgres")]
 pub mod verify;
 
 pub use config::{InspectConfig, SuppressionRule, parse_inspect_section};
 pub use driver::{CheckCatalogEntry, DbDriver};
+#[cfg(feature = "duckdb")]
 pub use duckdb::execute_duckdb_schema_files;
 pub use error::{InspectError, SchemaExecutionErrorCategory};
+#[cfg(feature = "mysql")]
 pub use mysql::{MySqlCatalogSource, MySqlDriver};
 pub use neutral::normalize_neutral_type;
+#[cfg(feature = "postgres")]
 pub use postgres::PostgresDriver;
 pub use registry::CheckRegistry;
 pub use schema_diff::{
-    CompositeDescription, CompositeFieldDescription, DriftSeverities, PostgresCatalogSource, SchemaCatalogDriver,
-    SchemaDescription, describe_catalog, diff_schemas, drift_findings, fetch_live_catalog, fetch_live_schema,
+    CompositeDescription, CompositeFieldDescription, DriftSeverities, SchemaCatalogDriver, SchemaDescription,
+    describe_catalog, diff_schemas,
 };
+#[cfg(feature = "postgres")]
+pub use schema_diff::{PostgresCatalogSource, drift_findings, fetch_live_catalog, fetch_live_schema};
 pub use spec::{CheckCategory, CheckSpec, ConfigError, load_checks_from_file, parse_check_file};
+#[cfg(feature = "sqlite")]
 pub use sqlite::{SqliteCatalogSource, execute_sqlite_schema_files};
 pub use suppression::SuppressionEngine;
-pub use unsupported::UnsupportedDriver;
+pub use unsupported::{UnsupportedDriver, disabled_engine};
+#[cfg(feature = "postgres")]
 pub use verify::verify_queries;

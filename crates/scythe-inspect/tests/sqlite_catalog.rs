@@ -11,6 +11,8 @@
 //! purely through `SqliteCatalogSource`'s public surface, proving the two
 //! connections agree on what is in the file.
 
+#![cfg(feature = "sqlite")]
+
 use scythe_inspect::schema_diff::SchemaCatalogDriver;
 use scythe_inspect::sqlite::SqliteCatalogSource;
 
