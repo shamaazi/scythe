@@ -191,6 +191,12 @@ pub struct Annotations {
     /// the inferred or fallback `pN` name for a specific positional parameter.
     #[cfg_attr(feature = "serde", serde(default))]
     pub positional_param_docs: Vec<PositionalParamDoc>,
+    /// Free text from the plain `--` comment lines of the query header (the
+    /// lines before the first SQL line), joined with `\n`; `None` when the
+    /// header has none. Generators render it as the query function's doc
+    /// comment. The comment lines themselves stay in the query's SQL text.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub description: Option<String>,
     /// Annotations scythe does not natively recognise, preserved in source order
     /// for crate consumers to interpret.
     pub custom: Vec<CustomAnnotation>,
@@ -245,6 +251,23 @@ fn validate_query_name(name: &str) -> Result<(), ScytheError> {
     Ok(())
 }
 
+/// Join a query header's comment lines into its description. Blank lines at
+/// either end are dropped and a run of blank lines inside collapses to one,
+/// so paragraphs survive but stray spacing does not.
+fn query_description(lines: &[&str]) -> Option<String> {
+    let mut kept: Vec<&str> = Vec::new();
+    for &line in lines {
+        if line.is_empty() && kept.last().is_none_or(|last| last.is_empty()) {
+            continue;
+        }
+        kept.push(line);
+    }
+    while kept.last().is_some_and(|last| last.is_empty()) {
+        kept.pop();
+    }
+    (!kept.is_empty()).then(|| kept.join("\n"))
+}
+
 /// Parse a single annotated SQL query into a `Query` using the PostgreSQL dialect.
 pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
     parse_query_with_dialect(query_sql, &SqlDialect::PostgreSQL)
@@ -263,6 +286,9 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
     let mut optional_params = Vec::new();
     let mut group_by: Option<String> = None;
     let mut custom: Vec<CustomAnnotation> = Vec::new();
+    // Plain comment lines seen before the first SQL line, i.e. the header.
+    let mut description_lines: Vec<&str> = Vec::new();
+    let mut in_header = true;
 
     let mut sql_lines = Vec::new();
 
@@ -382,9 +408,20 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
                 }
             }
         } else {
+            if in_header {
+                if let Some(comment) = trimmed.strip_prefix("--") {
+                    let comment = comment.strip_prefix(' ').unwrap_or(comment);
+                    description_lines.push(comment.trim_end());
+                } else if trimmed.is_empty() {
+                    description_lines.push("");
+                } else {
+                    in_header = false;
+                }
+            }
             sql_lines.push(line);
         }
     }
+    let description = query_description(&description_lines);
 
     let name = name.ok_or_else(|| ScytheError::missing_annotation("name"))?;
     validate_query_name(&name)?;
@@ -434,6 +471,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
             command: command.clone(),
             param_docs,
             positional_param_docs: positional_param_docs.clone(),
+            description: description.clone(),
             nullable_overrides,
             nonnull_overrides,
             json_mappings,
@@ -461,6 +499,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
         command: command.clone(),
         param_docs,
         positional_param_docs,
+        description,
         nullable_overrides,
         nonnull_overrides,
         json_mappings,
@@ -1099,6 +1138,56 @@ SELECT id FROM users WHERE id = $1";
         assert_eq!(q.annotations.positional_param_docs[0].name, "user_id");
         assert_eq!(q.annotations.positional_param_docs[0].description, "");
         assert_eq!(q.annotations.param_docs.len(), 0);
+    }
+
+    #[test]
+    fn test_header_comment_becomes_description() {
+        let input = "-- @name Account\n-- @returns :many\n-- The account a credential belongs to, as stored now.\nSELECT * FROM users WHERE id = $1";
+        let q = parse(input).unwrap();
+        assert_eq!(
+            q.annotations.description.as_deref(),
+            Some("The account a credential belongs to, as stored now.")
+        );
+    }
+
+    #[test]
+    fn test_description_keeps_lines_and_paragraphs_but_not_annotations() {
+        let input = "-- @name Foo\n\
+                     --   Leading indent past the first space stays.\n\
+                     -- @returns :one\n\
+                     -- Second line.\n\
+                     --\n\
+                     --\n\
+                     -- New paragraph.\n\
+                     -- @param $1 id\n\
+                     --\n\
+                     SELECT 1 WHERE 1 = $1";
+        let q = parse(input).unwrap();
+        assert_eq!(
+            q.annotations.description.as_deref(),
+            Some("  Leading indent past the first space stays.\nSecond line.\n\nNew paragraph.")
+        );
+    }
+
+    #[test]
+    fn test_comments_after_the_first_sql_line_are_not_description() {
+        let input = "-- @name Foo\n-- @returns :one\nSELECT 1\n-- not a description\nFROM t";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.description, None);
+    }
+
+    #[test]
+    fn test_description_comment_stays_in_sql_text() {
+        let input = "-- @name Foo\n-- @returns :one\n-- Says hello.\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.sql, "-- Says hello.\nSELECT 1");
+    }
+
+    #[test]
+    fn test_no_header_comment_means_no_description() {
+        let input = "-- @name Foo\n-- @returns :one\n\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.description, None);
     }
 
     #[test]

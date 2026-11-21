@@ -1155,7 +1155,40 @@ pub fn js_type_cast(ty: &str, expr: &str) -> String {
     format!("/** @type {{{ty}}} */ ({expr})")
 }
 
-/// Render a JSDoc block combining a one-line description, one `@param` tag
+/// Keep free text from closing the JSDoc block it is written into.
+fn jsdoc_text(text: &str) -> String {
+    text.replace("*/", "*\\/")
+}
+
+/// Write `text` as the body lines of a JSDoc block: ` * line`, or ` *` for a
+/// blank line.
+fn write_jsdoc_lines(out: &mut String, text: &str) {
+    for line in jsdoc_text(text).lines() {
+        if line.is_empty() {
+            let _ = writeln!(out, " *");
+        } else {
+            let _ = writeln!(out, " * {line}");
+        }
+    }
+}
+
+/// The JSDoc block above a generated query function: the query header's
+/// description when it has one, otherwise `fallback`. One line renders as
+/// `/** text */`, several as a multi-line block.
+pub fn ts_query_doc(analyzed: &scythe_core::analyzer::AnalyzedQuery, fallback: &str) -> String {
+    let text = super::query_doc_text(analyzed, fallback);
+    let mut out = String::new();
+    if text.contains('\n') {
+        let _ = writeln!(out, "/**");
+        write_jsdoc_lines(&mut out, text);
+        let _ = writeln!(out, " */");
+    } else {
+        let _ = writeln!(out, "/** {} */", jsdoc_text(text));
+    }
+    out
+}
+
+/// Render a JSDoc block combining a description (one or more lines), one `@param` tag
 /// per `(name, type)` pair, and a `@returns` tag -- the JSDoc-mode
 /// counterpart of a TypeScript function's inline `(name: Type): Ret`
 /// annotations, which a plain `.js` file cannot carry on the signature
@@ -1169,7 +1202,7 @@ pub fn js_type_cast(ty: &str, expr: &str) -> String {
 pub fn generate_jsdoc_fn_header(description: &str, sig_params: &[(String, String)], ret_type: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "/**");
-    let _ = writeln!(out, " * {}", description);
+    write_jsdoc_lines(&mut out, description);
     for (name, ty) in sig_params {
         let _ = writeln!(out, " * @param {{{}}} {}", ty, js_doc_name(name));
     }

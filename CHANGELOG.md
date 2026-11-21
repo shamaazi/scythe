@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Query descriptions: the plain `--` comment lines in a query's header (before
+  the first SQL line, excluding `@` annotations) are captured as
+  `Annotations::description` and `AnalyzedQuery::description`, and the
+  TypeScript and JavaScript backends render them as the query function's JSDoc
+  instead of the generic `Fetch all X rows.` / `Execute a query ...` wording,
+  which stays the fallback. Several lines render as a multi-line block. The
+  comment stays in the emitted SQL text.
+
 ## [0.20.2] - 2026-10-31
 
 ### Changed

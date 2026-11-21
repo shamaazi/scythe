@@ -16,7 +16,7 @@ use crate::backends::typescript_common::{
     generate_js_typedef_row_struct, generate_jsdoc_fn_header, generate_ts_grouped_fold_body,
     generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_grouped_structs,
     generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, js_type_cast, parse_bool_option,
-    ts_index_access, ts_property_key, ts_row_not_found_throw,
+    ts_index_access, ts_property_key, ts_query_doc, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-oracledb.toml");
@@ -570,10 +570,16 @@ impl CodegenBackend for TypescriptOracledbBackend {
         let mut out = String::new();
         let oneliner = format!("export async function {func_name}({inline_params}): {ret} {{");
         if oneliner.len() <= 80 {
-            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            out.push_str(&ts_query_doc(
+                analyzed,
+                &format!("Fetch grouped {} rows.", analyzed.name),
+            ));
             let _ = writeln!(out, "{oneliner}");
         } else {
-            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            out.push_str(&ts_query_doc(
+                analyzed,
+                &format!("Fetch grouped {} rows.", analyzed.name),
+            ));
             let _ = writeln!(out, "export async function {func_name}(");
             let _ = writeln!(out, "\tconn: oracledb.Connection,");
             for p in params {
@@ -820,7 +826,7 @@ impl TypescriptOracledbBackend {
             QueryCommand::One => {
                 write_signature(
                     &mut out,
-                    &format!("Fetch a single {}.", struct_name),
+                    super::query_doc_text(analyzed, &format!("Fetch a single {}.", struct_name)),
                     &format!("Promise<{}>", struct_name),
                 );
                 write_row_read(&mut out, &ts_row_not_found_throw(&analyzed.name));
@@ -828,7 +834,7 @@ impl TypescriptOracledbBackend {
             QueryCommand::Opt => {
                 write_signature(
                     &mut out,
-                    &format!("Fetch a single {} or null.", struct_name),
+                    super::query_doc_text(analyzed, &format!("Fetch a single {} or null.", struct_name)),
                     &format!("Promise<{} | null>", struct_name),
                 );
                 write_row_read(&mut out, "return null;");
@@ -836,7 +842,7 @@ impl TypescriptOracledbBackend {
             QueryCommand::Many => {
                 write_signature(
                     &mut out,
-                    &format!("Fetch all {} rows.", struct_name),
+                    super::query_doc_text(analyzed, &format!("Fetch all {} rows.", struct_name)),
                     &format!("Promise<{}[]>", struct_name),
                 );
                 let _ = writeln!(
@@ -870,14 +876,18 @@ impl TypescriptOracledbBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
-                write_signature(&mut out, "Execute a query returning no rows.", "Promise<void>");
+                write_signature(
+                    &mut out,
+                    super::query_doc_text(analyzed, "Execute a query returning no rows."),
+                    "Promise<void>",
+                );
                 let _ = writeln!(out, "\tawait conn.execute(\"{}\", {});", sql, bind_array);
                 let _ = write!(out, "}}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 write_signature(
                     &mut out,
-                    "Execute a query and return the number of affected rows.",
+                    super::query_doc_text(analyzed, "Execute a query and return the number of affected rows."),
                     "Promise<number>",
                 );
                 let _ = writeln!(out, "\tconst result = await conn.execute(\"{}\", {});", sql, bind_array);
@@ -954,7 +964,7 @@ impl TypescriptOracledbBackend {
 
         let mut out = String::new();
         out.push_str(&generate_jsdoc_fn_header(
-            &format!("Fetch grouped {} rows.", analyzed.name),
+            super::query_doc_text(analyzed, &format!("Fetch grouped {} rows.", analyzed.name)),
             &sig_params,
             &ret,
         ));

@@ -194,6 +194,21 @@ SELECT id, name FROM users WHERE id = $1;
 
 In Rust, this generates `#[deprecated(note = "Use GetUserV2 instead")]` on the function.
 
+## Description comments
+
+Plain `--` comment lines in the query header -- the lines before the first SQL line that are not `@` annotations -- form the query's description. Generators that emit doc comments use it in place of their generic wording:
+
+```sql
+-- @name Account
+-- @returns :many
+-- The account a credential belongs to, as stored now.
+SELECT * FROM users WHERE id = $1;
+```
+
+In TypeScript and JavaScript this generates `/** The account a credential belongs to, as stored now. */` above `export async function account(...)`. A description of several lines becomes a multi-line JSDoc block; an empty `--` line inside it starts a new paragraph. Comments after the first SQL line are not part of the description, and a query without one keeps the generator's generic text (`Fetch a single User.`, `Execute a query returning no rows.`, ...).
+
+The comment lines stay in the query's SQL text, so the emitted SQL is unchanged. The text is also available to crate consumers as `Annotations::description` and `AnalyzedQuery::description`.
+
 ## Complete Example
 
 ```sql

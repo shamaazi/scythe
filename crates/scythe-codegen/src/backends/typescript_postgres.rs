@@ -17,7 +17,7 @@ use crate::backends::typescript_common::{
     generate_ts_many_row_remap, generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_union_row_struct,
     generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct,
     js_fn_signature_line, js_type_cast, parse_bool_option, ts_index_access, ts_member_access, ts_property_key,
-    ts_row_not_found_throw,
+    ts_query_doc, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
@@ -488,7 +488,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
         match &analyzed.command {
             QueryCommand::One => {
-                let _ = writeln!(out, "/** Fetch a single {}. */", struct_name);
+                out.push_str(&ts_query_doc(analyzed, &format!("Fetch a single {}.", struct_name)));
                 let ret = format!("Promise<{}>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
                 match self.field_case {
@@ -529,7 +529,10 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Opt => {
-                let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
+                out.push_str(&ts_query_doc(
+                    analyzed,
+                    &format!("Fetch a single {} or null.", struct_name),
+                ));
                 let ret = format!("Promise<{} | null>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
                 match self.field_case {
@@ -641,7 +644,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 }
             }
             QueryCommand::Many => {
-                let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
+                out.push_str(&ts_query_doc(analyzed, &format!("Fetch all {} rows.", struct_name)));
                 let ret = format!("Promise<{}[]>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
                 match self.field_case {
@@ -675,7 +678,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
-                let _ = writeln!(out, "/** Execute a query returning no rows. */");
+                out.push_str(&ts_query_doc(analyzed, "Execute a query returning no rows."));
                 write_fn_sig(&mut out, &func_name, &query_sig_params, "Promise<void>");
                 let _ = writeln!(out, "\tawait sql`");
                 let _ = writeln!(out, "    {}", sql_template);
@@ -683,7 +686,10 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(out, "/** Execute a query and return the number of affected rows. */");
+                out.push_str(&ts_query_doc(
+                    analyzed,
+                    "Execute a query and return the number of affected rows.",
+                ));
                 write_fn_sig(&mut out, &func_name, &query_sig_params, "Promise<number>");
                 let _ = writeln!(out, "\tconst result = await sql`");
                 let _ = writeln!(out, "    {}", sql_template);
@@ -778,10 +784,16 @@ impl CodegenBackend for TypescriptPostgresBackend {
         let mut out = String::new();
         let oneliner = format!("export async function {func_name}({inline_params}): {ret} {{");
         if oneliner.len() <= 80 {
-            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            out.push_str(&ts_query_doc(
+                analyzed,
+                &format!("Fetch grouped {} rows.", analyzed.name),
+            ));
             let _ = writeln!(out, "{oneliner}");
         } else {
-            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            out.push_str(&ts_query_doc(
+                analyzed,
+                &format!("Fetch grouped {} rows.", analyzed.name),
+            ));
             let _ = writeln!(out, "export async function {func_name}(");
             let _ = writeln!(out, "\tsql: Sql,");
             for p in params {
@@ -1025,7 +1037,7 @@ impl TypescriptPostgresBackend {
             QueryCommand::One => {
                 write_signature(
                     &mut out,
-                    &format!("Fetch a single {}.", struct_name),
+                    super::query_doc_text(analyzed, &format!("Fetch a single {}.", struct_name)),
                     &query_sig_params,
                     &format!("Promise<{}>", struct_name),
                 );
@@ -1053,7 +1065,7 @@ impl TypescriptPostgresBackend {
             QueryCommand::Opt => {
                 write_signature(
                     &mut out,
-                    &format!("Fetch a single {} or null.", struct_name),
+                    super::query_doc_text(analyzed, &format!("Fetch a single {} or null.", struct_name)),
                     &query_sig_params,
                     &format!("Promise<{} | null>", struct_name),
                 );
@@ -1077,7 +1089,7 @@ impl TypescriptPostgresBackend {
             QueryCommand::Many => {
                 write_signature(
                     &mut out,
-                    &format!("Fetch all {} rows.", struct_name),
+                    super::query_doc_text(analyzed, &format!("Fetch all {} rows.", struct_name)),
                     &query_sig_params,
                     &format!("Promise<{}[]>", struct_name),
                 );
@@ -1093,7 +1105,7 @@ impl TypescriptPostgresBackend {
             QueryCommand::Exec => {
                 write_signature(
                     &mut out,
-                    "Execute a query returning no rows.",
+                    super::query_doc_text(analyzed, "Execute a query returning no rows."),
                     &query_sig_params,
                     "Promise<void>",
                 );
@@ -1105,7 +1117,7 @@ impl TypescriptPostgresBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 write_signature(
                     &mut out,
-                    "Execute a query and return the number of affected rows.",
+                    super::query_doc_text(analyzed, "Execute a query and return the number of affected rows."),
                     &query_sig_params,
                     "Promise<number>",
                 );
@@ -1249,7 +1261,7 @@ impl TypescriptPostgresBackend {
 
         let mut out = String::new();
         out.push_str(&generate_jsdoc_fn_header(
-            &format!("Fetch grouped {} rows.", analyzed.name),
+            super::query_doc_text(analyzed, &format!("Fetch grouped {} rows.", analyzed.name)),
             &sig_params,
             &ret,
         ));
@@ -2197,5 +2209,66 @@ mod tests {
                 .expect_err(&format!("javascript-postgres must reject {key} = {value}"));
             assert!(err.to_string().contains("javascript-postgres"), "{err}");
         }
+    }
+
+    #[test]
+    fn test_query_fn_doc_comes_from_the_query_description() {
+        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut query = make_one_query("SELECT id FROM users", vec![]);
+        query.command = QueryCommand::Many;
+        query.description = Some("The account a credential belongs to, as stored now.".to_string());
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("/** The account a credential belongs to, as stored now. */\nexport async function"),
+            "got:\n{query_fn}"
+        );
+        assert!(!query_fn.contains("Fetch all"), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_query_fn_multi_line_description_renders_a_jsdoc_block() {
+        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut query = make_one_query("DELETE FROM users", vec![]);
+        query.command = QueryCommand::Exec;
+        query.description = Some("Forget every user.\n\nCannot be undone */ really.".to_string());
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(
+                "/**\n * Forget every user.\n *\n * Cannot be undone *\\/ really.\n */\nexport async function"
+            ),
+            "got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_query_fn_without_description_keeps_the_fallback() {
+        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut query = make_one_query("DELETE FROM users", vec![]);
+        query.command = QueryCommand::Exec;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("/** Execute a query returning no rows. */"),
+            "got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_javascript_query_fn_description_leads_the_jsdoc_header() {
+        let backend = TypescriptPostgresBackend::new_js("postgresql").unwrap();
+        let mut query = make_one_query("SELECT id FROM users", vec![]);
+        query.description = Some("The first user.\nOr the only one.".to_string());
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("/**\n * The first user.\n * Or the only one.\n * @param"),
+            "got:\n{query_fn}"
+        );
     }
 }

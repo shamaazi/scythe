@@ -316,6 +316,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         columns,
         params,
         deprecated: query.annotations.deprecated.clone(),
+        description: query.annotations.description.clone(),
         source_table,
         composites,
         enums,

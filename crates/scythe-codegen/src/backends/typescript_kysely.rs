@@ -16,7 +16,7 @@ use crate::backends::typescript_common::{
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
     generate_ts_json_composite_interface_with_field_case, generate_ts_nested_interface_with_field_case,
     generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct,
-    generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access, ts_property_key,
+    generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access, ts_property_key, ts_query_doc,
     ts_row_not_found_throw,
 };
 
@@ -516,7 +516,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
 
         match &analyzed.command {
             QueryCommand::One => {
-                let _ = writeln!(out, "/** Fetch a single {}. */", struct_name);
+                out.push_str(&ts_query_doc(analyzed, &format!("Fetch a single {}.", struct_name)));
                 let ret = format!("Promise<{}>", struct_name);
                 write_fn_sig(&mut out, &func_name, "", &query_sig_params, &ret);
                 let _ = writeln!(
@@ -542,7 +542,10 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Opt => {
-                let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
+                out.push_str(&ts_query_doc(
+                    analyzed,
+                    &format!("Fetch a single {} or null.", struct_name),
+                ));
                 let ret = format!("Promise<{} | null>", struct_name);
                 write_fn_sig(&mut out, &func_name, "", &query_sig_params, &ret);
                 let _ = writeln!(
@@ -568,7 +571,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Many => {
-                let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
+                out.push_str(&ts_query_doc(analyzed, &format!("Fetch all {} rows.", struct_name)));
                 let ret = format!("Promise<{}[]>", struct_name);
                 write_fn_sig(&mut out, &func_name, "", &query_sig_params, &ret);
                 let _ = writeln!(
@@ -672,13 +675,16 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 }
             }
             QueryCommand::Exec => {
-                let _ = writeln!(out, "/** Execute a query returning no rows. */");
+                out.push_str(&ts_query_doc(analyzed, "Execute a query returning no rows."));
                 write_fn_sig(&mut out, &func_name, "", &query_sig_params, "Promise<void>");
                 let _ = writeln!(out, "\tawait sql`{}`.execute(db);", sql_text);
                 let _ = write!(out, "}}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(out, "/** Execute a query and return the number of affected rows. */");
+                out.push_str(&ts_query_doc(
+                    analyzed,
+                    "Execute a query and return the number of affected rows.",
+                ));
                 write_fn_sig(&mut out, &func_name, "", &query_sig_params, "Promise<number>");
                 let _ = writeln!(out, "\tconst result = await sql`{}`.execute(db);", sql_text);
                 let _ = writeln!(out, "\treturn Number(result.numAffectedRows ?? 0n);");
@@ -758,10 +764,16 @@ impl CodegenBackend for TypescriptKyselyBackend {
 
         let oneliner = format!("export async function {func_name}({inline_params}): {ret} {{");
         if oneliner.len() <= 80 {
-            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            out.push_str(&ts_query_doc(
+                analyzed,
+                &format!("Fetch grouped {} rows.", analyzed.name),
+            ));
             let _ = writeln!(out, "{oneliner}");
         } else {
-            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            out.push_str(&ts_query_doc(
+                analyzed,
+                &format!("Fetch grouped {} rows.", analyzed.name),
+            ));
             let _ = writeln!(out, "export async function {func_name}(");
             let _ = writeln!(out, "\tdb: QueryExecutorProvider,");
             for p in params {

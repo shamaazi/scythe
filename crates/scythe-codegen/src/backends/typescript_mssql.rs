@@ -15,7 +15,7 @@ use crate::backends::typescript_common::{
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
     generate_zod_union_row_struct, js_fn_signature_line, parse_bool_option, ts_index_access, ts_member_access,
-    ts_property_key, ts_row_not_found_throw,
+    ts_property_key, ts_query_doc, ts_row_not_found_throw,
 };
 
 /// Map neutral type to mssql SQL type constant.
@@ -228,7 +228,7 @@ impl CodegenBackend for TypescriptMssqlBackend {
 
         match &analyzed.command {
             QueryCommand::One => {
-                let _ = writeln!(out, "/** Fetch a single {}. */", struct_name);
+                out.push_str(&ts_query_doc(analyzed, &format!("Fetch a single {}.", struct_name)));
                 write_fn_sig(&mut out, &func_name, &query_sig_params, struct_name);
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 for (i, p) in params.iter().enumerate() {
@@ -263,7 +263,10 @@ impl CodegenBackend for TypescriptMssqlBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Opt => {
-                let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
+                out.push_str(&ts_query_doc(
+                    analyzed,
+                    &format!("Fetch a single {} or null.", struct_name),
+                ));
                 let ret = format!("{} | null", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
                 let _ = writeln!(out, "\tconst request = pool.request();");
@@ -379,7 +382,7 @@ impl CodegenBackend for TypescriptMssqlBackend {
                 }
             }
             QueryCommand::Many => {
-                let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
+                out.push_str(&ts_query_doc(analyzed, &format!("Fetch all {} rows.", struct_name)));
                 let ret = format!("{}[]", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
                 let _ = writeln!(out, "\tconst request = pool.request();");
@@ -409,7 +412,7 @@ impl CodegenBackend for TypescriptMssqlBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
-                let _ = writeln!(out, "/** Execute a query returning no rows. */");
+                out.push_str(&ts_query_doc(analyzed, "Execute a query returning no rows."));
                 write_fn_sig(&mut out, &func_name, &query_sig_params, "void");
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 for (i, p) in params.iter().enumerate() {
@@ -423,7 +426,10 @@ impl CodegenBackend for TypescriptMssqlBackend {
                 unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(out, "/** Execute a query and return the number of affected rows. */");
+                out.push_str(&ts_query_doc(
+                    analyzed,
+                    "Execute a query and return the number of affected rows.",
+                ));
                 write_fn_sig(&mut out, &func_name, &query_sig_params, "number");
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 for (i, p) in params.iter().enumerate() {
@@ -506,10 +512,16 @@ impl CodegenBackend for TypescriptMssqlBackend {
         let mut out = String::new();
         let oneliner = format!("export async function {func_name}({inline_params}): {ret} {{");
         if oneliner.len() <= 80 {
-            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            out.push_str(&ts_query_doc(
+                analyzed,
+                &format!("Fetch grouped {} rows.", analyzed.name),
+            ));
             let _ = writeln!(out, "{oneliner}");
         } else {
-            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            out.push_str(&ts_query_doc(
+                analyzed,
+                &format!("Fetch grouped {} rows.", analyzed.name),
+            ));
             let _ = writeln!(out, "export async function {func_name}(");
             let _ = writeln!(out, "\tpool: sql.ConnectionPool,");
             for p in params {
@@ -682,7 +694,7 @@ impl TypescriptMssqlBackend {
             QueryCommand::One => {
                 write_signature(
                     &mut out,
-                    &format!("Fetch a single {}.", struct_name),
+                    super::query_doc_text(analyzed, &format!("Fetch a single {}.", struct_name)),
                     &format!("Promise<{}>", struct_name),
                 );
                 let _ = writeln!(out, "\tconst request = pool.request();");
@@ -701,7 +713,7 @@ impl TypescriptMssqlBackend {
             QueryCommand::Opt => {
                 write_signature(
                     &mut out,
-                    &format!("Fetch a single {} or null.", struct_name),
+                    super::query_doc_text(analyzed, &format!("Fetch a single {} or null.", struct_name)),
                     &format!("Promise<{} | null>", struct_name),
                 );
                 let _ = writeln!(out, "\tconst request = pool.request();");
@@ -720,7 +732,7 @@ impl TypescriptMssqlBackend {
             QueryCommand::Many => {
                 write_signature(
                     &mut out,
-                    &format!("Fetch all {} rows.", struct_name),
+                    super::query_doc_text(analyzed, &format!("Fetch all {} rows.", struct_name)),
                     &format!("Promise<{}[]>", struct_name),
                 );
                 let _ = writeln!(out, "\tconst request = pool.request();");
@@ -836,7 +848,11 @@ impl TypescriptMssqlBackend {
                 }
             }
             QueryCommand::Exec => {
-                write_signature(&mut out, "Execute a query returning no rows.", "Promise<void>");
+                write_signature(
+                    &mut out,
+                    super::query_doc_text(analyzed, "Execute a query returning no rows."),
+                    "Promise<void>",
+                );
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 write_inputs(&mut out);
                 let _ = writeln!(out, "\tawait request.query(`{sql}`);");
@@ -848,7 +864,7 @@ impl TypescriptMssqlBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 write_signature(
                     &mut out,
-                    "Execute a query and return the number of affected rows.",
+                    super::query_doc_text(analyzed, "Execute a query and return the number of affected rows."),
                     "Promise<number>",
                 );
                 let _ = writeln!(out, "\tconst request = pool.request();");
@@ -892,7 +908,7 @@ impl TypescriptMssqlBackend {
 
         let mut out = String::new();
         out.push_str(&generate_jsdoc_fn_header(
-            &format!("Fetch grouped {} rows.", analyzed.name),
+            super::query_doc_text(analyzed, &format!("Fetch grouped {} rows.", analyzed.name)),
             &sig_params,
             &ret,
         ));
