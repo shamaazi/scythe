@@ -352,6 +352,7 @@ export type GetUserOrdersRow = {
 | `params` | `positional`, `object` | `positional` | Take one argument per parameter, or one `params` object typed by an exported `<Query>Params` interface (`typescript-bun`, `typescript-postgres`, `typescript-pg`) |
 | `validation` | `none`, `jsdoc` | `none` | Render [schema constraints](/scythe/guide/schema-constraints/) as JSDoc tags and literal unions on row and params properties (`typescript-bun`, `typescript-postgres`, `typescript-pg`) |
 | `constraints` | `ignore`, `warn`, `error` | `ignore` | What happens to a schema constraint `validation` cannot carry -- see [Untranslated constraints](/scythe/guide/schema-constraints/#untranslated-constraints) |
+| `row_keys` | `remap`, `driver` | `remap` | `typescript-postgres` and `typescript-bun` with `field_case = "camelCase"`: `driver` trusts a client that already returns camelCase keys (`transform: postgres.camel`, `transform: SQL.camel`) instead of rebuilding each row from snake_case keys |
 
 `structs_only` is supported by every TypeScript backend, including `typescript-postgres`, `typescript-pg`, and `typescript-kysely`. Combined with `row_type = "zod"` it produces a types-only package with no driver dependency:
 

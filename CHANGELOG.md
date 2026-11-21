@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `row_keys = "driver"` for `typescript-postgres` and `typescript-bun`: with
+  `field_case = "camelCase"`, generated functions trust a client that already
+  returns camelCase keys (`transform: postgres.camel` or `transform: SQL.camel`)
+  instead of rebuilding each row from raw snake_case keys.
 - `typescript-bun` and `javascript-bun` backends for Bun's built-in PostgreSQL
   client (`import type { SQL } from "bun"`). They share the postgres.js
   tagged-template codegen and map types to what Bun returns: `int8` as
