@@ -15,10 +15,13 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use scythe_inspect::{
-    CheckRegistry, DbDriver, InspectConfig, InspectError, MySqlDriver, PostgresDriver, SuppressionEngine,
-    UnsupportedDriver, parse_inspect_section,
-};
+#[cfg(feature = "mysql")]
+use scythe_inspect::MySqlDriver;
+#[cfg(feature = "postgres")]
+use scythe_inspect::PostgresDriver;
+#[cfg(any(feature = "mysql", feature = "postgres"))]
+use scythe_inspect::SuppressionEngine;
+use scythe_inspect::{CheckRegistry, DbDriver, InspectConfig, InspectError, UnsupportedDriver, parse_inspect_section};
 use scythe_lint::reporters::{Finding, Format};
 use scythe_lint::{Severity, emit_findings};
 
@@ -152,6 +155,7 @@ pub(crate) fn build_driver_with_config(
     inspect_config: &Option<InspectConfig>,
 ) -> Box<dyn DbDriver> {
     match engine {
+        #[cfg(feature = "postgres")]
         "postgres" | "postgresql" => {
             let mut driver = PostgresDriver::with_registry(registry);
 
@@ -171,6 +175,7 @@ pub(crate) fn build_driver_with_config(
         // `SqlDialect::MySQL` with no separate MariaDB variant, and every
         // `information_schema` view these checks read — COLUMNS, TABLES,
         // STATISTICS, TABLE_CONSTRAINTS — carries the same column set on both.
+        #[cfg(feature = "mysql")]
         "mysql" | "mariadb" => {
             let mut driver = MySqlDriver::with_registry(registry);
 
@@ -189,7 +194,13 @@ pub(crate) fn build_driver_with_config(
         // mentioned, which reads as a scythe bug rather than an
         // unsupported-engine notice. `UnsupportedDriver` carries the engine
         // that was actually requested.
-        other => Box::new(UnsupportedDriver::new(other)),
+        // An engine whose driver this build left out lands here too, and
+        // `UnsupportedDriver` reports the Cargo feature that would include it.
+        other => {
+            // Unused here, and in every arm when no driver feature is enabled.
+            let _ = (registry, inspect_config);
+            Box::new(UnsupportedDriver::new(other))
+        }
     }
 }
 
@@ -578,6 +589,7 @@ mod tests {
         assert!(msg.contains("mysql"));
     }
 
+    #[cfg(all(feature = "mysql", feature = "postgres"))]
     #[test]
     fn build_driver_with_config_dispatches_by_engine() {
         let registry = CheckRegistry::canonical();

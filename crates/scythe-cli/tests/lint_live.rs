@@ -18,7 +18,7 @@
 //! instance, so they affect only the child process and never race other
 //! tests running in the same Rust test harness.
 
-#![cfg(feature = "live-tests")]
+#![cfg(all(feature = "live-tests", feature = "postgres"))]
 
 use std::fs;
 

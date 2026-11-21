@@ -2257,6 +2257,13 @@ fn check_exit_code(error_count: usize, exit_zero: bool) -> Option<i32> {
 /// in `scythe.toml`, e.g. `"pg"` or `"cockroachdb"`), and its analyzed
 /// queries.
 #[derive(Debug)]
+#[cfg_attr(
+    not(feature = "postgres"),
+    expect(
+        dead_code,
+        reason = "`queries` and `schema` are read only by live PostgreSQL verification"
+    )
+)]
 struct VerifiableBlock {
     name: String,
     engine: String,
@@ -2322,6 +2329,31 @@ fn verify_against_database(
         return Ok(Vec::new());
     }
 
+    verify_postgres_blocks(url, &pg_blocks, drift_severities)
+}
+
+/// Report that live verification needs the `postgres` feature this build
+/// was compiled without, rather than skipping the requested check.
+#[cfg(not(feature = "postgres"))]
+fn verify_postgres_blocks(
+    url: &str,
+    _pg_blocks: &[&VerifiableBlock],
+    _drift_severities: &scythe_inspect::DriftSeverities,
+) -> Result<Vec<scythe_lint::reporters::Finding>, Box<dyn std::error::Error>> {
+    let disabled = scythe_inspect::InspectError::EngineDisabled {
+        engine: "postgres".to_string(),
+        feature: "postgres",
+    };
+    Err(format!("cannot verify against '{}': {disabled}", redact_url_password(url)).into())
+}
+
+/// Verify the PostgreSQL-compatible blocks over one connection to `url`.
+#[cfg(feature = "postgres")]
+fn verify_postgres_blocks(
+    url: &str,
+    pg_blocks: &[&VerifiableBlock],
+    drift_severities: &scythe_inspect::DriftSeverities,
+) -> Result<Vec<scythe_lint::reporters::Finding>, Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
     runtime.block_on(async {
@@ -2346,7 +2378,7 @@ fn verify_against_database(
         });
 
         let mut findings = Vec::new();
-        for block in &pg_blocks {
+        for block in pg_blocks {
             eprintln!(
                 "[{}] Verifying {} queries against the database...",
                 block.name,
