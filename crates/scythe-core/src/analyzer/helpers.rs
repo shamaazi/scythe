@@ -290,6 +290,15 @@ pub(super) fn table_factor_name(tf: &TableFactor) -> String {
     }
 }
 
+/// The alias a DML target table is given (`UPDATE schedules s`), folded by
+/// [`ident_name`].
+pub(super) fn table_factor_alias(tf: &TableFactor) -> Option<String> {
+    match tf {
+        TableFactor::Table { alias: Some(alias), .. } => Some(ident_name(&alias.name)),
+        _ => None,
+    }
+}
+
 pub(super) fn assignment_target_name(target: &ast::AssignmentTarget) -> String {
     match target {
         ast::AssignmentTarget::ColumnName(name) => object_column_name(name),

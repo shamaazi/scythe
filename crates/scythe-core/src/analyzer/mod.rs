@@ -3101,4 +3101,49 @@ SELECT id, moods FROM t WHERE id = $1;",
         let error = analyze(&catalog, &query).expect_err("an unquoted userId folds to userid, which does not exist");
         assert!(error.message.contains("userid"), "got: {}", error.message);
     }
+
+    #[test]
+    fn should_resolve_aliased_update_targets_in_correlated_subqueries_and_returning() {
+        let result = analyze_sql(
+            "-- @name Unpublish\n-- @returns :many\n\
+             UPDATE posts p SET published = false, title = (SELECT u.name FROM users u WHERE u.id = p.user_id) \
+             WHERE p.user_id = $1 AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.post_id = p.id AND c.user_id = $2) \
+             RETURNING p.id, (SELECT u.email FROM users u WHERE u.id = p.user_id) AS email;",
+        )
+        .expect("the target alias is in scope everywhere");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "int32")]);
+        let columns: Vec<_> = result
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.neutral_type.as_str()))
+            .collect();
+        assert_eq!(columns, [("id", "int32"), ("email", "string")]);
+    }
+
+    #[test]
+    fn should_resolve_aliased_delete_targets_in_correlated_subqueries() {
+        let result = analyze_sql(
+            "-- @name DeleteSilent\n-- @returns :many\n\
+             DELETE FROM posts p WHERE p.user_id = $1 \
+             AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.post_id = p.id) RETURNING p.title;",
+        )
+        .expect("the target alias is in scope");
+        assert_eq!(param_types(&result), [(1, "int32")]);
+        assert_eq!(result.columns[0].neutral_type, "string");
+    }
+
+    #[test]
+    fn should_resolve_aliased_insert_targets_and_excluded_in_on_conflict() {
+        let result = analyze_sql(
+            "-- @name Upsert\n-- @returns :many\n\
+             INSERT INTO posts AS p (id, user_id, title) VALUES ($1, $2, $3) \
+             ON CONFLICT (id) DO UPDATE SET title = excluded.title WHERE p.title <> $4 \
+             RETURNING p.id;",
+        )
+        .expect("the insert alias and excluded are in scope");
+        assert_eq!(
+            param_types(&result),
+            [(1, "int32"), (2, "int32"), (3, "string"), (4, "string")]
+        );
+    }
 }

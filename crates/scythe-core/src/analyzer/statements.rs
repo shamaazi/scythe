@@ -455,6 +455,10 @@ impl<'a> Analyzer<'a> {
             }
         };
 
+        let target_scope = self.build_target_scope(
+            &table_name,
+            insert.table_alias.as_ref().map(|alias| ident_name(&alias.alias)),
+        )?;
         let target_cols: Vec<String> = insert.columns.iter().map(object_column_name).collect();
 
         if let Some(ref source) = insert.source {
@@ -465,7 +469,16 @@ impl<'a> Analyzer<'a> {
             && let ast::OnInsert::OnConflict(oc) = on_conflict
             && let ast::OnConflictAction::DoUpdate(do_update) = &oc.action
         {
-            let scope = self.build_scope_for_table(&table_name)?;
+            // `excluded` is the row proposed for insertion.
+            let mut scope = target_scope.clone();
+            if let Some(target) = target_scope.sources.first() {
+                scope.sources.push(ScopeSource {
+                    alias: "excluded".to_string(),
+                    table_name: "excluded".to_string(),
+                    columns: target.columns.clone(),
+                    nullable_from_join: false,
+                });
+            }
             self.collect_assignment_params(&table_name, &do_update.assignments, &scope);
             if let Some(ref selection) = do_update.selection {
                 self.collect_params_from_where(selection, &scope);
@@ -473,7 +486,7 @@ impl<'a> Analyzer<'a> {
         }
 
         let columns = if let Some(ref returning) = insert.returning {
-            self.analyze_returning(&table_name, returning)?
+            self.analyze_returning(&target_scope, returning)?
         } else {
             Vec::new()
         };
@@ -580,7 +593,7 @@ impl<'a> Analyzer<'a> {
     ) -> Result<(Vec<AnalyzedColumn>, Vec<ParamInfo>), ScytheError> {
         let table_name = table_factor_name(&table.relation);
 
-        let mut scope = self.build_scope_for_table(&table_name)?;
+        let mut scope = self.build_target_scope(&table_name, table_factor_alias(&table.relation))?;
         if let Some(from_kind) = from {
             let tables = match from_kind {
                 ast::UpdateTableFromKind::BeforeSet(tables) | ast::UpdateTableFromKind::AfterSet(tables) => tables,
@@ -596,7 +609,7 @@ impl<'a> Analyzer<'a> {
         }
 
         let columns = if let Some(returning) = returning {
-            self.analyze_returning(&table_name, returning)?
+            self.analyze_returning(&scope, returning)?
         } else {
             Vec::new()
         };
@@ -608,17 +621,13 @@ impl<'a> Analyzer<'a> {
         &mut self,
         delete: &ast::Delete,
     ) -> Result<(Vec<AnalyzedColumn>, Vec<ParamInfo>), ScytheError> {
-        let table_name = match &delete.from {
-            ast::FromTable::WithFromKeyword(tables) | ast::FromTable::WithoutKeyword(tables) => {
-                if let Some(twj) = tables.first() {
-                    table_factor_name(&twj.relation)
-                } else {
-                    String::new()
-                }
-            }
+        let target = match &delete.from {
+            ast::FromTable::WithFromKeyword(tables) | ast::FromTable::WithoutKeyword(tables) => tables.first(),
         };
+        let table_name = target.map(|twj| table_factor_name(&twj.relation)).unwrap_or_default();
+        let alias = target.and_then(|twj| table_factor_alias(&twj.relation));
 
-        let scope = self.build_scope_for_table(&table_name)?;
+        let scope = self.build_target_scope(&table_name, alias)?;
 
         let mut full_scope = scope;
         if let Some(ref using) = delete.using {
@@ -631,7 +640,7 @@ impl<'a> Analyzer<'a> {
         }
 
         let columns = if let Some(ref returning) = delete.returning {
-            self.analyze_returning(&table_name, returning)?
+            self.analyze_returning(&full_scope, returning)?
         } else {
             Vec::new()
         };
@@ -639,27 +648,38 @@ impl<'a> Analyzer<'a> {
         Ok((columns, self.params.clone()))
     }
 
+    /// The scope of an INSERT, UPDATE or DELETE target: its table under its
+    /// alias, which correlated subqueries and RETURNING refer to it by.
+    fn build_target_scope(&self, table_name: &str, alias: Option<String>) -> Result<Scope, ScytheError> {
+        let mut scope = self.build_scope_for_table(table_name)?;
+        if let (Some(alias), Some(source)) = (alias, scope.sources.first_mut()) {
+            source.alias = alias;
+        }
+        Ok(scope)
+    }
+
+    /// RETURNING sees the target and, for UPDATE ... FROM and DELETE ...
+    /// USING, the other FROM items.
     pub(super) fn analyze_returning(
         &mut self,
-        table_name: &str,
+        scope: &Scope,
         returning: &[SelectItem],
     ) -> Result<Vec<AnalyzedColumn>, ScytheError> {
-        let scope = self.build_scope_for_table(table_name)?;
         let mut columns = Vec::new();
 
         for item in returning {
             match item {
                 SelectItem::UnnamedExpr(expr) => {
-                    let ti = self.infer_expr_type(expr, &scope);
+                    let ti = self.infer_expr_type(expr, scope);
                     let name = expr_to_name(expr);
                     columns.push(AnalyzedColumn::from_type_info(name, ti));
                 }
                 SelectItem::ExprWithAlias { expr, alias } => {
-                    let ti = self.infer_expr_type(expr, &scope);
+                    let ti = self.infer_expr_type(expr, scope);
                     columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti));
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
-                    let ti = self.infer_expr_type(expr, &scope);
+                    let ti = self.infer_expr_type(expr, scope);
                     for alias in aliases {
                         columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti.clone()));
                     }
