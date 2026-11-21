@@ -526,9 +526,29 @@ impl<'a> Analyzer<'a> {
         TypeInfo::new(format!("{UNKNOWN_COLUMN_MARKER}{col_name}"), true)
     }
 
+    /// `ARRAY(subquery)` collects the subquery's single column into an array
+    /// of that column's type. It is never NULL: no rows give an empty array.
+    fn infer_array_subquery_type(&mut self, query: &ast::Query, scope: &Scope) -> TypeInfo {
+        match self.analyze_correlated_query(query, scope).as_deref() {
+            Ok([column]) => TypeInfo::new(format!("array<{}>", column.neutral_type), false),
+            Ok(columns) => {
+                self.type_errors
+                    .push(format!("subquery must return only one column, got {}", columns.len()));
+                TypeInfo::unknown()
+            }
+            Err(_) => TypeInfo::new(UNRESOLVED_EXPR_MARKER, false),
+        }
+    }
+
     pub(super) fn infer_function_type(&mut self, func: &ast::Function, scope: &Scope) -> TypeInfo {
         let func_name = object_name_to_string(&func.name).to_lowercase();
         let is_window = func.over.is_some();
+
+        // sqlparser represents the `ARRAY(subquery)` constructor as a call to
+        // `array` whose arguments are the subquery.
+        if let ast::FunctionArguments::Subquery(query) = &func.args {
+            return self.infer_array_subquery_type(query, scope);
+        }
 
         let first_arg_ti = self.get_first_arg_type(func, scope);
         let first_arg_nullable = first_arg_ti.as_ref().map(|ti| ti.nullable).unwrap_or(true);

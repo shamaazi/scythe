@@ -2577,4 +2577,49 @@ SELECT id, moods FROM t WHERE id = $1;",
         let result = analyze(&catalog, &query).expect("the unqualified name resolves to posts.id");
         assert_eq!(result.columns[0].neutral_type, "int32");
     }
+
+    #[test]
+    fn should_type_array_subquery_as_non_null_array_of_its_column() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name UserPostTitles\n-- @returns :many\n\
+             SELECT u.id, ARRAY(SELECT p.title FROM posts p WHERE p.user_id = u.id ORDER BY p.id) AS titles, \
+             ARRAY(SELECT p.body FROM posts p WHERE p.user_id = u.id) AS bodies \
+             FROM users u;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("ARRAY(subquery) should resolve");
+        assert_eq!(result.columns[1].neutral_type, "array<string>");
+        assert!(!result.columns[1].nullable, "no rows give an empty array, not NULL");
+        assert_eq!(result.columns[2].neutral_type, "array<string>");
+        assert!(!result.columns[2].nullable);
+    }
+
+    #[test]
+    fn should_type_array_subquery_in_a_view_through_coalesce() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE articles (id integer PRIMARY KEY, title text NOT NULL);",
+            "CREATE TABLE article_tags (article_id integer NOT NULL, tag varchar(40) NOT NULL);",
+            "CREATE VIEW article_summaries AS SELECT a.id, \
+             coalesce(ARRAY(SELECT t.tag::text FROM article_tags t WHERE t.article_id = a.id ORDER BY t.tag), '{}') \
+             AS tags FROM articles a;",
+        ])
+        .expect("a view with ARRAY(subquery) should parse");
+        let query = parse_query("-- @name Tags\n-- @returns :many\nSELECT tags FROM article_summaries;")
+            .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the view column should resolve");
+        assert_eq!(result.columns[0].neutral_type, "array<string>");
+        assert!(!result.columns[0].nullable);
+    }
+
+    #[test]
+    fn should_reject_array_subquery_with_more_than_one_column() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name Pairs\n-- @returns :many\nSELECT ARRAY(SELECT p.id, p.title FROM posts p) AS pairs FROM users;",
+        )
+        .expect("query should parse");
+        let error = analyze(&catalog, &query).expect_err("ARRAY(subquery) takes one column");
+        assert!(error.message.contains("only one column"), "got: {}", error.message);
+    }
 }
