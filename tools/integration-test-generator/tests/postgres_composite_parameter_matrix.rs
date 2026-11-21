@@ -26,6 +26,7 @@ const EXPECTED_PROJECTS: &[&str] = &[
     "rust-sqlx",
     "rust-sqlx-nested-json",
     "rust-tokio-postgres",
+    "typescript-bun",
     "typescript-kysely",
     "typescript-kysely-camel",
     "typescript-pg",
@@ -54,6 +55,7 @@ const EXPECTED_BACKENDS: &[&str] = &[
     "ruby-pg",
     "rust-sqlx",
     "rust-tokio-postgres",
+    "typescript-bun",
     "typescript-kysely",
     "typescript-pg",
     "typescript-postgres",
@@ -62,10 +64,10 @@ const EXPECTED_BACKENDS: &[&str] = &[
 const DECLARATIONS_ONLY_PROJECT: &str = "typescript-pg-structs-only";
 const NAMESPACE_ONLY_PROJECT: &str = "php-pdo-namespace";
 const QUERY_SYMBOL: &str = "RoundTripUserAddress";
-const EXPECTED_PROJECT_COUNT: usize = 30;
-const EXPECTED_BACKEND_COUNT: usize = 19;
-const EXPECTED_QUERY_CAPABLE_COUNT: usize = 29;
-const EXPECTED_LIVE_HARNESS_COUNT: usize = 28;
+const EXPECTED_PROJECT_COUNT: usize = 31;
+const EXPECTED_BACKEND_COUNT: usize = 20;
+const EXPECTED_QUERY_CAPABLE_COUNT: usize = 30;
+const EXPECTED_LIVE_HARNESS_COUNT: usize = 29;
 const COMPOSITE_PARAMETER_FIXTURE: &str = "VALUES ('Composite Parameter Round Trip', 'active', ($1))";
 
 #[derive(Deserialize)]

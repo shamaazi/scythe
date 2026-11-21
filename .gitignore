@@ -89,3 +89,7 @@ erl_crash.dump
 .devenv*
 devenv.local.nix
 .direnv
+
+# devenv
+.devenv*
+devenv.local.nix

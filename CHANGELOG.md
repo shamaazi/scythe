@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Development and CI run on devenv instead of mise: `devenv.nix` provides the
+  Rust toolchain, Bun and a PostgreSQL service, and the `scythe:build`,
+  `scythe:test`, `scythe:lint`, `scythe:generate`, `scythe:generated-fresh`,
+  `scythe:integration` and `scythe:cluster-scope` tasks; one GitHub workflow
+  runs them. The mise, poly, uv, renovate, dependabot and ai-rulez
+  configuration, the release, publish, docs and plugin workflows, the GitHub
+  Action, the pre-commit hook definition and the coding-agent plugin and
+  skills are gone.
+
 ### Added
 
 - `[lint.naming] query_prefixes` replaces the verb prefixes `SC-N03` accepts at

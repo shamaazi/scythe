@@ -74,6 +74,7 @@ fn ruby_pg_encodes_composite_params_and_casts_from_text() {
 }
 
 #[test]
+#[ignore = "needs ruby on PATH; the devenv shell does not provide it"]
 fn ruby_pg_encoder_preserves_backslashes_at_runtime() {
     let backend = get_backend("ruby-pg", "postgresql").expect("ruby-pg supports PostgreSQL");
     let composite = backend

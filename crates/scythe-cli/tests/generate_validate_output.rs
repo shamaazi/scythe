@@ -86,6 +86,7 @@ fn generate_without_validate_output_never_reports_validation() {
 /// `PATH` is used unmodified here -- unlike the skip test below, which
 /// deliberately breaks it.
 #[test]
+#[ignore = "needs poly on PATH; the devenv shell does not provide it"]
 fn generate_validate_output_reports_validated_when_the_tool_is_present() {
     let dir = TempDir::new().unwrap();
     let config_path = write_python_project(dir.path());

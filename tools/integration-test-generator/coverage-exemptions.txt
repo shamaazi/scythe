@@ -91,46 +91,118 @@ kotlin-r2dbc|sqlite : no io.r2dbc:r2dbc-sqlite artifact exists on Maven Central;
 # the first.
 php-pdo|oracle : blocked in crates/scythe-codegen/src/backends/php_pdo.rs (php_pdo.rs:31-45) -- no "oracle" engine arm and no RETURNING-INTO reconstruction like ruby_oci8.rs/python_oracledb.rs have; the pdo_oci CI extension gap is real but secondary
 
-[mise-tasks]
-# Integration projects with no `test:<project>` task in
-# integration_tests/mise.toml. Empty: all 32 that issue #135 found were
-# added. Keep it empty.
+[devenv-integration]
+# Integration projects the `scythe:integration` devenv task does not run: their
+# languages and engines are not part of this fork's toolchain, and they are
+# deleted with those backends and engines.
 
-[ci-steps]
-# Integration projects that no job in .github/workflows/integration.yml runs.
-# Adding a project without a CI step produces output that is checked for
-# freshness but never executed -- see the [manifests] preamble.
-#
-# These were issue #118. php-pdo-sqlite is closed: integration-sqlite needs no
-# service container and already installs pdo_sqlite, so it only needed the
-# `Test php-pdo-sqlite` step. ruby-oci8-oracle, kotlin-jdbc-ext and
-# php-pdo-namespace are closed the same way -- each had a `test:*` task
-# already and no missing infrastructure, so each only needed its step
-# added to integration-oracle or integration-pg.
-#
-# elixir-jamdb-oracle is closed too, but it earned its step the hard way: the
-# step was added, failed immediately, and the failure was real -- the generated
-# code had never been able to run at all. Fixed under board #223 and verified
-# against a local gvenzl/oracle-xe:21-slim before the step went back.
-#
-# ruby-oci8-oracle is closed the same way jamdb was: its step ran, found a real
-# defect (OCI8 returns a LOB locator where the row type declares String, board
-# #225), and the fix went in with the step restored -- this time ordered last in
-# the Oracle job, so a failure there costs only its own coverage instead of
-# skipping the steps behind it.
-#
-# Only php-pdo-snowflake remains, for a reason different from "just add a step":
-#
-# php-pdo-snowflake needs the `pdo_snowflake` extension, which ships from
-# snowflakedb/pdo_snowflake as neither a PECL package nor an apt package: it is
-# built from source against Snowflake's C driver (cmake, a libcurl/openssl
-# toolchain, and the vendored libsnowflakeclient submodule), copying the
-# resulting pdo_snowflake.so and a cacert.pem into place by hand. That is a
-# CI-infrastructure project in its own right, not a step modeled on a sibling
-# -- this job has no sibling that builds a driver from source.
-# go-database-sql-duckdb is closed: board #228's premise was understated. Measured
-# against go-duckdb v2.3.3, a `*T` bind fails whether or not the pointer is nil,
-# so the manifest's `nullable = "*{T}"` broke every nullable parameter, not just
-# the NULL ones. The backend now dereferences at the bind site and the step runs
-# in integration-duckdb alongside the other four duckdb projects.
-php-pdo-snowflake : issue #118 -- pdo_snowflake has no PECL/apt package; it must be built from source against Snowflake's C driver (see snowflakedb/pdo_snowflake), which is real infrastructure work, not a missing step
+csharp-microsoft-sqlite : not part of the trimmed toolchain; removed with its backend or engine
+csharp-mysqlconnector : not part of the trimmed toolchain; removed with its backend or engine
+csharp-mysqlconnector-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+csharp-npgsql : not part of the trimmed toolchain; removed with its backend or engine
+csharp-npgsql-redshift : not part of the trimmed toolchain; removed with its backend or engine
+csharp-oracle : not part of the trimmed toolchain; removed with its backend or engine
+csharp-snowflake : not part of the trimmed toolchain; removed with its backend or engine
+csharp-sqlclient-mssql : not part of the trimmed toolchain; removed with its backend or engine
+elixir-ecto : not part of the trimmed toolchain; removed with its backend or engine
+elixir-exqlite : not part of the trimmed toolchain; removed with its backend or engine
+elixir-jamdb-oracle : not part of the trimmed toolchain; removed with its backend or engine
+elixir-myxql : not part of the trimmed toolchain; removed with its backend or engine
+elixir-myxql-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+elixir-postgrex : not part of the trimmed toolchain; removed with its backend or engine
+elixir-postgrex-redshift : not part of the trimmed toolchain; removed with its backend or engine
+elixir-tds-mssql : not part of the trimmed toolchain; removed with its backend or engine
+go-database-sql-duckdb : not part of the trimmed toolchain; removed with its backend or engine
+go-database-sql-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+go-database-sql-mssql : not part of the trimmed toolchain; removed with its backend or engine
+go-database-sql-mysql : not part of the trimmed toolchain; removed with its backend or engine
+go-database-sql-sqlite : not part of the trimmed toolchain; removed with its backend or engine
+go-godror-oracle : not part of the trimmed toolchain; removed with its backend or engine
+go-gosnowflake : not part of the trimmed toolchain; removed with its backend or engine
+go-pgx : not part of the trimmed toolchain; removed with its backend or engine
+go-pgx-redshift : not part of the trimmed toolchain; removed with its backend or engine
+java-jdbc : not part of the trimmed toolchain; removed with its backend or engine
+java-jdbc-duckdb : not part of the trimmed toolchain; removed with its backend or engine
+java-jdbc-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+java-jdbc-mssql : not part of the trimmed toolchain; removed with its backend or engine
+java-jdbc-mysql : not part of the trimmed toolchain; removed with its backend or engine
+java-jdbc-oracle : not part of the trimmed toolchain; removed with its backend or engine
+java-jdbc-redshift : not part of the trimmed toolchain; removed with its backend or engine
+java-jdbc-snowflake : not part of the trimmed toolchain; removed with its backend or engine
+java-jdbc-sqlite : not part of the trimmed toolchain; removed with its backend or engine
+java-r2dbc : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-exposed : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc-duckdb : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc-ext : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc-mssql : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc-mysql : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc-oracle : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc-redshift : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc-snowflake : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-jdbc-sqlite : not part of the trimmed toolchain; removed with its backend or engine
+kotlin-r2dbc : not part of the trimmed toolchain; removed with its backend or engine
+php-amphp : not part of the trimmed toolchain; removed with its backend or engine
+php-amphp-mysql : not part of the trimmed toolchain; removed with its backend or engine
+php-pdo : not part of the trimmed toolchain; removed with its backend or engine
+php-pdo-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+php-pdo-mssql : not part of the trimmed toolchain; removed with its backend or engine
+php-pdo-mysql : not part of the trimmed toolchain; removed with its backend or engine
+php-pdo-namespace : not part of the trimmed toolchain; removed with its backend or engine
+php-pdo-redshift : not part of the trimmed toolchain; removed with its backend or engine
+php-pdo-snowflake : not part of the trimmed toolchain; removed with its backend or engine
+php-pdo-sqlite : not part of the trimmed toolchain; removed with its backend or engine
+python-aiomysql : not part of the trimmed toolchain; removed with its backend or engine
+python-aiomysql-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+python-aiosqlite : not part of the trimmed toolchain; removed with its backend or engine
+python-asyncpg : not part of the trimmed toolchain; removed with its backend or engine
+python-asyncpg-redshift : not part of the trimmed toolchain; removed with its backend or engine
+python-duckdb : not part of the trimmed toolchain; removed with its backend or engine
+python-oracledb-oracle : not part of the trimmed toolchain; removed with its backend or engine
+python-psycopg3 : not part of the trimmed toolchain; removed with its backend or engine
+python-psycopg3-msgspec : not part of the trimmed toolchain; removed with its backend or engine
+python-psycopg3-pydantic : not part of the trimmed toolchain; removed with its backend or engine
+python-psycopg3-redshift : not part of the trimmed toolchain; removed with its backend or engine
+python-pyodbc-mssql : not part of the trimmed toolchain; removed with its backend or engine
+python-snowflake : not part of the trimmed toolchain; removed with its backend or engine
+ruby-mysql2 : not part of the trimmed toolchain; removed with its backend or engine
+ruby-mysql2-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+ruby-oci8-oracle : not part of the trimmed toolchain; removed with its backend or engine
+ruby-pg : not part of the trimmed toolchain; removed with its backend or engine
+ruby-pg-redshift : not part of the trimmed toolchain; removed with its backend or engine
+ruby-sqlite3 : not part of the trimmed toolchain; removed with its backend or engine
+ruby-tiny-tds-mssql : not part of the trimmed toolchain; removed with its backend or engine
+ruby-trilogy : not part of the trimmed toolchain; removed with its backend or engine
+ruby-trilogy-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+rust-sibyl-oracle : not part of the trimmed toolchain; removed with its backend or engine
+rust-sqlx-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+rust-sqlx-mysql : not part of the trimmed toolchain; removed with its backend or engine
+rust-sqlx-redshift : not part of the trimmed toolchain; removed with its backend or engine
+rust-tiberius-mssql : not part of the trimmed toolchain; removed with its backend or engine
+rust-tokio-postgres-redshift : not part of the trimmed toolchain; removed with its backend or engine
+typescript-better-sqlite3 : not part of the trimmed toolchain; removed with its backend or engine
+typescript-duckdb : not part of the trimmed toolchain; removed with its backend or engine
+typescript-kysely : not part of the trimmed toolchain; removed with its backend or engine
+typescript-kysely-camel : not part of the trimmed toolchain; removed with its backend or engine
+typescript-kysely-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+typescript-kysely-mssql : not part of the trimmed toolchain; removed with its backend or engine
+typescript-kysely-mysql2 : not part of the trimmed toolchain; removed with its backend or engine
+typescript-kysely-redshift : not part of the trimmed toolchain; removed with its backend or engine
+typescript-kysely-sqlite : not part of the trimmed toolchain; removed with its backend or engine
+typescript-mssql : not part of the trimmed toolchain; removed with its backend or engine
+typescript-mysql2 : not part of the trimmed toolchain; removed with its backend or engine
+typescript-mysql2-mariadb : not part of the trimmed toolchain; removed with its backend or engine
+typescript-node-sqlite : not part of the trimmed toolchain; removed with its backend or engine
+typescript-oracledb-oracle : not part of the trimmed toolchain; removed with its backend or engine
+typescript-pg : not part of the trimmed toolchain; removed with its backend or engine
+typescript-pg-camel : not part of the trimmed toolchain; removed with its backend or engine
+typescript-pg-outer-join-unions : not part of the trimmed toolchain; removed with its backend or engine
+typescript-pg-redshift : not part of the trimmed toolchain; removed with its backend or engine
+typescript-pg-structs-only : not part of the trimmed toolchain; removed with its backend or engine
+typescript-pg-zod : not part of the trimmed toolchain; removed with its backend or engine
+typescript-pg-zod-outer-join-unions : not part of the trimmed toolchain; removed with its backend or engine
+typescript-postgres : not part of the trimmed toolchain; removed with its backend or engine
+typescript-postgres-redshift : not part of the trimmed toolchain; removed with its backend or engine
+typescript-snowflake : not part of the trimmed toolchain; removed with its backend or engine
+typescript-wasm-sqlite : not part of the trimmed toolchain; removed with its backend or engine

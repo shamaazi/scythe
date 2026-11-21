@@ -273,26 +273,8 @@ fn every_backend_manifest_has_an_integration_project() {
     assert_ratchet(&gaps, &load_exemptions(&exemptions_path(), "manifests"), "manifests");
 }
 
-/// #135: every integration project is runnable locally, i.e. has a
-/// `test:<project>` task in `integration_tests/mise.toml`. A project only
-/// reachable by hand-assembling a command out of the CI workflow is a project
-/// nobody debugs.
-#[test]
-fn every_integration_project_has_a_mise_task() {
-    let config = repo_root().join("integration_tests/mise.toml");
-    let contents = read_to_string(&config);
-
-    let gaps: BTreeMap<String, String> = integration_projects()
-        .into_iter()
-        .filter(|(project, _)| !contents.contains(&format!("\n[tasks.\"test:{project}\"]\n")))
-        .map(|(project, _)| (project, format!("no 'test:*' task in {}", config.display())))
-        .collect();
-
-    assert_ratchet(&gaps, &load_exemptions(&exemptions_path(), "mise-tasks"), "mise-tasks");
-}
-
-/// #118/#134: every integration project is actually executed by a job in the
-/// integration workflow.
+/// #118/#134/#135: every integration project is run by the `scythe:integration` devenv
+/// task, which is both how a project is run locally and what CI runs.
 ///
 /// Without this, the manifest check above is satisfiable by committing a
 /// project nothing runs — generated output that the freshness check inspects
@@ -300,20 +282,38 @@ fn every_integration_project_has_a_mise_task() {
 /// parameter-binding bug survived from v0.6.0 to 0.14.0, so closing the
 /// manifest gap and leaving this one open would just relocate the defect.
 ///
-/// The workflow is matched on `working-directory: integration_tests/<project>`,
-/// which is how every step there names its project.
+/// The task names each project as a whole word in `devenv.nix`, so a project is
+/// matched by token rather than substring (`rust-sqlx` must not count for
+/// `rust-sqlx-sqlite`).
 #[test]
-fn every_integration_project_runs_in_ci() {
-    let workflow = repo_root().join(".github/workflows/integration.yml");
-    let contents = read_to_string(&workflow);
+fn every_integration_project_runs_in_the_devenv_task() {
+    let devenv = repo_root().join("devenv.nix");
+    let contents = read_to_string(&devenv);
+    let task = contents
+        .split_once("\"scythe:integration\" = {")
+        .map(|(_, rest)| rest)
+        .unwrap_or_else(|| panic!("no scythe:integration task in {}", devenv.display()));
+    let words: BTreeSet<&str> = task
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .filter(|word| !word.is_empty())
+        .collect();
 
     let gaps: BTreeMap<String, String> = integration_projects()
         .into_iter()
-        .filter(|(project, _)| !contents.contains(&format!("working-directory: integration_tests/{project}\n")))
-        .map(|(project, _)| (project, format!("no step in {}", workflow.display())))
+        .filter(|(project, _)| !words.contains(project.as_str()))
+        .map(|(project, _)| {
+            (
+                project,
+                format!("not run by scythe:integration in {}", devenv.display()),
+            )
+        })
         .collect();
 
-    assert_ratchet(&gaps, &load_exemptions(&exemptions_path(), "ci-steps"), "ci-steps");
+    assert_ratchet(
+        &gaps,
+        &load_exemptions(&exemptions_path(), "devenv-integration"),
+        "devenv-integration",
+    );
 }
 
 /// Every generated harness executes the shared schema by splitting it on `";"` and running one

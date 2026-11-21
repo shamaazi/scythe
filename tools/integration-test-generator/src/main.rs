@@ -1332,6 +1332,13 @@ fn load_manifest_exemptions(exemptions_path: &Path) -> HashMap<String, String> {
     entries
 }
 
+/// Integration projects kept by hand outside `backend_variants()` (their
+/// scaffolding is not rendered from the templates), as `(backend, engine)`.
+/// Their committed `scythe.toml` still exercises the manifest, which
+/// `tests/coverage_completeness.rs` counts, so the build-time check counts it
+/// too instead of demanding an exemption that test would call stale.
+const HAND_MAINTAINED_BACKENDS: &[(&str, &str)] = &[("typescript-bun", "postgresql")];
+
 /// Cross-checks `backend_variants()` against the manifests directory and
 /// `coverage-exemptions.txt`, failing the build in both directions — a
 /// manifest with no covering variant and no exemption, or an exemption whose
@@ -1357,6 +1364,12 @@ fn validate_manifest_coverage(variants: &[BackendConfig], manifests_dir: &Path, 
                 variant.name, variant.backend, variant.engine
             )
         });
+        let meta = &backend.manifest().backend;
+        covered.insert((meta.name.clone(), meta.engine.clone()));
+    }
+    for (backend, engine) in HAND_MAINTAINED_BACKENDS {
+        let backend = get_backend(backend, engine)
+            .unwrap_or_else(|err| panic!("hand-maintained backend '{backend}' on '{engine}' does not resolve: {err}"));
         let meta = &backend.manifest().backend;
         covered.insert((meta.name.clone(), meta.engine.clone()));
     }
