@@ -2437,6 +2437,8 @@ mod tests {
         "python-duckdb",
         "typescript-postgres",
         "javascript-postgres",
+        "typescript-bun",
+        "javascript-bun",
         "typescript-pg",
         "javascript-pg",
         "typescript-mysql2",
@@ -2602,6 +2604,11 @@ mod tests {
     const NOT_APPLICABLE_BACKENDS: &[BackendNote] = &[
         BackendNote {
             backend: "javascript-postgres",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-bun",
             reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
                       the check to find once comments are stripped",
         },

@@ -1008,6 +1008,12 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "javascript-postgres" => Box::new(typescript_postgres::TypescriptPostgresBackend::new_js(
             canonical_engine,
         )?),
+        "typescript-bun" => Box::new(typescript_postgres::TypescriptPostgresBackend::new_bun(
+            canonical_engine,
+        )?),
+        "javascript-bun" => Box::new(typescript_postgres::TypescriptPostgresBackend::new_bun_js(
+            canonical_engine,
+        )?),
         "typescript-pg" => Box::new(typescript_pg::TypescriptPgBackend::new(canonical_engine)?),
         "javascript-pg" => Box::new(typescript_pg::TypescriptPgBackend::new_js(canonical_engine)?),
         "typescript-mysql2" => Box::new(typescript_mysql2::TypescriptMysql2Backend::new(canonical_engine)?),
@@ -1293,6 +1299,7 @@ mod tests {
             "python-psycopg3",
             "python-asyncpg",
             "typescript-postgres",
+            "typescript-bun",
             "typescript-pg",
             "typescript-kysely",
             "go-pgx",

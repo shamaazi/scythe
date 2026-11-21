@@ -7,6 +7,7 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
         "python-psycopg3" | "python-asyncpg" | "python-aiomysql" | "python-aiosqlite" | "python-duckdb"
         | "python-pyodbc" | "python-oracledb" | "python-snowflake" => validate_python(code),
         "typescript-postgres"
+        | "typescript-bun"
         | "typescript-pg"
         | "typescript-mysql2"
         | "typescript-better-sqlite3"
@@ -19,6 +20,7 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
         | "typescript-snowflake" => validate_typescript(code),
         "javascript-pg"
         | "javascript-postgres"
+        | "javascript-bun"
         | "javascript-mysql2"
         | "javascript-better-sqlite3"
         | "javascript-node-sqlite"
