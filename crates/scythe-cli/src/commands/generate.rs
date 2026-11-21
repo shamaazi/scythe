@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::ops::Range;
 use std::path::Path;
 
 use serde::Deserialize;
@@ -572,6 +573,10 @@ fn run_generate_inner(
         let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
 
         let mut all_query_blocks = Vec::new();
+        // Which query file each analyzed query came from, as a range over
+        // `all_query_blocks` (and so over `analyzed_queries`, which keeps the
+        // same order): a `{dir}` target generates one module per entry.
+        let mut query_file_ranges: Vec<(&str, Range<usize>)> = Vec::new();
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)
                 .map_err(|e| format!("failed to read query file '{}': {}", query_file, e))?;
@@ -585,7 +590,9 @@ fn run_generate_inner(
                 .into());
             }
             let blocks = split_query_file(&content);
+            let start = all_query_blocks.len();
             all_query_blocks.extend(blocks);
+            query_file_ranges.push((query_file.as_str(), start..all_query_blocks.len()));
         }
 
         eprintln!("[{}] Analyzing {} queries...", sql_config.name, all_query_blocks.len());
@@ -601,7 +608,8 @@ fn run_generate_inner(
         // `schema_fingerprint` above and for the same reason: every target
         // under one block shares the same analyzed query set, and
         // `verify_provenance` recomputes the identical value from the same
-        // inputs when checking these same artifacts later (#94).
+        // inputs when checking these same artifacts later (#94). A `{dir}`
+        // target fingerprints each query file's queries on its own instead.
         let queries_fingerprint = AnalyzedQuery::fingerprint_set(&analyzed_queries);
 
         let overrides: Vec<TypeOverride> = sql_config
@@ -628,14 +636,14 @@ fn run_generate_inner(
 
         let gen_targets = resolve_gen_targets(sql_config)?;
 
-        // Resolve every target's backend and output directory before writing
-        // any of them. This does two things a single combined loop cannot:
-        // (1) it lets a containment violation or a filename collision on the
-        // *last* target abort before the *first* target's files are written,
-        // and (2) it makes the collision check below possible at all, since
-        // detecting "two targets write the same file" requires knowing every
-        // target's resolved (output_dir, filename) up front.
-        let mut resolved: Vec<(&ResolvedGenTarget, Box<dyn CodegenBackend>, String)> = Vec::new();
+        // Construct every target's backend and resolve every output directory
+        // before writing any of them. This does two things a single combined
+        // loop cannot: (1) it lets a containment violation or a filename
+        // collision on the *last* job abort before the *first* job's files
+        // are written, and (2) it makes the collision check below possible at
+        // all, since detecting "two jobs write the same file" requires knowing
+        // every job's resolved (output_dir, filename) up front.
+        let mut backends: Vec<(&ResolvedGenTarget, Box<dyn CodegenBackend>, String)> = Vec::new();
         for target in &gen_targets {
             let mut backend = get_backend(&target.backend, &sql_config.engine).map_err(|e| {
                 format!(
@@ -659,58 +667,99 @@ fn run_generate_inner(
                     .map_err(|e| format!("backend '{}' apply_options failed: {}", target.backend, e))?;
             }
 
-            // ~keep `output` is a path, not a glob pattern, so it is resolved via
-            // plain `Path::join` (not `rebase_pattern`/`glob::Pattern::escape`)
-            // — an output directory literally named `a[1]` must not be
-            // mangled. `PathBuf::push` (which `join` uses internally) leaves
-            // an already-absolute `target.output` unchanged: pushing an
-            // absolute path replaces the buffer instead of appending to it.
-            //
-            // Rejected by default when the resolved directory escapes
-            // `base_dir` (`../` traversal, or an absolute path) -- `scythe
-            // generate` running in CI against a PR-modified `scythe.toml` is
-            // otherwise an arbitrary directory-create-and-write primitive.
-            // See #207.
-            let output_dir = resolve_contained_output(base_dir, &target.output, &target.backend, allow_output_escape)?
-                .to_string_lossy()
-                .into_owned();
-
-            resolved.push((target, backend, output_dir));
+            let options_fingerprint = resolve_options_fingerprint(target, base_dir)?;
+            backends.push((target, backend, options_fingerprint));
         }
 
-        // Two targets whose (output directory, filename) coincide would
+        // A plain target is one job over the whole block. A `{dir}` target is
+        // one job per query file, each writing only that file's queries into
+        // the file's own directory, and fingerprinting only those queries so
+        // `scythe check` can verify each module on its own.
+        let mut jobs: Vec<GenJob<'_>> = Vec::new();
+        for (backend_index, (target, _, _)) in backends.iter().enumerate() {
+            let per_file: Vec<(Option<&str>, String, Range<usize>)> = if is_per_file_output(&target.output) {
+                query_file_ranges
+                    .iter()
+                    .map(|(query_file, range)| {
+                        let output = per_file_output(&target.output, query_file, base_dir);
+                        (Some(*query_file), output, range.clone())
+                    })
+                    .collect()
+            } else {
+                vec![(None, target.output.clone(), 0..analyzed_queries.len())]
+            };
+            for (query_file, output, range) in per_file {
+                // ~keep `output` is a path, not a glob pattern, so it is resolved via
+                // plain `Path::join` (not `rebase_pattern`/`glob::Pattern::escape`)
+                // — an output directory literally named `a[1]` must not be
+                // mangled. `PathBuf::push` (which `join` uses internally) leaves
+                // an already-absolute `output` unchanged: pushing an
+                // absolute path replaces the buffer instead of appending to it.
+                //
+                // Rejected by default when the resolved directory escapes
+                // `base_dir` (`../` traversal, or an absolute path) -- `scythe
+                // generate` running in CI against a PR-modified `scythe.toml` is
+                // otherwise an arbitrary directory-create-and-write primitive.
+                // See #207. Checked per job, after `{dir}` substitution.
+                let output_dir = resolve_contained_output(base_dir, &output, &target.backend, allow_output_escape)?
+                    .to_string_lossy()
+                    .into_owned();
+                let queries = &analyzed_queries[range];
+                let queries_fingerprint = match query_file {
+                    Some(_) => AnalyzedQuery::fingerprint_set(queries),
+                    None => queries_fingerprint.clone(),
+                };
+                let label = match query_file {
+                    Some(query_file) => format!("{} (for {query_file})", target.backend),
+                    None => target.backend.clone(),
+                };
+                jobs.push(GenJob {
+                    backend_index,
+                    label,
+                    output_dir,
+                    queries,
+                    queries_fingerprint,
+                });
+            }
+        }
+
+        // Two jobs whose (output directory, filename) coincide would
         // otherwise silently clobber each other -- the second one to write
-        // wins and the first target's generated code simply vanishes with
+        // wins and the first job's generated code simply vanishes with
         // no error. Detected up front (before either is written) rather
         // than left for `scythe check`'s SC-PRV03 to notice after the fact.
-        // See #207.
+        // See #207. With `{dir}`, two query files in one directory collide
+        // the same way.
         let mut seen_paths: AHashMap<String, &str> = AHashMap::new();
-        for (target, backend, output_dir) in &resolved {
-            let filename = output_filename(backend.as_ref());
-            let full_path = Path::new(output_dir).join(&filename).to_string_lossy().into_owned();
-            if let Some(existing_backend) = seen_paths.insert(full_path.clone(), target.backend.as_str()) {
+        for job in &jobs {
+            let filename = output_filename(backends[job.backend_index].1.as_ref());
+            let full_path = Path::new(&job.output_dir)
+                .join(&filename)
+                .to_string_lossy()
+                .into_owned();
+            if let Some(existing) = seen_paths.insert(full_path.clone(), job.label.as_str()) {
                 return Err(format!(
                     "[{}] targets '{}' and '{}' both write '{}'; give one of them a distinct `output` \
                      directory so neither silently overwrites the other's generated code",
-                    sql_config.name, existing_backend, target.backend, full_path
+                    sql_config.name, existing, job.label, full_path
                 )
                 .into());
             }
         }
 
-        for (target, backend, output_dir) in &resolved {
-            let options_fingerprint = resolve_options_fingerprint(target, base_dir)?;
+        for job in &jobs {
+            let (_, backend, options_fingerprint) = &backends[job.backend_index];
             let target_validation_failed = generate_for_backend(
                 &sql_config.name,
                 backend.as_ref(),
-                &analyzed_queries,
-                output_dir,
+                job.queries,
+                &job.output_dir,
                 &overrides,
                 ProvenanceFields {
                     engine: &sql_config.engine,
                     schema: &schema_fingerprint,
-                    queries: &queries_fingerprint,
-                    options: &options_fingerprint,
+                    queries: &job.queries_fingerprint,
+                    options: options_fingerprint,
                 },
                 validate_output,
             )?;
@@ -718,7 +767,7 @@ fn run_generate_inner(
                 *validation_failed = true;
             }
             written.push(
-                Path::new(output_dir)
+                Path::new(&job.output_dir)
                     .join(output_filename(backend.as_ref()))
                     .display()
                     .to_string(),
@@ -727,6 +776,47 @@ fn run_generate_inner(
     }
 
     Ok(())
+}
+
+/// The placeholder in a `[[sql.gen]]` `output` that makes the target
+/// generate one module per query file, into that file's directory.
+const DIR_PLACEHOLDER: &str = "{dir}";
+
+/// Whether a `[[sql.gen]]` `output` generates one module per query file.
+fn is_per_file_output(output: &str) -> bool {
+    output.contains(DIR_PLACEHOLDER)
+}
+
+/// `output` with `{dir}` replaced by `query_file`'s directory relative to
+/// `base_dir` (the config directory), or `.` for a query file in `base_dir`
+/// itself. A query file outside `base_dir` keeps its directory as matched,
+/// which the containment check then rejects unless escaping is allowed.
+fn per_file_output(output: &str, query_file: &str, base_dir: &Path) -> String {
+    use std::path::Component;
+
+    // `resolve_globs` prefixes `base_dir` as written, but a `./` may or may
+    // not survive globbing, so compare without `.` components.
+    fn normalized(path: &Path) -> std::path::PathBuf {
+        path.components().filter(|c| !matches!(c, Component::CurDir)).collect()
+    }
+    let parent = normalized(Path::new(query_file).parent().unwrap_or_else(|| Path::new("")));
+    let base = normalized(base_dir);
+    let dir = parent.strip_prefix(&base).unwrap_or(&parent);
+    let dir = dir.to_string_lossy();
+    output.replace(DIR_PLACEHOLDER, if dir.is_empty() { "." } else { &dir })
+}
+
+/// One output module `run_generate_inner` writes: a target's backend, its
+/// resolved output directory, and the queries (with their fingerprint) the
+/// module holds.
+struct GenJob<'a> {
+    backend_index: usize,
+    /// The backend name, plus the query file for a `{dir}` job, for the
+    /// collision error.
+    label: String,
+    output_dir: String,
+    queries: &'a [AnalyzedQuery],
+    queries_fingerprint: String,
 }
 
 /// Read the per-target manifest overlay at `manifest_path` and merge it into
@@ -1978,8 +2068,8 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         ));
 
         let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
-        let mut all_query_blocks: Vec<(String, String)> = Vec::new();
-        for query_file in &query_files {
+        let mut all_query_blocks: Vec<(usize, String)> = Vec::new();
+        for (file_index, query_file) in query_files.iter().enumerate() {
             let content = std::fs::read_to_string(query_file)
                 .map_err(|e| format!("failed to read query file '{}': {}", query_file, e))?;
             if has_unannotated_sql(&content) {
@@ -2014,16 +2104,17 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
             for block in blocks {
-                all_query_blocks.push((query_file.clone(), block));
+                all_query_blocks.push((file_index, block));
             }
         }
 
         eprintln!("[{}] Checking {} queries...", sql_config.name, all_query_blocks.len());
 
-        let mut query_names: Vec<String> = Vec::new();
+        let mut query_names: Vec<(usize, String)> = Vec::new();
         let mut analyzed_queries: Vec<scythe_core::analyzer::AnalyzedQuery> = Vec::new();
 
-        for (query_file, block) in &all_query_blocks {
+        for (file_index, block) in &all_query_blocks {
+            let query_file = &query_files[*file_index];
             // A parse or analyze failure used to propagate via `?`, aborting
             // `run_check` before `emit_findings` and discarding every
             // finding already collected -- for `check --output r.json` that
@@ -2060,7 +2151,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            query_names.push(analyzed.name.clone());
+            query_names.push((*file_index, analyzed.name.clone()));
             query_file_by_name.insert(analyzed.name.clone(), query_file.clone());
 
             let ctx = LintContext {
@@ -2098,6 +2189,21 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         // `AnalyzedQuery::fingerprint_set` for what participates. Read
         // before the possible move into `VerifiableBlock` just below.
         let queries_fingerprint = AnalyzedQuery::fingerprint_set(&analyzed_queries);
+        // The same per query file, for `{dir}` targets: each module holds
+        // only its own file's queries (`query_names` runs parallel to
+        // `analyzed_queries`, in file order).
+        let per_file_queries: Vec<PerFileQueries<'_>> = query_files
+            .iter()
+            .enumerate()
+            .map(|(file_index, query_file)| {
+                let start = query_names.partition_point(|(index, _)| *index < file_index);
+                let end = query_names.partition_point(|(index, _)| *index <= file_index);
+                PerFileQueries {
+                    query_file,
+                    queries_fingerprint: AnalyzedQuery::fingerprint_set(&analyzed_queries[start..end]),
+                }
+            })
+            .collect();
 
         if should_retain_for_verification(opts.database_url.as_deref()) {
             verifiable.push(VerifiableBlock {
@@ -2118,9 +2224,14 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             });
         }
 
-        let mut seen_names: AHashSet<String> = AHashSet::new();
-        for name in &query_names {
-            if !seen_names.insert(name.clone()) {
+        // A block whose every target writes one module per query file
+        // (`{dir}`) only needs names unique within each file.
+        let per_file_names = resolve_gen_targets(sql_config)
+            .is_ok_and(|targets| targets.iter().all(|target| is_per_file_output(&target.output)));
+        let mut seen_names: AHashSet<(usize, &str)> = AHashSet::new();
+        for (file_index, name) in &query_names {
+            let scope = if per_file_names { *file_index } else { 0 };
+            if !seen_names.insert((scope, name.as_str())) {
                 all_violations.push(QueryViolation {
                     query_name: name.clone(),
                     rule_id: Cow::Borrowed("SC-C03"),
@@ -2138,6 +2249,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             sql_config,
             &catalog,
             &queries_fingerprint,
+            &per_file_queries,
             base_dir,
             provenance_severities,
         ));
@@ -2553,6 +2665,15 @@ impl ProvenanceSeverities {
     }
 }
 
+/// One query file's share of a block, for verifying a `{dir}` target's
+/// module for that file.
+struct PerFileQueries<'a> {
+    /// The query file as `resolve_globs` matched it.
+    query_file: &'a str,
+    /// `q1:` fingerprint of the queries analyzed from this file alone.
+    queries_fingerprint: String,
+}
+
 /// What a single on-disk artifact's provenance header is checked against.
 ///
 /// Bundled rather than passed as loose arguments because every field is
@@ -2655,10 +2776,17 @@ struct ProvenanceExpectation<'a> {
 /// nevertheless *defaults* to `Warn`. A rule configured `off` still produces
 /// an entry here; `run_check` drops `Severity::Off` findings before
 /// reporting, exactly as it does for SQL rules.
+///
+/// # Per-file targets
+///
+/// A target whose `output` contains `{dir}` is checked once per entry of
+/// `per_file`, at that query file's substituted directory and against that
+/// file's own query fingerprint, mirroring how `scythe generate` wrote it.
 fn verify_provenance(
     sql_config: &SqlConfig,
     catalog: &Catalog,
     current_queries: &str,
+    per_file: &[PerFileQueries<'_>],
     base_dir: &Path,
     severities: ProvenanceSeverities,
 ) -> Vec<QueryViolation> {
@@ -2721,20 +2849,39 @@ fn verify_provenance(
             }
         };
 
-        let expected = ProvenanceExpectation {
-            target_label: &target_label,
-            backend_name: backend.name(),
-            engine: sanitized_engine.as_ref(),
-            schema: &current_schema,
-            queries: current_queries,
-            options: &options_fingerprint,
-            version: env!("CARGO_PKG_VERSION"),
-            severities,
+        // A `{dir}` target wrote one module per query file, fingerprinted
+        // over that file's queries alone; a plain target wrote one module
+        // over the whole block.
+        let modules: Vec<(String, &str)> = if is_per_file_output(&target.output) {
+            per_file
+                .iter()
+                .map(|file| {
+                    (
+                        per_file_output(&target.output, file.query_file, base_dir),
+                        file.queries_fingerprint.as_str(),
+                    )
+                })
+                .collect()
+        } else {
+            vec![(target.output.clone(), current_queries)]
         };
 
-        let output_dir = base_dir.join(&target.output);
-        for artifact_path in artifact_paths(&*backend, &output_dir) {
-            violations.extend(verify_artifact(&artifact_path, &expected));
+        for (output, queries) in modules {
+            let expected = ProvenanceExpectation {
+                target_label: &target_label,
+                backend_name: backend.name(),
+                engine: sanitized_engine.as_ref(),
+                schema: &current_schema,
+                queries,
+                options: &options_fingerprint,
+                version: env!("CARGO_PKG_VERSION"),
+                severities,
+            };
+
+            let output_dir = base_dir.join(&output);
+            for artifact_path in artifact_paths(&*backend, &output_dir) {
+                violations.extend(verify_artifact(&artifact_path, &expected));
+            }
         }
     }
 
@@ -3087,6 +3234,33 @@ fn report_rust_format_outcome(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [`super::verify_provenance`] for a config without `{dir}` targets,
+    /// which never reads the per-file fingerprints.
+    fn verify_provenance(
+        sql_config: &SqlConfig,
+        catalog: &Catalog,
+        current_queries: &str,
+        base_dir: &Path,
+        severities: ProvenanceSeverities,
+    ) -> Vec<QueryViolation> {
+        super::verify_provenance(sql_config, catalog, current_queries, &[], base_dir, severities)
+    }
+
+    #[test]
+    fn per_file_output_substitutes_the_query_file_directory_relative_to_the_config() {
+        assert_eq!(
+            per_file_output("{dir}", "proj/src/a/queries.sql", Path::new("proj")),
+            "src/a"
+        );
+        assert_eq!(
+            per_file_output("{dir}/generated", "./proj/src/b/queries.sql", Path::new("./proj")),
+            "src/b/generated"
+        );
+        assert_eq!(per_file_output("{dir}", "src/c/queries.sql", Path::new(".")), "src/c");
+        assert_eq!(per_file_output("{dir}", "queries.sql", Path::new(".")), ".");
+        assert!(!is_per_file_output("src/generated"));
+    }
 
     /// A real tool that finds a genuine problem must make
     /// `report_generated_code_validation` return `true` -- the signal

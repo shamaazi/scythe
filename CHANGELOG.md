@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Per-file output: a `[[sql.gen]]` `output` containing `{dir}` generates one
+  module per query file matched by the block's `queries` globs, into that
+  file's directory relative to the config (`output = "{dir}"` turns
+  `src/a/queries.sql` into `src/a/queries.ts`). Each module holds only its own
+  file's queries and records their fingerprint, which `scythe check` verifies
+  per module. One `[[sql]]` block replaces a block per module, and the schema
+  is loaded once.
+
 ## [0.20.2] - 2026-10-31
 
 ### Changed

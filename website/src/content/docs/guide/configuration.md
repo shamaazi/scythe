@@ -175,7 +175,7 @@ error: failed to parse config 'scythe.toml': TOML parse error at line 4, column 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `backend` | string | yes | Full backend name (e.g. `rust-sqlx`, `typescript-pg`, `python-aiomysql`). |
-| `output` | string | yes | Output directory for this backend's generated code. A relative path resolves against the config file's directory. |
+| `output` | string | yes | Output directory for this backend's generated code. A relative path resolves against the config file's directory. May contain `{dir}` to generate one module per query file -- see [Per-file output](#per-file-output). |
 | `manifest` | string | no | Path to a partial manifest merged over the backend's built-in one. A relative path resolves against the config file's directory. See below. |
 | `row_type` | string | no | Row type style for generated code. See below. |
 | `outer_join_unions` | bool | no | Emit outer-join nullability as a discriminated union. TypeScript backends only. See below. |
@@ -219,6 +219,37 @@ If you hit this after upgrading, remove the offending key or fix the typo the er
 applies to every backend, not just TypeScript — for example, `field_casing = "camelCase"` (meant to be
 `field_case`) on a `java-jdbc` target is also a hard error, not a silent no-op.
 :::
+
+### Per-file output
+
+When a target's `output` contains `{dir}`, the target generates one module per query file matched by
+the block's `queries` globs instead of one module for the whole block. `{dir}` is replaced by that
+query file's directory relative to the config file's directory (`.` for a query file beside the
+config), and each module holds only that file's queries. The schema is still loaded once per block,
+so a project with a `queries.sql` per module needs a single `[[sql]]` block:
+
+```toml
+[[sql]]
+name = "app"
+engine = "postgresql"
+schema = ["schema.sql"]
+queries = ["src/**/queries.sql"]
+
+[[sql.gen]]
+backend = "typescript-postgres"
+output = "{dir}"
+```
+
+This writes `src/users/queries.ts` from `src/users/queries.sql`, `src/posts/queries.ts` from
+`src/posts/queries.sql`, and so on. `{dir}` can be combined with other path components
+(`output = "{dir}/generated"`).
+
+- Each module's provenance header fingerprints only its own file's queries, and `scythe check`
+  verifies every module against its own file.
+- The same query name may appear in two files: they become two separate modules. Names must still be
+  unique within a file.
+- Two query files in one directory would write the same module, which is an error naming both.
+- The output containment check applies to every substituted directory.
 
 ### `row_type`
 
