@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Two database engines: PostgreSQL (with its `postgres`, `pg`, `cockroachdb`
+  and `crdb` aliases) and SQLite. The DuckDB, MySQL/MariaDB, SQL Server,
+  Oracle, Snowflake and Redshift engines are gone from the Cargo features, the
+  config's engine names and the backends' manifests; `scythe inspect` keeps its
+  PostgreSQL driver (dropping the MySQL/MariaDB driver and its `SC-INS-MY*`
+  checks), `schema_source = "execute"` keeps SQLite (dropping DuckDB), and the
+  live conformance suite keeps its PostgreSQL and SQLite executors. The
+  `duckdb`, `mysql_async`, `tiberius`, `sibyl` and `serde_yaml` dependencies
+  went with them. The parser, analyzer and catalog keep their dialect
+  handling unchanged.
 - Code generation keeps three targets: `typescript-bun` (built on the shared
   postgres.js TypeScript generator, so `typescript-postgres` and the
   `javascript-postgres`/`javascript-bun` JSDoc modes remain), `rust-sqlx` (with
@@ -27,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration, the release, publish, docs and plugin workflows, the GitHub
   Action, the pre-commit hook definition and the coding-agent plugin and
   skills are gone.
+
+### Removed
+
+- `scythe migrate`, the sqlc importer.
 
 ### Added
 

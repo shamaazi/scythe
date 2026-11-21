@@ -31,7 +31,7 @@
   },
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql", "mysql", "mariadb", "sqlite", "mssql", "oracle"],
+    "engines": ["postgresql", "sqlite"],
     "runs": [
       {
         "name": "one_with_email_one_without",

@@ -12,15 +12,7 @@ default = []
 # none is enabled by default so `cargo test --workspace` and
 # `cargo clippy --workspace -- -D warnings` never link a database driver.
 pg = ["dep:tokio-postgres", "dep:tokio"]
-mysql = ["dep:mysql_async"]
-# MariaDB is wire-protocol compatible with MySQL and driven by the same
-# client crate -- this is not an alias for `mysql`, it's `Engine::Mariadb`'s
-# own feature, kept separate so enabling one does not silently enable the
-# other.
-mariadb = ["dep:mysql_async"]
 sqlite = ["dep:rusqlite"]
-mssql = ["dep:tiberius", "dep:tokio-util", "dep:tokio", "dep:url"]
-oracle = ["dep:sibyl", "dep:tokio", "dep:url"]
 # Gate for actually dialing a database in tests (vs. compiling the executor
 # impls). Kept separate from the per-engine features so CI can compile-check
 # drivers without a live container.
@@ -31,29 +23,17 @@ live-tests = []
 ahash = { version = "0.8", features = ["serde"] }
 glob = "0.3"
 
-mysql_async = { version = "0.37", optional = true }
 rusqlite = { version = "0.42", features = ["bundled"], optional = true }
 scythe-backend = { path = "../scythe-backend", version = "0.20.3" }
 scythe-codegen = { path = "../scythe-codegen" }
 scythe-core = { path = "../scythe-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sibyl = { version = "0.7", features = ["tokio", "nonblocking"], optional = true }
 sqlparser = "0.63"
 thiserror = "2"
-tiberius = { version = "0.13", default-features = false, features = [
-    "tds73",
-    "native-tls",
-    "chrono",
-], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"], optional = true }
-tokio-util = { version = "0.7", features = ["compat"], optional = true }
 toml = "1.1"
-# Only for parsing the `sqlserver://` and `oracle://` connection URLs:
-# neither `tiberius` nor `sibyl` accepts a URL, unlike `tokio_postgres` and
-# `mysql_async`, which parse their own.
-url = { version = "2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

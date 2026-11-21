@@ -30,20 +30,15 @@
 //! primary keys — is a separate, narrower concern from the health checks
 //! above, and it is not PostgreSQL-only.** [`schema_diff::SchemaCatalogDriver`]
 //! is the engine-agnostic trait for reading a live database into a
-//! [`SchemaDescription`]; [`PostgresCatalogSource`],
-//! [`sqlite::SqliteCatalogSource`], and [`mysql::MySqlCatalogSource`] implement
-//! it. PostgreSQL also exposes [`fetch_live_catalog`] for code-generation
+//! [`SchemaDescription`]; [`PostgresCatalogSource`] and
+//! [`sqlite::SqliteCatalogSource`] implement it. PostgreSQL also exposes [`fetch_live_catalog`] for code-generation
 //! callers. See [`schema_diff`]'s module docs for why the two concerns are
 //! split and what implementing one gets an engine that implementing the other
 //! does not.
 
 pub mod config;
 pub mod driver;
-#[cfg(feature = "duckdb")]
-pub mod duckdb;
 pub mod error;
-#[cfg(feature = "mysql")]
-pub mod mysql;
 pub mod neutral;
 #[cfg(feature = "postgres")]
 pub mod postgres;
@@ -59,11 +54,7 @@ pub mod verify;
 
 pub use config::{InspectConfig, SuppressionRule, parse_inspect_section};
 pub use driver::{CheckCatalogEntry, DbDriver};
-#[cfg(feature = "duckdb")]
-pub use duckdb::execute_duckdb_schema_files;
 pub use error::{InspectError, SchemaExecutionErrorCategory};
-#[cfg(feature = "mysql")]
-pub use mysql::{MySqlCatalogSource, MySqlDriver};
 pub use neutral::normalize_neutral_type;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresDriver;

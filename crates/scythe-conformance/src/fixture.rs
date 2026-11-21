@@ -22,38 +22,23 @@ use crate::query_shape::{self, QueryShape};
 #[serde(rename_all = "snake_case")]
 pub enum Engine {
     Postgresql,
-    Mysql,
-    Mariadb,
     Sqlite,
-    Mssql,
-    Oracle,
 }
 
 impl Engine {
-    pub const ALL: [Engine; 6] = [
-        Engine::Postgresql,
-        Engine::Mysql,
-        Engine::Mariadb,
-        Engine::Sqlite,
-        Engine::Mssql,
-        Engine::Oracle,
-    ];
+    pub const ALL: [Engine; 2] = [Engine::Postgresql, Engine::Sqlite];
 
     /// The key used for this engine in `seed` overrides and
     /// `engine_expectations`.
     pub fn as_str(self) -> &'static str {
         match self {
             Engine::Postgresql => "postgresql",
-            Engine::Mysql => "mysql",
-            Engine::Mariadb => "mariadb",
             Engine::Sqlite => "sqlite",
-            Engine::Mssql => "mssql",
-            Engine::Oracle => "oracle",
         }
     }
 
     /// The schema-profile filename for this engine, e.g. `postgresql.sql`.
-    /// Every engine -- including mariadb -- resolves to its own literal
+    /// Every engine resolves to its own literal
     /// file; there is deliberately no fallback to a "similar" engine.
     pub fn schema_file_name(self) -> String {
         format!("{}.sql", self.as_str())
@@ -73,12 +58,7 @@ impl Engine {
         use scythe_core::dialect::SqlDialect;
         match self {
             Engine::Postgresql => SqlDialect::PostgreSQL,
-            // MariaDB is wire- and grammar-compatible with MySQL for the DDL
-            // subset these fixtures use; scythe has no separate MariaDB dialect.
-            Engine::Mysql | Engine::Mariadb => SqlDialect::MySQL,
             Engine::Sqlite => SqlDialect::SQLite,
-            Engine::Mssql => SqlDialect::MsSql,
-            Engine::Oracle => SqlDialect::Oracle,
         }
     }
 }
@@ -731,11 +711,11 @@ mod tests {
     fn seed_resolve_prefers_engine_override_over_default() {
         let seed = SeedBlock {
             default: vec!["INSERT default".to_string()],
-            per_engine: [("mssql".to_string(), vec!["INSERT mssql".to_string()])]
+            per_engine: [("sqlite".to_string(), vec!["INSERT sqlite".to_string()])]
                 .into_iter()
                 .collect(),
         };
-        assert_eq!(seed.resolve(Engine::Mssql), Some(&["INSERT mssql".to_string()][..]));
+        assert_eq!(seed.resolve(Engine::Sqlite), Some(&["INSERT sqlite".to_string()][..]));
     }
 
     #[test]
@@ -763,10 +743,10 @@ mod tests {
     fn seed_resolve_treats_an_empty_override_as_unresolved() {
         let seed = SeedBlock {
             default: vec!["INSERT default".to_string()],
-            per_engine: [("mssql".to_string(), vec![])].into_iter().collect(),
+            per_engine: [("sqlite".to_string(), vec![])].into_iter().collect(),
         };
         assert_eq!(
-            seed.resolve(Engine::Mssql),
+            seed.resolve(Engine::Sqlite),
             None,
             "an explicit empty override must not silently fall back"
         );
@@ -788,7 +768,7 @@ mod tests {
     #[test]
     fn engine_schema_file_name_is_engine_dot_sql() {
         assert_eq!(Engine::Postgresql.schema_file_name(), "postgresql.sql");
-        assert_eq!(Engine::Mariadb.schema_file_name(), "mariadb.sql");
+        assert_eq!(Engine::Sqlite.schema_file_name(), "sqlite.sql");
     }
 
     // -- load_fixtures: validation rules -----------------------------------
@@ -940,14 +920,14 @@ mod tests {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
         write_schema(schemas_root.path(), "profile", Engine::Postgresql);
-        write_schema(schemas_root.path(), "profile", Engine::Mssql);
+        write_schema(schemas_root.path(), "profile", Engine::Sqlite);
         write_fixture(
             fixtures_root.path(),
             "f.json",
             &minimal_fixture_json(
                 "live_ok",
                 "SELECT id FROM t ORDER BY id",
-                r#""postgresql", "mssql""#,
+                r#""postgresql", "sqlite""#,
                 r#""INSERT INTO t VALUES (1)""#,
             ),
         );

@@ -2695,10 +2695,7 @@ fn test_date_extract_mysql_returns_int() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mysql";
-    let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "mysql"))]
-        "rust-sqlx",
-    ];
+    let all_backends: &[&str] = &[];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
@@ -5961,10 +5958,7 @@ fn test_concat_mysql_nullable() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mysql";
-    let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "mysql"))]
-        "rust-sqlx",
-    ];
+    let all_backends: &[&str] = &[];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,

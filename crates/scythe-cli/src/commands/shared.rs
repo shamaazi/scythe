@@ -6,7 +6,7 @@ use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
 use serde::Deserialize;
 
-const EXECUTABLE_SCHEMA_ENGINES: &[&str] = &["sqlite", "sqlite3", "duckdb"];
+const EXECUTABLE_SCHEMA_ENGINES: &[&str] = &["sqlite", "sqlite3"];
 
 /// How a configured schema becomes the catalog used by CLI commands.
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -103,13 +103,11 @@ pub fn load_catalog(request: CatalogLoadRequest<'_>) -> Result<LoadedCatalog, Bo
             })?
         }
         SchemaSource::Execute => {
-            #[cfg(any(feature = "duckdb", feature = "sqlite"))]
+            #[cfg(feature = "sqlite")]
             let paths = request.schema_files.iter().map(PathBuf::from).collect::<Vec<_>>();
             let result = match request.engine.to_ascii_lowercase().as_str() {
                 #[cfg(feature = "sqlite")]
                 "sqlite" | "sqlite3" => scythe_inspect::execute_sqlite_schema_files(&paths),
-                #[cfg(feature = "duckdb")]
-                "duckdb" => scythe_inspect::execute_duckdb_schema_files(&paths),
                 // An engine left out of this build is reported as such; any
                 // other engine has no embedded execution path at all.
                 other => Err(scythe_inspect::disabled_engine(other)
@@ -195,13 +193,7 @@ pub fn has_unannotated_sql(content: &str) -> bool {
 pub fn engine_to_sqruff_dialect(engine: &str) -> &str {
     match engine {
         "postgresql" | "postgres" | "pg" => "postgres",
-        "mysql" | "mariadb" => "mysql",
         "sqlite" | "sqlite3" => "sqlite",
-        "duckdb" => "duckdb",
-        "mssql" | "sqlserver" | "tsql" => "tsql",
-        "redshift" => "redshift",
-        "snowflake" => "snowflake",
-        "oracle" => "oracle",
         _ => "ansi",
     }
 }
@@ -239,22 +231,7 @@ const KNOWN_SQRUFF_DIALECTS: &[&str] = &[
 /// `postgres`) apart from "unrecognized input" (which must be rejected, not
 /// silently degraded to `ansi` the way [`engine_to_sqruff_dialect`]'s
 /// catch-all does for config-derived engine values).
-const KNOWN_ENGINE_ALIASES: &[&str] = &[
-    "postgresql",
-    "postgres",
-    "pg",
-    "mysql",
-    "mariadb",
-    "sqlite",
-    "sqlite3",
-    "duckdb",
-    "mssql",
-    "sqlserver",
-    "tsql",
-    "redshift",
-    "snowflake",
-    "oracle",
-];
+const KNOWN_ENGINE_ALIASES: &[&str] = &["postgresql", "postgres", "pg", "sqlite", "sqlite3"];
 
 /// Validate and normalize a `--dialect` value supplied on the command line
 /// (`fmt --dialect`, `lint --dialect`) into a sqruff dialect name sqruff-lib
@@ -565,7 +542,7 @@ mod tests {
 
     #[test]
     fn execute_source_validation_accepts_supported_aliases_only() {
-        for engine in ["sqlite", "sqlite3", "SQLITE", "duckdb", "DuckDB"] {
+        for engine in ["sqlite", "sqlite3", "SQLITE"] {
             assert_eq!(
                 validate_schema_source("generate", "main", engine, SchemaSource::Execute),
                 Ok(())
@@ -579,7 +556,7 @@ mod tests {
         let error = validate_schema_source("check", "warehouse", "postgresql", SchemaSource::Execute).unwrap_err();
         assert!(error.contains("check [warehouse]"));
         assert!(error.contains("postgresql"));
-        assert!(error.contains("sqlite, sqlite3, duckdb"));
+        assert!(error.contains("sqlite, sqlite3"));
     }
 
     #[test]
@@ -605,9 +582,9 @@ mod tests {
         assert_eq!(loaded.catalog.fingerprint(), expected.fingerprint());
     }
 
-    #[cfg(all(feature = "duckdb", feature = "sqlite"))]
+    #[cfg(feature = "sqlite")]
     #[test]
-    fn execute_source_loads_sqlite_and_duckdb_catalogs() {
+    fn execute_source_loads_a_sqlite_catalog() {
         let directory = tempfile::tempdir().unwrap();
         let schema_path = directory.path().join("schema.sql");
         std::fs::write(
@@ -617,34 +594,29 @@ mod tests {
         .unwrap();
         let schema_files = vec![schema_path.display().to_string()];
 
-        for (engine, dialect, expected_table) in [
-            ("sqlite3", SqlDialect::SQLite, "users"),
-            ("duckdb", SqlDialect::PostgreSQL, "main.users"),
-        ] {
-            let loaded = load_catalog(CatalogLoadRequest {
-                command: "lint",
-                config_name: "main",
-                engine,
-                dialect,
-                schema_files: &schema_files,
-                source: SchemaSource::Execute,
-            })
-            .unwrap();
-            assert_eq!(
-                loaded.catalog.tables().cloned().collect::<Vec<_>>(),
-                vec![expected_table.to_string()]
-            );
-        }
+        let loaded = load_catalog(CatalogLoadRequest {
+            command: "lint",
+            config_name: "main",
+            engine: "sqlite3",
+            dialect: SqlDialect::SQLite,
+            schema_files: &schema_files,
+            source: SchemaSource::Execute,
+        })
+        .unwrap();
+        assert_eq!(
+            loaded.catalog.tables().cloned().collect::<Vec<_>>(),
+            vec!["users".to_string()]
+        );
     }
 
-    #[cfg(not(feature = "duckdb"))]
+    #[cfg(not(feature = "sqlite"))]
     #[test]
     fn execute_source_names_the_feature_when_the_engine_is_disabled() {
         let error = load_catalog(CatalogLoadRequest {
             command: "generate",
             config_name: "main",
-            engine: "duckdb",
-            dialect: SqlDialect::PostgreSQL,
+            engine: "sqlite",
+            dialect: SqlDialect::SQLite,
             schema_files: &[],
             source: SchemaSource::Execute,
         })
@@ -653,10 +625,10 @@ mod tests {
         .to_string();
 
         assert!(
-            error.contains("generate [main] schema_source=execute engine `duckdb` failed"),
+            error.contains("generate [main] schema_source=execute engine `sqlite` failed"),
             "{error}"
         );
-        assert!(error.contains("`--features duckdb`"), "{error}");
+        assert!(error.contains("`--features sqlite`"), "{error}");
     }
 
     #[cfg(feature = "sqlite")]
@@ -837,7 +809,6 @@ mod tests {
     fn validate_dialect_accepts_canonical_scythe_engine_aliases() {
         assert_eq!(validate_dialect("postgresql").unwrap(), "postgres");
         assert_eq!(validate_dialect("pg").unwrap(), "postgres");
-        assert_eq!(validate_dialect("mariadb").unwrap(), "mysql");
         assert_eq!(validate_dialect("sqlite3").unwrap(), "sqlite");
     }
 

@@ -441,15 +441,6 @@ mod tests {
     }
 
     #[test]
-    fn canonical_mysql_checks_toml_parses() {
-        let content = include_str!("mysql/checks.toml");
-        let file: CheckFile = toml::from_str(content).expect("canonical mysql TOML parses");
-        assert_eq!(file.schema_version, SCHEMA_VERSION);
-        assert_eq!(file.checks.len(), 4);
-        assert!(file.checks.iter().all(|c| c.engines == vec!["mysql".to_string()]));
-    }
-
-    #[test]
     fn canonical_checks_count_matches_canonical_ids() {
         use crate::spec::CANONICAL_CHECK_IDS;
         let content = include_str!("postgres/checks.toml");

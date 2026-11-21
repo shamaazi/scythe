@@ -67,23 +67,6 @@ pub struct RunnerConfig {
     pub schemas_root: PathBuf,
     /// `postgres://` connection URL. Required iff `Engine::Postgresql` is selected.
     pub postgres_url: Option<String>,
-    /// Admin (database-creating) connection URL for MySQL. Required iff
-    /// `Engine::Mysql` is selected -- the containers' per-app `scythe` user
-    /// is scoped to its own database, so isolating this crate's tables
-    /// into a dedicated database needs elevated privileges.
-    pub mysql_admin_url: Option<String>,
-    /// Same as `mysql_admin_url`, for MariaDB. Required iff `Engine::Mariadb` is selected.
-    pub mariadb_admin_url: Option<String>,
-    /// `sqlserver://user:pass@host:port?database=db` connection URL for SQL
-    /// Server. Required iff `Engine::Mssql` is selected. Admin, for the same
-    /// reason as MySQL's: the runner creates a database per connection to
-    /// isolate itself, which the per-app login cannot do.
-    pub mssql_admin_url: Option<String>,
-    /// `oracle://user:pass@host:port/service` connection URL. Required iff
-    /// `Engine::Oracle` is selected. Admin, and more strictly so than the
-    /// others: Oracle's unit of isolation is a *user*, so this credential
-    /// must be able to `CREATE USER` and grant privileges.
-    pub oracle_admin_url: Option<String>,
 }
 
 impl RunnerConfig {
@@ -96,10 +79,6 @@ impl RunnerConfig {
             selected_engines,
             schemas_root,
             postgres_url: std::env::var("SCYTHE_CONFORMANCE_POSTGRES_URL").ok(),
-            mysql_admin_url: std::env::var("SCYTHE_CONFORMANCE_MYSQL_ADMIN_URL").ok(),
-            mariadb_admin_url: std::env::var("SCYTHE_CONFORMANCE_MARIADB_ADMIN_URL").ok(),
-            mssql_admin_url: std::env::var("SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL").ok(),
-            oracle_admin_url: std::env::var("SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL").ok(),
         }
     }
 }
@@ -267,10 +246,6 @@ fn is_compiled(engine: Engine) -> bool {
     match engine {
         Engine::Postgresql => cfg!(feature = "pg"),
         Engine::Sqlite => cfg!(feature = "sqlite"),
-        Engine::Mysql => cfg!(feature = "mysql"),
-        Engine::Mariadb => cfg!(feature = "mariadb"),
-        Engine::Mssql => cfg!(feature = "mssql"),
-        Engine::Oracle => cfg!(feature = "oracle"),
     }
 }
 
@@ -280,10 +255,6 @@ fn feature_for(engine: Engine) -> &'static str {
     match engine {
         Engine::Postgresql => "pg",
         Engine::Sqlite => "sqlite",
-        Engine::Mysql => "mysql",
-        Engine::Mariadb => "mariadb",
-        Engine::Mssql => "mssql",
-        Engine::Oracle => "oracle",
     }
 }
 
@@ -297,16 +268,9 @@ fn feature_for(engine: Engine) -> &'static str {
 /// backends in different target languages, a difference in G could just be
 /// a difference in how those languages spell "optional" rather than a
 /// difference in scythe's inference.
-///
-/// `rust-sqlx` cannot be used uniformly: sqlx has no SQL Server or Oracle
-/// driver, and `get_backend` rejects those engines outright rather than
-/// quietly substituting a manifest -- which is how the first MSSQL leg
-/// surfaced as a hard `Resolve` error instead of a wrong verdict.
 fn representative_backend(engine: Engine) -> &'static str {
     match engine {
-        Engine::Postgresql | Engine::Mysql | Engine::Mariadb | Engine::Sqlite => "rust-sqlx",
-        Engine::Mssql => "rust-tiberius",
-        Engine::Oracle => "rust-sibyl",
+        Engine::Postgresql | Engine::Sqlite => "rust-sqlx",
     }
 }
 
@@ -323,10 +287,6 @@ fn ensure_available(engine: Engine, config: &RunnerConfig) -> Result<(), RunnerE
     }
     let has_connection_config = match engine {
         Engine::Postgresql => config.postgres_url.is_some(),
-        Engine::Mysql => config.mysql_admin_url.is_some(),
-        Engine::Mariadb => config.mariadb_admin_url.is_some(),
-        Engine::Mssql => config.mssql_admin_url.is_some(),
-        Engine::Oracle => config.oracle_admin_url.is_some(),
         Engine::Sqlite => true, // in-memory, no external configuration needed
     };
     if !has_connection_config {
@@ -383,17 +343,7 @@ pub async fn run(
 /// active (every arm degenerates to its `EngineNotCompiled` branch) -- the
 /// `allow` below is scoped to exactly that configuration via `cfg_attr`, so
 /// a build with any driver feature on keeps the lint live.
-#[cfg_attr(
-    not(any(
-        feature = "pg",
-        feature = "sqlite",
-        feature = "mysql",
-        feature = "mariadb",
-        feature = "mssql",
-        feature = "oracle"
-    )),
-    allow(unused_variables)
-)]
+#[cfg_attr(not(any(feature = "pg", feature = "sqlite",)), allow(unused_variables))]
 async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfig) -> Result<Verdict, RunnerError> {
     match engine {
         Engine::Postgresql => {
@@ -437,102 +387,6 @@ async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfi
                 })
             }
         }
-        Engine::Mysql => {
-            #[cfg(feature = "mysql")]
-            {
-                let url = config
-                    .mysql_admin_url
-                    .as_deref()
-                    .ok_or(RunnerError::MissingConnectionConfig { engine })?;
-                let executor = crate::executors::mysql::MySqlExecutor::<crate::executors::mysql::Mysql>::connect(url)
-                    .await
-                    .map_err(|source| RunnerError::Connect {
-                        fixture: fixture.name.clone(),
-                        engine,
-                        reason: source.to_string(),
-                    })?;
-                evaluate_fixture(fixture, executor, config).await
-            }
-            #[cfg(not(feature = "mysql"))]
-            {
-                Err(RunnerError::EngineNotCompiled {
-                    engine,
-                    feature: "mysql",
-                })
-            }
-        }
-        Engine::Mariadb => {
-            #[cfg(feature = "mariadb")]
-            {
-                let url = config
-                    .mariadb_admin_url
-                    .as_deref()
-                    .ok_or(RunnerError::MissingConnectionConfig { engine })?;
-                let executor = crate::executors::mysql::MySqlExecutor::<crate::executors::mysql::Mariadb>::connect(url)
-                    .await
-                    .map_err(|source| RunnerError::Connect {
-                        fixture: fixture.name.clone(),
-                        engine,
-                        reason: source.to_string(),
-                    })?;
-                evaluate_fixture(fixture, executor, config).await
-            }
-            #[cfg(not(feature = "mariadb"))]
-            {
-                Err(RunnerError::EngineNotCompiled {
-                    engine,
-                    feature: "mariadb",
-                })
-            }
-        }
-        Engine::Mssql => {
-            #[cfg(feature = "mssql")]
-            {
-                let url = config
-                    .mssql_admin_url
-                    .as_deref()
-                    .ok_or(RunnerError::MissingConnectionConfig { engine })?;
-                let executor = crate::executors::mssql::MssqlExecutor::connect(url)
-                    .await
-                    .map_err(|source| RunnerError::Connect {
-                        fixture: fixture.name.clone(),
-                        engine,
-                        reason: source.to_string(),
-                    })?;
-                evaluate_fixture(fixture, executor, config).await
-            }
-            #[cfg(not(feature = "mssql"))]
-            {
-                Err(RunnerError::EngineNotCompiled {
-                    engine,
-                    feature: "mssql",
-                })
-            }
-        }
-        Engine::Oracle => {
-            #[cfg(feature = "oracle")]
-            {
-                let url = config
-                    .oracle_admin_url
-                    .as_deref()
-                    .ok_or(RunnerError::MissingConnectionConfig { engine })?;
-                let executor = crate::executors::oracle::OracleExecutor::connect(url)
-                    .await
-                    .map_err(|source| RunnerError::Connect {
-                        fixture: fixture.name.clone(),
-                        engine,
-                        reason: source.to_string(),
-                    })?;
-                evaluate_fixture(fixture, executor, config).await
-            }
-            #[cfg(not(feature = "oracle"))]
-            {
-                Err(RunnerError::EngineNotCompiled {
-                    engine,
-                    feature: "oracle",
-                })
-            }
-        }
     }
 }
 
@@ -545,17 +399,7 @@ async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfi
 ///
 /// Only called from [`run_one_leg`]'s feature-gated branches, so it is dead
 /// code in a build with no driver feature active -- see the `allow` there.
-#[cfg_attr(
-    not(any(
-        feature = "pg",
-        feature = "sqlite",
-        feature = "mysql",
-        feature = "mariadb",
-        feature = "mssql",
-        feature = "oracle"
-    )),
-    allow(dead_code)
-)]
+#[cfg_attr(not(any(feature = "pg", feature = "sqlite",)), allow(dead_code))]
 async fn evaluate_fixture<E: Executor>(
     fixture: &LiveFixture,
     mut executor: E,

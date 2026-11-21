@@ -21,23 +21,19 @@ include = [
 ]
 
 [features]
-default = ["duckdb", "mysql", "postgres", "sqlite"]
+default = ["postgres", "sqlite"]
 # One feature per database engine driver. Each pulls in that engine's native
-# client crate (DuckDB and SQLite compile their bundled C/C++ sources), so a
+# client crate (SQLite compiles its bundled C sources), so a
 # build that needs only some engines can disable the rest with
 # `default-features = false`. A disabled engine is still recognised by name:
 # requesting it fails with `InspectError::EngineDisabled`, which names the
 # feature to enable.
-duckdb = ["dep:duckdb"]
 live-tests = []
-mysql = ["dep:mysql_async"]
 postgres = ["dep:tokio", "dep:tokio-postgres", "dep:tracing"]
 sqlite = ["dep:rusqlite"]
 
 [dependencies]
 async-trait = "0.1"
-duckdb = { version = "1.20000", features = ["bundled"], optional = true }
-mysql_async = { version = "0.37", optional = true }
 regex = "1"
 rusqlite = { version = "0.42", features = ["bundled"], optional = true }
 scythe-core = { path = "../scythe-core", version = "0.20.3" }

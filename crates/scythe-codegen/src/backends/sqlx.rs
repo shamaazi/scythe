@@ -14,9 +14,6 @@ use crate::backends::parse_bool_option;
 
 /// Default embedded manifest TOML for rust-sqlx, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-sqlx.toml");
-const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/rust-sqlx.mysql.toml");
-const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/rust-sqlx.mariadb.toml");
-const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/rust-sqlx.redshift.toml");
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/rust-sqlx.sqlite.toml");
 
 /// SqlxBackend generates Rust code targeting the sqlx crate.
@@ -43,7 +40,7 @@ pub struct SqlxBackend {
 impl SqlxBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         match engine {
-            "postgresql" | "postgres" | "pg" | "mysql" | "mariadb" | "sqlite" | "sqlite3" | "redshift" => {}
+            "postgresql" | "postgres" | "pg" | "sqlite" | "sqlite3" => {}
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InvalidConfig,
@@ -52,9 +49,6 @@ impl SqlxBackend {
             }
         }
         let manifest = match engine {
-            "mysql" => super::parse_manifest(DEFAULT_MANIFEST_MYSQL)?,
-            "mariadb" => super::parse_manifest(DEFAULT_MANIFEST_MARIADB)?,
-            "redshift" => super::parse_manifest(DEFAULT_MANIFEST_REDSHIFT)?,
             "sqlite" | "sqlite3" => super::parse_manifest(DEFAULT_MANIFEST_SQLITE)?,
             _ => super::parse_manifest(DEFAULT_MANIFEST_TOML)?,
         };
@@ -161,7 +155,7 @@ impl CodegenBackend for SqlxBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "mariadb", "sqlite", "redshift"]
+        &["postgresql", "sqlite"]
     }
 
     fn file_header(&self) -> String {

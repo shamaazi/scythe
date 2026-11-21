@@ -31,7 +31,7 @@
   "source": "original",
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql", "mysql", "mariadb", "sqlite"],
+    "engines": ["postgresql", "sqlite"],
     "runs": [
       {
         "name": "one_matching_one_null_email",

@@ -31,7 +31,7 @@
   "source": "original",
   "live": {
     "schema_profile": "measurements",
-    "engines": ["postgresql", "mysql", "mariadb", "mssql", "oracle"],
+    "engines": ["postgresql"],
     "runs": [
       {
         "name": "one_value_one_null",

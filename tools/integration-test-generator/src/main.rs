@@ -176,15 +176,6 @@ fn backend_variants() -> Vec<BackendConfig> {
             options: HashMap::new(),
         },
         BackendConfig {
-            name: "rust-sqlx-mysql".into(),
-            language: "rust".into(),
-            engine: "mysql".into(),
-            driver: "sqlx-mysql".into(),
-            connection_env: "MYSQL_URL".into(),
-            backend: "rust-sqlx".into(),
-            options: HashMap::new(),
-        },
-        BackendConfig {
             name: "rust-sqlx-sqlite".into(),
             language: "rust".into(),
             engine: "sqlite".into(),
@@ -209,33 +200,6 @@ fn backend_variants() -> Vec<BackendConfig> {
         // SQLite-dialect schema.sql. Substituting r2dbc-h2 is not a like-for-like swap --
         // H2 is a different SQL dialect and would silently run a different database than
         // every other sqlite integration project in this list. See board #212's report.
-        BackendConfig {
-            name: "rust-sqlx-mariadb".into(),
-            language: "rust".into(),
-            engine: "mariadb".into(),
-            driver: "sqlx-mariadb".into(),
-            connection_env: "MARIADB_URL".into(),
-            backend: "rust-sqlx".into(),
-            options: HashMap::new(),
-        },
-        BackendConfig {
-            name: "rust-sqlx-redshift".into(),
-            language: "rust".into(),
-            engine: "redshift".into(),
-            driver: "sqlx".into(),
-            connection_env: "REDSHIFT_URL".into(),
-            backend: "rust-sqlx".into(),
-            options: HashMap::new(),
-        },
-        BackendConfig {
-            name: "rust-tokio-postgres-redshift".into(),
-            language: "rust".into(),
-            engine: "redshift".into(),
-            driver: "tokio-postgres".into(),
-            connection_env: "REDSHIFT_URL".into(),
-            backend: "rust-tokio-postgres".into(),
-            options: HashMap::new(),
-        },
         // DuckDB (issue #126): embedded, no service container. Modelled on the
         // sqlite variants above, not the postgres ones -- DuckDB is the other
         // embedded engine here.

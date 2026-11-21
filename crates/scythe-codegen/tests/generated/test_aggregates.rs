@@ -1107,10 +1107,7 @@ fn test_json_agg_mysql_dialect_gate() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mysql";
-    let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "mysql"))]
-        "rust-sqlx",
-    ];
+    let all_backends: &[&str] = &[];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
@@ -1257,14 +1254,7 @@ fn test_json_agg_redshift_engine_gate() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "redshift";
-    let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "redshift"))]
-        "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "redshift"))]
-        "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "redshift"))]
-        "typescript-postgres",
-    ];
+    let all_backends: &[&str] = &[];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,

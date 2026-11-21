@@ -29,18 +29,11 @@ include = [
 # rest with `default-features = false`; `get_backend` then reports a backend
 # or engine left out of the build as an error naming the feature to enable.
 default = ["all-engines", "all-languages"]
-all-engines = ["duckdb", "mssql", "mysql", "oracle", "postgres", "redshift", "snowflake", "sqlite"]
+all-engines = ["postgres", "sqlite"]
 all-languages = ["lang-rust", "lang-typescript"]
 # Engines: whether `get_backend` accepts the engine (and its aliases).
-duckdb = []
-mssql = []
-# MySQL and MariaDB.
-mysql = []
-oracle = []
 # PostgreSQL and CockroachDB.
 postgres = []
-redshift = []
-snowflake = []
 sqlite = []
 # Languages: which backend modules are compiled. `lang-typescript` includes
 # the JavaScript variants of every TypeScript backend.

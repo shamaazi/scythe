@@ -31,44 +31,6 @@ fn list_checks_prints_thirteen_rows() {
     }
 }
 
-/// `scythe inspect --list-checks --dialect mysql` lists MySQL's own checks
-/// and none of PostgreSQL's.
-///
-/// ~keep This asserted the opposite until MySQL got a real driver: it
-/// required "no checks" or empty output, which was true only because every
-/// non-PostgreSQL engine fell through to `UnsupportedDriver`. Left as it
-/// was, it would have failed the moment the gap it described was closed --
-/// it guarded the absence, not the behaviour. The postgres-only half is
-/// kept and made exact: `SC-INS01`..`SC-INS13` must not appear, which a
-/// bare `contains("SC-INS")` can no longer express now that MySQL's own ids
-/// are spelled `SC-INS-MY01`.
-#[test]
-fn list_checks_with_dialect_mysql_lists_mysql_checks_and_no_postgres_ones() {
-    let assert = scythe()
-        .args(["inspect", "--list-checks", "--dialect", "mysql"])
-        .assert()
-        .success();
-
-    let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
-
-    for id in ["SC-INS-MY01", "SC-INS-MY02", "SC-INS-MY03", "SC-INS-MY04"] {
-        assert!(
-            stdout.contains(id),
-            "--list-checks --dialect mysql must include {id}; stdout:\n{stdout}"
-        );
-    }
-
-    for id in [
-        "SC-INS01", "SC-INS02", "SC-INS03", "SC-INS04", "SC-INS05", "SC-INS06", "SC-INS07", "SC-INS08", "SC-INS09",
-        "SC-INS10", "SC-INS11", "SC-INS12", "SC-INS13",
-    ] {
-        assert!(
-            !stdout.contains(id),
-            "mysql dialect must not list the postgres-only check {id}; stdout:\n{stdout}"
-        );
-    }
-}
-
 /// `scythe inspect --explain SC-INS04` must exit 0 and print the check name,
 /// Explanation section, and Remediation section.
 #[test]
@@ -115,30 +77,6 @@ fn explain_unknown_id_exits_nonzero() {
         stderr.contains("SC-NOPE"),
         "stderr must mention the unknown id 'SC-NOPE'; got:\n{stderr}"
     );
-}
-
-/// `scythe inspect --dialect mysql --explain SC-INS04` — SC-INS04 is a
-/// postgres-only check.  Under the mysql dialect it must not be found, so the
-/// command must exit ≠ 0 and stderr must mention both the id and the dialect.
-#[test]
-fn explain_postgres_check_under_mysql_dialect_errors() {
-    let output = scythe()
-        .args(["inspect", "--dialect", "mysql", "--explain", "SC-INS04"])
-        .output()
-        .expect("command must run");
-
-    assert!(
-        !output.status.success(),
-        "--dialect mysql --explain SC-INS04 must exit non-zero; exit code: {:?}",
-        output.status.code()
-    );
-
-    let stderr = std::str::from_utf8(&output.stderr).unwrap();
-    assert!(
-        stderr.contains("SC-INS04"),
-        "stderr must mention 'SC-INS04'; got:\n{stderr}"
-    );
-    assert!(stderr.contains("mysql"), "stderr must mention 'mysql'; got:\n{stderr}");
 }
 
 /// `scythe inspect --list-checks --output <path>` — exits 0 and creates the

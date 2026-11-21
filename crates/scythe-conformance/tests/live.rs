@@ -91,100 +91,17 @@ async fn postgres_leg_is_sound() {
     );
 }
 
-#[cfg(feature = "mysql")]
-#[tokio::test]
-async fn mysql_leg_is_sound() {
-    let url =
-        std::env::var("SCYTHE_CONFORMANCE_MYSQL_ADMIN_URL").expect("SCYTHE_CONFORMANCE_MYSQL_ADMIN_URL must be set");
-    let (fixtures, divergences) = load_fixtures_and_divergences();
-    let mut config = RunnerConfig::from_env(vec![Engine::Mysql], testing_data_root().join("_schemas"));
-    config.mysql_admin_url = Some(url);
-    let report = run(&fixtures, &divergences, &config)
-        .await
-        .expect("run must not hard-error");
-    println!("{}", report.summary());
-    assert!(report.is_pass(), "{}", report.summary());
-    assert!(
-        !report.verdicts.is_empty(),
-        "expected at least one MySQL leg to actually run"
-    );
-}
-
-#[cfg(feature = "mariadb")]
-#[tokio::test]
-async fn mariadb_leg_is_sound() {
-    let url = std::env::var("SCYTHE_CONFORMANCE_MARIADB_ADMIN_URL")
-        .expect("SCYTHE_CONFORMANCE_MARIADB_ADMIN_URL must be set");
-    let (fixtures, divergences) = load_fixtures_and_divergences();
-    let mut config = RunnerConfig::from_env(vec![Engine::Mariadb], testing_data_root().join("_schemas"));
-    config.mariadb_admin_url = Some(url);
-    let report = run(&fixtures, &divergences, &config)
-        .await
-        .expect("run must not hard-error");
-    println!("{}", report.summary());
-    assert!(report.is_pass(), "{}", report.summary());
-    assert!(
-        !report.verdicts.is_empty(),
-        "expected at least one MariaDB leg to actually run"
-    );
-}
-
-#[cfg(feature = "mssql")]
-#[tokio::test]
-async fn mssql_leg_is_sound() {
-    let url =
-        std::env::var("SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL").expect("SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL must be set");
-    let (fixtures, divergences) = load_fixtures_and_divergences();
-    let mut config = RunnerConfig::from_env(vec![Engine::Mssql], testing_data_root().join("_schemas"));
-    config.mssql_admin_url = Some(url);
-    let report = run(&fixtures, &divergences, &config)
-        .await
-        .expect("run must not hard-error");
-    println!("{}", report.summary());
-    assert!(report.is_pass(), "{}", report.summary());
-    assert!(
-        !report.verdicts.is_empty(),
-        "expected at least one SQL Server leg to actually run"
-    );
-}
-
-#[cfg(feature = "oracle")]
-#[tokio::test]
-async fn oracle_leg_is_sound() {
-    let url =
-        std::env::var("SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL").expect("SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL must be set");
-    let (fixtures, divergences) = load_fixtures_and_divergences();
-    let mut config = RunnerConfig::from_env(vec![Engine::Oracle], testing_data_root().join("_schemas"));
-    config.oracle_admin_url = Some(url);
-    let report = run(&fixtures, &divergences, &config)
-        .await
-        .expect("run must not hard-error");
-    println!("{}", report.summary());
-    assert!(report.is_pass(), "{}", report.summary());
-    assert!(
-        !report.verdicts.is_empty(),
-        "expected at least one Oracle leg to actually run"
-    );
-}
-
 /// A fixture-listed engine that is not selected must appear as an explicit
 /// skip in the report -- never silently absent. Runs whenever at least one
 /// driver feature is on, independent of which.
 ///
 /// The assertion is written against *every* unselected engine rather than
 /// naming MSSQL and Oracle, which is what it named while those two were the
-/// only engines no job could ever select. Now that all six have drivers,
+/// only engines no job could ever select. Now that every engine has a driver,
 /// naming a fixed pair would make this test vacuous in exactly the job that
 /// selects one of them -- and it is the guard against silent dropping, so a
 /// vacuous version of it is worse than none.
-#[cfg(any(
-    feature = "pg",
-    feature = "sqlite",
-    feature = "mysql",
-    feature = "mariadb",
-    feature = "mssql",
-    feature = "oracle"
-))]
+#[cfg(any(feature = "pg", feature = "sqlite"))]
 #[tokio::test]
 async fn unselected_engines_are_reported_as_explicit_skips_not_silently_dropped() {
     let (fixtures, divergences) = load_fixtures_and_divergences();
@@ -193,34 +110,21 @@ async fn unselected_engines_are_reported_as_explicit_skips_not_silently_dropped(
     // second full container round trip in the jobs that have one.
     let selected = if cfg!(feature = "sqlite") {
         Engine::Sqlite
-    } else if cfg!(feature = "pg") {
-        Engine::Postgresql
-    } else if cfg!(feature = "mysql") {
-        Engine::Mysql
-    } else if cfg!(feature = "mariadb") {
-        Engine::Mariadb
-    } else if cfg!(feature = "mssql") {
-        Engine::Mssql
     } else {
-        Engine::Oracle
+        Engine::Postgresql
     };
     let mut config = RunnerConfig::from_env(vec![selected], testing_data_root().join("_schemas"));
     // Give every driver a shot at connecting, if configured, so the only
     // reason an engine doesn't run is that it wasn't selected -- not that
     // it lacked configuration.
     config.postgres_url = std::env::var("SCYTHE_CONFORMANCE_POSTGRES_URL").ok();
-    config.mysql_admin_url = std::env::var("SCYTHE_CONFORMANCE_MYSQL_ADMIN_URL").ok();
-    config.mariadb_admin_url = std::env::var("SCYTHE_CONFORMANCE_MARIADB_ADMIN_URL").ok();
-    config.mssql_admin_url = std::env::var("SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL").ok();
-    config.oracle_admin_url = std::env::var("SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL").ok();
 
     let report = run(&fixtures, &divergences, &config)
         .await
         .expect("run must not hard-error");
     println!("{}", report.summary());
 
-    // Every committed fixture lists all six engines, so each of the five
-    // that were not selected must appear as a recorded skip.
+    // Every engine that was not selected must appear as a recorded skip.
     for engine in Engine::ALL {
         if engine == selected {
             continue;

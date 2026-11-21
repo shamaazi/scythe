@@ -814,13 +814,7 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
 /// Each engine Cargo feature, the canonical engines it enables, and whether
 /// this build was compiled with it.
 const ENGINE_FEATURES: &[(&str, &[&str], bool)] = &[
-    ("duckdb", &["duckdb"], cfg!(feature = "duckdb")),
-    ("mssql", &["mssql"], cfg!(feature = "mssql")),
-    ("mysql", &["mysql", "mariadb"], cfg!(feature = "mysql")),
-    ("oracle", &["oracle"], cfg!(feature = "oracle")),
     ("postgres", &["postgresql"], cfg!(feature = "postgres")),
-    ("redshift", &["redshift"], cfg!(feature = "redshift")),
-    ("snowflake", &["snowflake"], cfg!(feature = "snowflake")),
     ("sqlite", &["sqlite"], cfg!(feature = "sqlite")),
 ];
 
@@ -864,14 +858,7 @@ fn disabled_feature(subject: &str, feature: &str) -> ScytheError {
 pub fn normalize_engine(engine: &str) -> &str {
     match engine {
         "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb" => "postgresql",
-        "mysql" => "mysql",
-        "mariadb" => "mariadb",
         "sqlite" | "sqlite3" => "sqlite",
-        "duckdb" => "duckdb",
-        "mssql" | "sqlserver" | "tsql" => "mssql",
-        "oracle" => "oracle",
-        "snowflake" => "snowflake",
-        "redshift" => "redshift",
         other => other,
     }
 }
@@ -948,28 +935,6 @@ mod tests {
         }
     }
 
-    /// Documents the engine-blind collision the deleted CWD-relative lookup
-    /// would have caused: two backends sharing a backend-name-only manifest
-    /// path (`backends/<name>/manifest.toml`) but supporting different
-    /// engines would have silently shared one manifest file on disk. Pure
-    /// `(backend, engine)` selection must not exhibit this collision.
-    #[cfg(all(feature = "lang-rust", feature = "mysql"))]
-    #[test]
-    fn test_get_backend_rust_sqlx_mysql_has_no_postgresql_scalars() {
-        let backend = get_backend("rust-sqlx", "mysql").expect("rust-sqlx should support mysql");
-        let scalars = &backend.manifest().types.scalars;
-        assert_ne!(
-            scalars.get("uuid").map(String::as_str),
-            Some("uuid::Uuid"),
-            "rust-sqlx/mysql manifest should not carry the PostgreSQL-specific 'uuid' mapping"
-        );
-        assert_ne!(
-            scalars.get("inet").map(String::as_str),
-            Some("ipnetwork::IpNetwork"),
-            "rust-sqlx/mysql manifest should not carry the PostgreSQL-specific 'inet' mapping"
-        );
-    }
-
     #[test]
     fn test_normalize_engine_cockroachdb() {
         assert_eq!(normalize_engine("cockroachdb"), "postgresql");
@@ -1000,8 +965,6 @@ mod tests {
     fn engine_feature_covers_every_alias_of_an_engine() {
         assert_eq!(engine_feature("cockroachdb"), Some("postgres"));
         assert_eq!(engine_feature("pg"), Some("postgres"));
-        assert_eq!(engine_feature("mariadb"), Some("mysql"));
-        assert_eq!(engine_feature("sqlserver"), Some("mssql"));
         assert_eq!(engine_feature("sqlite3"), Some("sqlite"));
         assert_eq!(engine_feature("klingon"), None);
     }
@@ -1021,17 +984,17 @@ mod tests {
         );
     }
 
-    #[cfg(not(feature = "mysql"))]
+    #[cfg(not(feature = "sqlite"))]
     #[test]
     fn get_backend_names_the_engine_feature_a_disabled_engine_needs() {
-        let error = get_backend("rust-sqlx", "mariadb")
+        let error = get_backend("rust-sqlx", "sqlite")
             .err()
-            .expect("mysql is not compiled in");
+            .expect("sqlite is not compiled in");
         assert!(
             error
                 .to_string()
-                .contains("engine 'mariadb' is not available in this build")
-                && error.to_string().contains("`--features mysql`"),
+                .contains("engine 'sqlite' is not available in this build")
+                && error.to_string().contains("`--features sqlite`"),
             "{error}"
         );
     }

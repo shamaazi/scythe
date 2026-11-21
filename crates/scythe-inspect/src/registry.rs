@@ -21,8 +21,7 @@ pub struct CheckRegistry {
 }
 
 impl CheckRegistry {
-    /// Build the canonical registry from the embedded `postgres/checks.toml`
-    /// and `mysql/checks.toml`.
+    /// Build the canonical registry from the embedded `postgres/checks.toml`.
     ///
     /// Panics on parse or binding-validation failure — a broken canonical TOML
     /// is a programming error that must be fixed before shipping, so a panic
@@ -30,15 +29,9 @@ impl CheckRegistry {
     pub fn canonical() -> Self {
         const POSTGRES_SRC: &str = include_str!("postgres/checks.toml");
         const POSTGRES_LABEL: &str = "<built-in postgres/checks.toml>";
-        const MYSQL_SRC: &str = include_str!("mysql/checks.toml");
-        const MYSQL_LABEL: &str = "<built-in mysql/checks.toml>";
 
-        let mut checks = crate::spec::parse_check_file(POSTGRES_SRC, POSTGRES_LABEL)
+        let checks = crate::spec::parse_check_file(POSTGRES_SRC, POSTGRES_LABEL)
             .expect("canonical postgres/checks.toml must parse correctly");
-        checks.extend(
-            crate::spec::parse_check_file(MYSQL_SRC, MYSQL_LABEL)
-                .expect("canonical mysql/checks.toml must parse correctly"),
-        );
 
         for spec in &checks {
             validate_message_bindings(spec)
@@ -193,16 +186,6 @@ mod tests {
 
         assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());
         assert_eq!(reg.for_engine("duckdb").count(), 1);
-    }
-
-    /// The canonical registry now bootstraps from two TOML files; both must
-    /// actually be present in `for_engine`'s output, not just parse cleanly.
-    #[test]
-    fn canonical_registry_has_canonical_mysql_checks() {
-        let reg = CheckRegistry::canonical();
-        let mysql_checks: Vec<_> = reg.for_engine("mysql").collect();
-        assert_eq!(mysql_checks.len(), 4);
-        assert!(mysql_checks.iter().all(|c| c.id.starts_with("SC-INS-MY")));
     }
 
     #[test]

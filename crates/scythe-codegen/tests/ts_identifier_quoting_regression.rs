@@ -178,16 +178,7 @@ fn tool_check(backend_name: &str, file: &str) {
 /// interface spliced `p.field_name` in bare (`2fa: string;`), the per-item
 /// bind read it back with `item.2fa`, and the pg/mysql2 row remaps read
 /// driver rows with `row.my col`.
-#[cfg(all(
-    feature = "lang-typescript",
-    feature = "duckdb",
-    feature = "mssql",
-    feature = "mysql",
-    feature = "oracle",
-    feature = "postgres",
-    feature = "snowflake",
-    feature = "sqlite"
-))]
+#[cfg(all(feature = "lang-typescript", feature = "postgres", feature = "sqlite"))]
 #[test]
 fn every_typescript_backend_quotes_non_identifier_column_names() {
     for (backend_name, engine, dialect) in TS_BACKENDS {
@@ -227,16 +218,7 @@ fn every_typescript_backend_quotes_non_identifier_column_names() {
 /// parseable JSDoc name token (a whitespace-containing one splits into a
 /// name and a bogus description; a leading digit is not a valid identifier
 /// start either).
-#[cfg(all(
-    feature = "lang-typescript",
-    feature = "duckdb",
-    feature = "mssql",
-    feature = "mysql",
-    feature = "oracle",
-    feature = "postgres",
-    feature = "snowflake",
-    feature = "sqlite"
-))]
+#[cfg(all(feature = "lang-typescript", feature = "postgres", feature = "sqlite"))]
 #[test]
 fn every_javascript_backend_describes_non_identifier_columns_with_a_quoted_typedef_key() {
     for (backend_name, engine, dialect) in JS_BACKENDS {

@@ -257,10 +257,10 @@ mod tests {
 
     #[test]
     fn apply_suppresses_a_matching_vacuity_failure() {
-        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
+        let entries = vec![entry("live_x", Engine::Sqlite, "notes")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Oracle,
+            Engine::Sqlite,
             vec![Failure::VacuousNullable {
                 column: "notes".to_string(),
             }],
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn apply_leaves_unmatched_vacuity_failures_alone() {
-        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
+        let entries = vec![entry("live_x", Engine::Sqlite, "notes")];
         let verdicts = vec![verdict(
             "live_x",
             Engine::Postgresql,
@@ -285,10 +285,10 @@ mod tests {
 
     #[test]
     fn apply_never_suppresses_unsound_nullability() {
-        let entries = vec![entry("live_x", Engine::Oracle, "id")];
+        let entries = vec![entry("live_x", Engine::Sqlite, "id")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Oracle,
+            Engine::Sqlite,
             vec![Failure::UnsoundNullability {
                 column: "id".to_string(),
                 row: 0,
@@ -300,10 +300,10 @@ mod tests {
 
     #[test]
     fn apply_never_suppresses_fidelity_mismatch() {
-        let entries = vec![entry("live_x", Engine::Oracle, "id")];
+        let entries = vec![entry("live_x", Engine::Sqlite, "id")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Oracle,
+            Engine::Sqlite,
             vec![Failure::FidelityMismatch {
                 column: "id".to_string(),
                 analyzed_nullable: true,
@@ -316,10 +316,10 @@ mod tests {
 
     #[test]
     fn apply_never_suppresses_join_group_incoherent() {
-        let entries = vec![entry("live_x", Engine::Oracle, "id")];
+        let entries = vec![entry("live_x", Engine::Sqlite, "id")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Oracle,
+            Engine::Sqlite,
             vec![Failure::JoinGroupIncoherent {
                 group: "o".to_string(),
                 row: 0,
@@ -347,7 +347,7 @@ mod tests {
         let toml = r#"
 [[entry]]
 fixture = "live_x"
-engine = "oracle"
+engine = "sqlite"
 column = "notes"
 kind = "engine_more_permissive"
 issue = "https://github.com/Goldziher/scythe/issues/1"
@@ -362,7 +362,7 @@ reason = "test"
         let toml = r#"
 [[entry]]
 fixture = "live_x"
-engine = "oracle"
+engine = "sqlite"
 column = "notes"
 kind = "analyzer_over_pessimistic"
 issue = "https://github.com/Goldziher/scythe/issues/1"
@@ -383,7 +383,7 @@ suppresses_soundness = true
         let toml = r#"
 [[entries]]
 fixture = "live_x"
-engine = "oracle"
+engine = "sqlite"
 column = "notes"
 kind = "analyzer_over_pessimistic"
 issue = "https://github.com/Goldziher/scythe/issues/1"
@@ -434,7 +434,7 @@ reason = "test"
             r#"
 [[entry]]
 fixture = "live_x"
-engine = "oracle"
+engine = "sqlite"
 column = "notes"
 kind = "analyzer_over_pessimistic"
 issue = "not-a-url"
@@ -451,7 +451,7 @@ reason = "test"
         let mut toml = String::new();
         for i in 0..(MAX_ENTRIES + 1) {
             toml.push_str(&format!(
-                "[[entry]]\nfixture = \"live_{i}\"\nengine = \"oracle\"\ncolumn = \"c\"\nkind = \"analyzer_over_pessimistic\"\nissue = \"https://github.com/Goldziher/scythe/issues/{i}\"\nreason = \"test\"\n\n"
+                "[[entry]]\nfixture = \"live_{i}\"\nengine = \"sqlite\"\ncolumn = \"c\"\nkind = \"analyzer_over_pessimistic\"\nissue = \"https://github.com/Goldziher/scythe/issues/{i}\"\nreason = \"test\"\n\n"
             ));
         }
         let dir = tempfile::tempdir().unwrap();
@@ -470,11 +470,11 @@ reason = "test"
             r#"
 [[entry]]
 fixture = "live_right_side_not_null_becomes_nullable"
-engine = "oracle"
+engine = "sqlite"
 column = "notes"
 kind = "analyzer_over_pessimistic"
 issue = "https://github.com/Goldziher/scythe/issues/42"
-reason = "Oracle never returns NULL for this synthetic column in any live run"
+reason = "SQLite never returns NULL for this synthetic column in any live run"
 "#,
         )
         .unwrap();
@@ -482,35 +482,35 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
         assert_eq!(entries.len(), 1);
         let parsed = &entries[0];
         assert_eq!(parsed.fixture, "live_right_side_not_null_becomes_nullable");
-        assert_eq!(parsed.engine, Engine::Oracle);
+        assert_eq!(parsed.engine, Engine::Sqlite);
         assert_eq!(parsed.column, "notes");
         assert_eq!(parsed.kind, DivergenceKind::AnalyzerOverPessimistic);
         assert_eq!(parsed.issue, "https://github.com/Goldziher/scythe/issues/42");
         assert_eq!(
             parsed.reason,
-            "Oracle never returns NULL for this synthetic column in any live run"
+            "SQLite never returns NULL for this synthetic column in any live run"
         );
     }
 
     #[test]
     fn check_staleness_fails_when_a_registered_divergence_no_longer_reproduces() {
-        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
-        let verdicts = vec![verdict("live_x", Engine::Oracle, vec![])];
-        let result = check_staleness(&entries, &verdicts, &[Engine::Oracle]);
+        let entries = vec![entry("live_x", Engine::Sqlite, "notes")];
+        let verdicts = vec![verdict("live_x", Engine::Sqlite, vec![])];
+        let result = check_staleness(&entries, &verdicts, &[Engine::Sqlite]);
         assert!(matches!(result, Err(DivergenceError::Stale { .. })));
     }
 
     #[test]
     fn check_staleness_passes_when_the_divergence_still_reproduces() {
-        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
+        let entries = vec![entry("live_x", Engine::Sqlite, "notes")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Oracle,
+            Engine::Sqlite,
             vec![Failure::VacuousNullable {
                 column: "notes".to_string(),
             }],
         )];
-        let result = check_staleness(&entries, &verdicts, &[Engine::Oracle]);
+        let result = check_staleness(&entries, &verdicts, &[Engine::Sqlite]);
         assert!(result.is_ok());
     }
 
@@ -518,7 +518,7 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
     fn check_staleness_skips_entries_for_engines_that_were_not_run() {
         // A partial run (only Postgres this time) must not mark every
         // Oracle-scoped entry stale just because Oracle wasn't dialed.
-        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
+        let entries = vec![entry("live_x", Engine::Sqlite, "notes")];
         let verdicts = vec![verdict("live_x", Engine::Postgresql, vec![])];
         let result = check_staleness(&entries, &verdicts, &[Engine::Postgresql]);
         assert!(result.is_ok(), "{result:?}");
@@ -529,43 +529,43 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
         // Calling check_staleness on the *raw* verdicts (before apply) must
         // succeed for an entry that still reproduces, regardless of what
         // apply would later do to those same verdicts.
-        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
+        let entries = vec![entry("live_x", Engine::Sqlite, "notes")];
         let raw_verdicts = vec![verdict(
             "live_x",
-            Engine::Oracle,
+            Engine::Sqlite,
             vec![Failure::VacuousNullable {
                 column: "notes".to_string(),
             }],
         )];
-        assert!(check_staleness(&entries, &raw_verdicts, &[Engine::Oracle]).is_ok());
+        assert!(check_staleness(&entries, &raw_verdicts, &[Engine::Sqlite]).is_ok());
 
         // The same verdicts, post-apply, would (incorrectly, if reused)
         // report every entry as stale -- demonstrating why `reconcile`
         // exists instead of leaving the ordering to convention.
         let applied = apply(&entries, raw_verdicts);
         assert!(applied[0].is_pass());
-        assert!(check_staleness(&entries, &applied, &[Engine::Oracle]).is_err());
+        assert!(check_staleness(&entries, &applied, &[Engine::Sqlite]).is_err());
     }
 
     #[test]
     fn reconcile_checks_staleness_before_suppressing_regardless_of_call_site_order() {
-        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
+        let entries = vec![entry("live_x", Engine::Sqlite, "notes")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Oracle,
+            Engine::Sqlite,
             vec![Failure::VacuousNullable {
                 column: "notes".to_string(),
             }],
         )];
-        let result = reconcile(&entries, verdicts, &[Engine::Oracle]).expect("a still-reproducing entry must pass");
+        let result = reconcile(&entries, verdicts, &[Engine::Sqlite]).expect("a still-reproducing entry must pass");
         assert!(result[0].is_pass(), "{:?}", result[0].failures);
     }
 
     #[test]
     fn reconcile_fails_for_a_stale_entry_instead_of_silently_suppressing_nothing() {
-        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
-        let verdicts = vec![verdict("live_x", Engine::Oracle, vec![])];
-        let result = reconcile(&entries, verdicts, &[Engine::Oracle]);
+        let entries = vec![entry("live_x", Engine::Sqlite, "notes")];
+        let verdicts = vec![verdict("live_x", Engine::Sqlite, vec![])];
+        let result = reconcile(&entries, verdicts, &[Engine::Sqlite]);
         assert!(matches!(result, Err(DivergenceError::Stale { .. })));
     }
 

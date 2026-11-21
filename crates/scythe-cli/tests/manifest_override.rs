@@ -317,7 +317,7 @@ fn override_is_per_target_not_global_across_engines() {
     let dir = TempDir::new().unwrap();
     write_sources(dir.path());
     std::fs::write(dir.path().join("pg.toml"), int64_overlay("PostgresOnlySentinel")).unwrap();
-    std::fs::write(dir.path().join("my.toml"), int64_overlay("MysqlOnlySentinel")).unwrap();
+    std::fs::write(dir.path().join("my.toml"), int64_overlay("SqliteOnlySentinel")).unwrap();
 
     let config = r#"[scythe]
 version = "1"
@@ -335,7 +335,7 @@ manifest = "pg.toml"
 
 [[sql]]
 name = "my"
-engine = "mysql"
+engine = "sqlite"
 schema = ["schema.sql"]
 queries = ["queries.sql"]
 
@@ -358,16 +358,16 @@ manifest = "my.toml"
         "the postgres target must use its own override, got:\n{pg}"
     );
     assert!(
-        !pg.contains("MysqlOnlySentinel"),
-        "the mysql target's override must not leak into the postgres target, got:\n{pg}"
+        !pg.contains("SqliteOnlySentinel"),
+        "the sqlite target's override must not leak into the postgres target, got:\n{pg}"
     );
     assert!(
-        my.contains("MysqlOnlySentinel"),
-        "the mysql target must use its own override, got:\n{my}"
+        my.contains("SqliteOnlySentinel"),
+        "the sqlite target must use its own override, got:\n{my}"
     );
     assert!(
         !my.contains("PostgresOnlySentinel"),
-        "the postgres target's override must not leak into the mysql target, got:\n{my}"
+        "the postgres target's override must not leak into the sqlite target, got:\n{my}"
     );
 }
 

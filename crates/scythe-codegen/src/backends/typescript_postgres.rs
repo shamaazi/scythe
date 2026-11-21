@@ -26,7 +26,6 @@ use crate::constraints::ConstraintPolicy;
 use scythe_core::constraints::{Rules, ValueConstraints};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
-const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/typescript-postgres.redshift.toml");
 const BUN_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-bun.toml");
 
 /// The JSON value alias the Bun header declares: what Bun's adapter parses a
@@ -556,14 +555,10 @@ impl TypescriptPostgresBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         let default_toml = match engine {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
-            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InvalidConfig,
-                    format!(
-                        "typescript-postgres only supports PostgreSQL/Redshift, got engine '{}'",
-                        engine
-                    ),
+                    format!("typescript-postgres only supports PostgreSQL, got engine '{}'", engine),
                 ));
             }
         };
@@ -807,7 +802,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
     fn supported_engines(&self) -> &[&str] {
         match self.driver {
-            TemplateDriver::PostgresJs => &["postgresql", "redshift"],
+            TemplateDriver::PostgresJs => &["postgresql"],
             TemplateDriver::Bun => &["postgresql"],
         }
     }

@@ -37,7 +37,7 @@
   },
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql", "sqlite", "mssql", "oracle"],
+    "engines": ["postgresql", "sqlite"],
     "runs": [
       {
         "name": "unmatched_on_each_side",

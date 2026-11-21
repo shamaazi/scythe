@@ -14,7 +14,6 @@ use crate::backends::parse_bool_option;
 
 /// Default embedded manifest TOML for rust-tokio-postgres, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-tokio-postgres.toml");
-const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/rust-tokio-postgres.redshift.toml");
 
 /// Hand-rolled `FromSql`/`ToSql` for the `range = "PgRange<{T}>"` container mapping.
 ///
@@ -179,14 +178,10 @@ impl TokioPostgresBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         let default_toml = match engine {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
-            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InvalidConfig,
-                    format!(
-                        "rust-tokio-postgres only supports PostgreSQL/Redshift, got engine '{}'",
-                        engine
-                    ),
+                    format!("rust-tokio-postgres only supports PostgreSQL, got engine '{}'", engine),
                 ));
             }
         };
@@ -263,7 +258,7 @@ impl CodegenBackend for TokioPostgresBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "redshift"]
+        &["postgresql"]
     }
 
     fn file_header(&self) -> String {

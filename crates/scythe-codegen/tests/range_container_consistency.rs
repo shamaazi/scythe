@@ -180,7 +180,7 @@ const RANGE_CAPABLE_ENGINES: &[&str] = &["postgresql"];
 
 /// Total manifests expected on disk. A floor, not the count: a glob that has
 /// stopped matching must fail rather than sweep nothing and pass.
-const MANIFEST_FLOOR: usize = 10;
+const MANIFEST_FLOOR: usize = 5;
 
 /// Manifests expected to declare `range` -- the PostgreSQL targets. Also a
 /// floor.

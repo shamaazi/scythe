@@ -35,12 +35,6 @@ enum Commands {
         #[arg(long)]
         validate_output: bool,
     },
-    /// Migrate from sqlc to scythe format
-    Migrate {
-        /// Path to sqlc config file
-        #[arg(default_value = "sqlc.yaml")]
-        sqlc_config: String,
-    },
     /// Validate SQL without generating code. Exits 0 clean, 2 on
     /// error-severity findings (unless --exit-zero) -- including an
     /// unparseable query (SC-PARSE01/02) or a `[sql.gen]` target that
@@ -176,7 +170,7 @@ enum Commands {
     },
     /// Inspect a live database for operational issues (missing FK indexes,
     /// disabled RLS with policies, duplicate indexes). Connects via
-    /// tokio-postgres or mysql_async, chosen by the resolved dialect.
+    /// tokio-postgres.
     /// Exits 2 on error-severity findings unless --exit-zero.
     ///
     /// Connection URL is resolved in order: positional argument, then
@@ -203,7 +197,7 @@ enum Commands {
         /// Write reporter output to file instead of stdout
         #[arg(short, long, value_name = "PATH")]
         output: Option<String>,
-        /// Engine to target: postgres|postgresql or mysql|mariadb.
+        /// Engine to target: postgres|postgresql.
         /// Default: parsed from URL scheme.
         #[arg(long)]
         dialect: Option<String>,
@@ -222,8 +216,6 @@ fn main() {
             allow_output_escape,
             validate_output,
         } => commands::generate::run_generate(&config, allow_output_escape, validate_output),
-        Commands::Migrate { sqlc_config } => commands::migrate::run_migrate(std::path::Path::new(&sqlc_config))
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
         Commands::Check {
             config,
             database_url,

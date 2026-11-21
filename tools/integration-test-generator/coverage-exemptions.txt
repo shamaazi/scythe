@@ -25,13 +25,8 @@
 # freshness but never executed.
 
 typescript-postgres|postgresql : the postgres.js driver mode of the backend typescript-bun is built on; this fork runs only the Bun project (typescript-bun), which exercises the shared code generator
-typescript-postgres|redshift : the postgres.js driver mode on Redshift; removed with the Redshift engine
 
 [devenv-integration]
-# Integration projects the `scythe:integration` devenv task does not run: their
-# engines are not part of this fork, and they are deleted with those engines.
-
-rust-sqlx-mysql : removed with the MySQL engine
-rust-sqlx-mariadb : removed with the MariaDB engine
-rust-sqlx-redshift : removed with the Redshift engine
-rust-tokio-postgres-redshift : removed with the Redshift engine
+# Integration projects the `scythe:integration` devenv task does not run.
+# Keep it empty: a project nothing runs is checked for freshness but never
+# executed.
