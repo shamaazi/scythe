@@ -185,14 +185,14 @@ impl<'a> Analyzer<'a> {
                 // placeholder wherever it sits -- the same helper
                 // `infer_expr_type`'s LIKE arm uses, so both traversals of
                 // a LIKE pattern agree on what gets registered.
-                let name = expr_to_name(col_expr);
+                let name = param_name(col_expr);
                 self.collect_param_from_expr_with_type(pattern, "string", &name);
             }
             Expr::InList {
                 expr: col_expr, list, ..
             } => {
                 let col_ti = self.infer_expr_type(col_expr, scope);
-                let col_name = expr_to_name(col_expr);
+                let col_name = param_name(col_expr);
                 for item in list {
                     if let Expr::Value(vws) = item
                         && let Some(p) = value_is_placeholder(vws)
@@ -235,10 +235,10 @@ impl<'a> Analyzer<'a> {
                     && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
-                    let name = pluralize(&expr_to_name(left));
+                    let name = pluralize(&param_name(left));
                     self.register_param(pos, Some(name), Some(array_type), false, None);
                 }
-                self.collect_param_from_any(right, &left_ti, &expr_to_name(left));
+                self.collect_param_from_any(right, &left_ti, &param_name(left));
                 // `$1 = ANY(array_expr)`: the placeholder is an element.
                 let right_ti = self.infer_expr_type(right, scope);
                 if let Some(element) = right_ti
@@ -246,7 +246,7 @@ impl<'a> Analyzer<'a> {
                     .strip_prefix("array<")
                     .and_then(|inner| inner.strip_suffix('>'))
                 {
-                    self.collect_param_from_expr(left, &expr_to_name(right), element);
+                    self.collect_param_from_expr(left, &param_name(right), element);
                 }
                 self.collect_params_from_where(left, scope);
                 self.collect_params_from_where(right, scope);
@@ -279,7 +279,7 @@ impl<'a> Analyzer<'a> {
             } => {
                 let operand_type = operand.as_ref().map(|operand| {
                     self.collect_params_from_where(operand, scope);
-                    (self.infer_expr_type(operand, scope).neutral_type, expr_to_name(operand))
+                    (self.infer_expr_type(operand, scope).neutral_type, param_name(operand))
                 });
                 for case_when in conditions {
                     match &operand_type {
@@ -343,10 +343,10 @@ impl<'a> Analyzer<'a> {
             }
             BinaryOperator::AtArrow | BinaryOperator::ArrowAt => {
                 if known(left_ti) {
-                    self.collect_param_from_expr(right, &expr_to_name(left), &left_ti.neutral_type);
+                    self.collect_param_from_expr(right, &param_name(left), &left_ti.neutral_type);
                 }
                 if known(right_ti) {
-                    self.collect_param_from_expr(left, &expr_to_name(right), &right_ti.neutral_type);
+                    self.collect_param_from_expr(left, &param_name(right), &right_ti.neutral_type);
                 }
             }
             _ => {}
@@ -406,7 +406,7 @@ impl<'a> Analyzer<'a> {
                     && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                 {
                     let col_ti = self.infer_expr_type(col_side, scope);
-                    let col_name = expr_to_name(col_side);
+                    let col_name = param_name(col_side);
                     let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
                     // The one shape where "the column this parameter is bound against" is
                     // unambiguous -- `col_side`'s own `source_relation`, the same field
@@ -430,7 +430,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let neutral = datatype_to_neutral(data_type, self.catalog);
                     let col_ti = self.infer_expr_type(col_side, scope);
-                    let col_name = expr_to_name(col_side);
+                    let col_name = param_name(col_side);
                     let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
                     self.register_param(pos, Some(param_name), Some(neutral), false, col_ti.source_relation);
                 }
@@ -566,7 +566,7 @@ impl<'a> Analyzer<'a> {
                     && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                 {
                     let neutral = datatype_to_neutral(data_type, self.catalog);
-                    self.register_param(pos, None, Some(neutral), false, None);
+                    self.register_param(pos, Some(pluralize(left_name)), Some(neutral), false, None);
                 }
             }
             Expr::Nested(inner) => self.collect_param_from_any(inner, left_ti, left_name),

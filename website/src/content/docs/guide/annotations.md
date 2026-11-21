@@ -126,6 +126,26 @@ SELECT id, name FROM users WHERE id = $1 AND status = $2;
 
 Format: `-- @param <name>: <description>` or `-- @param <name>` (without description).
 
+### Inferred names
+
+Without a positional `@param`, a parameter is named after what the statement does with it, falling
+back to `pN` only when nothing names it:
+
+| Statement | Name |
+| --- | --- |
+| `id = $1`, `INSERT INTO t (email) VALUES ($1)`, `SET status = $1` | `id`, `email`, `status` |
+| `user_id = ANY($1)`, `id = ANY($1::text[])`, `email <> ALL($1::text[])` | `user_ids`, `ids`, `emails` |
+| `lower(email) = $1`, `coalesce(s.widget, false) = $1` | `email`, `widget` |
+| `metadata ->> 'product' = $1` | `product` |
+| `CASE WHEN ... THEN s.record_type END = $1` | `record_type` |
+| `LIMIT $1 OFFSET $2` | `limit`, `offset` |
+| `report(charity_id => $1)`, or `$1` in the position of a named function argument | `charity_id` |
+
+Functions looked through keep their argument's meaning: `lower`, `upper`, `initcap`, the `trim`
+family, `unaccent`, `normalize`, `coalesce`, `nullif`, `greatest`, `least`, rounding functions,
+`date_trunc`, `left`, `right`, `substring`/`substr`, `lpad`/`rpad`, `replace`, `regexp_replace` and
+`translate`. A parameter used in several places takes the name of the first one the analyzer meets.
+
 ### Positional form
 
 A second, distinct `@param` form binds a 1-based position to a name and, unlike the docs-only form

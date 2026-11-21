@@ -1088,6 +1088,67 @@ UPDATE users SET name = $1 WHERE id = $2;",
         analyze(&make_catalog(), &parse_query(sql)?)
     }
 
+    fn param_names(ddl: &[&str], sql: &str) -> Vec<String> {
+        let catalog = Catalog::from_ddl(ddl).unwrap();
+        let analyzed = analyze(&catalog, &parse_query(sql).unwrap()).unwrap();
+        analyzed.params.into_iter().map(|param| param.name).collect()
+    }
+
+    const NAMING_DDL: &[&str] = &[
+        "CREATE TABLE accounts (id TEXT PRIMARY KEY, charity_id TEXT, email TEXT NOT NULL, \
+         country TEXT, widget BOOLEAN, record_type TEXT, metadata JSONB);",
+    ];
+
+    #[test]
+    fn test_cast_array_placeholders_take_the_pluralized_column_name() {
+        let names = param_names(
+            NAMING_DDL,
+            "-- @name Find\n-- @returns :many\nSELECT id FROM accounts WHERE id = ANY($1::text[]) \
+             AND charity_id = ANY($2) AND NOT (country = ANY($3::text[])) AND email <> ALL($4::text[]);",
+        );
+        assert_eq!(names, ["ids", "charity_ids", "countries", "emails"]);
+    }
+
+    #[test]
+    fn test_params_look_through_value_preserving_functions_json_keys_and_case() {
+        let names = param_names(
+            NAMING_DDL,
+            "-- @name Find\n-- @returns :many\nSELECT id FROM accounts WHERE lower(email) = $1 \
+             AND ($2::boolean IS NULL OR coalesce(widget, false) = $2) \
+             AND coalesce(metadata -> 'configuration' ->> 'product', 'evergive') = $3 \
+             AND CASE WHEN record_type IN ('a', 'b') THEN record_type END = ANY($4);",
+        );
+        assert_eq!(names, ["email", "widget", "product", "record_types"]);
+    }
+
+    #[test]
+    fn test_limit_and_offset_params_are_named_limit_and_offset() {
+        let names = param_names(
+            NAMING_DDL,
+            "-- @name Page\n-- @returns :many\nSELECT id FROM accounts ORDER BY id LIMIT $1 OFFSET $2;",
+        );
+        assert_eq!(names, ["limit", "offset"]);
+    }
+
+    #[test]
+    fn test_function_arguments_name_their_params_positionally_and_by_name() {
+        let ddl = [
+            NAMING_DDL[0],
+            "CREATE FUNCTION report(report_profile text, \"group\" text, \"from\" timestamp with time zone, \
+             charity_id text DEFAULT NULL) RETURNS TABLE (id text) LANGUAGE sql STABLE AS $$ SELECT id FROM accounts $$;",
+        ];
+        let positional = param_names(
+            &ddl,
+            "-- @name Report\n-- @returns :many\nSELECT id FROM report($1, $2, $3, $4);",
+        );
+        assert_eq!(positional, ["report_profile", "group", "from", "charity_id"]);
+        let named = param_names(
+            &ddl,
+            "-- @name Report\n-- @returns :many\nSELECT id FROM report($1, $2, $3, charity_id => $4);",
+        );
+        assert_eq!(named, ["report_profile", "group", "from", "charity_id"]);
+    }
+
     #[test]
     fn test_param_tested_for_null_is_nullable() {
         let result = analyze_sql(

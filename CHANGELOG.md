@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Inferred parameter names for more shapes: an array placeholder that is cast
+  (`id = ANY($1::text[])`, `email <> ALL($1::text[])`) takes the pluralized
+  column name instead of `p1`; a comparison with a function that keeps its
+  argument's meaning (`lower(email)`, `coalesce(s.widget, false)`, `trim`,
+  `left`, `regexp_replace`, ...) takes the argument's name instead of the
+  function's; a JSON field read (`metadata ->> 'product'`) takes its key, and a
+  `CASE` the column its branches return.
 - Per-file output: a `[[sql.gen]]` `output` containing `{dir}` generates one
   module per query file matched by the block's `queries` globs, into that
   file's directory relative to the config (`output = "{dir}"` turns
@@ -92,6 +99,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `LIMIT $n` and `OFFSET $n` parameters are named `limit` and `offset` instead
+  of `limit_val` and `offset_val`.
 - A result column the statement's filters prove non-null is no longer
   nullable: one the WHERE clause tests `IS NOT NULL` or compares with `=`,
   `<>`, `<`, `<=`, `>` or `>=` as a top-level conjunct, or an inner join's ON

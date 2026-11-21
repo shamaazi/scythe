@@ -452,20 +452,17 @@ fn test_param_as_limit_offset() {
     assert_eq!(analyzed.name, "ListUsersPaginated", "query name");
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.params.len(), 2, "param count");
-    assert_eq!(analyzed.params[0].name, "limit_val", "param name");
-    assert_eq!(
-        analyzed.params[0].neutral_type, "int64",
-        "param neutral_type for limit_val"
-    );
-    assert!(!analyzed.params[0].nullable, "param nullable for limit_val");
-    assert_eq!(analyzed.params[0].position, 1, "param position for limit_val");
-    assert_eq!(analyzed.params[1].name, "offset_val", "param name");
+    assert_eq!(analyzed.params[0].name, "limit", "param name");
+    assert_eq!(analyzed.params[0].neutral_type, "int64", "param neutral_type for limit");
+    assert!(!analyzed.params[0].nullable, "param nullable for limit");
+    assert_eq!(analyzed.params[0].position, 1, "param position for limit");
+    assert_eq!(analyzed.params[1].name, "offset", "param name");
     assert_eq!(
         analyzed.params[1].neutral_type, "int64",
-        "param neutral_type for offset_val"
+        "param neutral_type for offset"
     );
-    assert!(!analyzed.params[1].nullable, "param nullable for offset_val");
-    assert_eq!(analyzed.params[1].position, 2, "param position for offset_val");
+    assert!(!analyzed.params[1].nullable, "param nullable for offset");
+    assert_eq!(analyzed.params[1].position, 2, "param position for offset");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
     assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
