@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `[lint.naming] query_prefixes` replaces the verb prefixes `SC-N03` accepts at
+  the start of a query name, for projects whose verbs differ from the built-in
+  list. `LintConfig` gains `naming` (`LintNamingConfig`), and
+  `QueryNameConvention` carries its prefixes.
+
 ## [0.20.2] - 2026-10-31
 
 ### Changed

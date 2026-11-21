@@ -187,6 +187,19 @@ pub struct LintConfig {
     pub rules: ahash::AHashMap<String, Severity>,
     #[serde(default)]
     pub sqruff: Option<SqruffConfig>,
+    /// `[lint.naming]`: settings of the naming rules.
+    #[serde(default)]
+    pub naming: LintNamingConfig,
+}
+
+/// `[lint.naming]`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LintNamingConfig {
+    /// The verb prefixes SC-N03 accepts at the start of a query name, replacing its
+    /// built-in list.
+    #[serde(default)]
+    pub query_prefixes: Option<Vec<String>>,
 }
 
 #[cfg(test)]

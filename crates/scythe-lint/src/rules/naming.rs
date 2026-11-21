@@ -96,7 +96,27 @@ impl LintRule for PreferSnakeCaseTables {
     }
 }
 
-pub struct QueryNameConvention;
+/// SC-N03. Accepts [`ALLOWED_PREFIXES`] unless `[lint.naming] query_prefixes` replaces them.
+#[derive(Debug, Clone, Default)]
+pub struct QueryNameConvention {
+    prefixes: Option<Vec<String>>,
+}
+
+impl QueryNameConvention {
+    /// The rule accepting exactly `prefixes`.
+    pub fn with_prefixes(prefixes: Vec<String>) -> Self {
+        Self {
+            prefixes: Some(prefixes),
+        }
+    }
+
+    fn accepts(&self, name: &str) -> bool {
+        match &self.prefixes {
+            Some(prefixes) => prefixes.iter().any(|p| name.starts_with(p.as_str())),
+            None => ALLOWED_PREFIXES.iter().any(|p| name.starts_with(p)),
+        }
+    }
+}
 
 const ALLOWED_PREFIXES: &[&str] = &[
     "Get",
@@ -149,8 +169,7 @@ impl LintRule for QueryNameConvention {
         if name.is_empty() {
             return Vec::new();
         }
-        let has_prefix = ALLOWED_PREFIXES.iter().any(|p| name.starts_with(p));
-        if !has_prefix {
+        if !self.accepts(name) {
             return vec![Violation {
                 rule_id: Cow::Borrowed(self.id()),
                 message: format!("query name \"{}\" does not start with an accepted verb prefix", name),
@@ -348,12 +367,50 @@ mod tests {
     }
 
     #[test]
+    fn configured_prefixes_replace_the_built_in_list() {
+        let cat = make_catalog();
+        let rule = QueryNameConvention::with_prefixes(vec!["Anonymize".to_string(), "Enqueue".to_string()]);
+        let check = |name: &str| {
+            let q = parse_query(&format!(
+                "-- @name {name}\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;"
+            ))
+            .unwrap();
+            let a = analyzer::analyze(&cat, &q).unwrap();
+            rule.check_query(&make_ctx(&q, &a, &cat)).len()
+        };
+        assert_eq!(check("AnonymizeUser"), 0);
+        assert_eq!(check("EnqueueEmail"), 0);
+        assert_eq!(check("UpdateUser"), 1, "a built-in prefix no longer counts");
+    }
+
+    #[test]
+    fn lint_naming_config_reaches_the_registered_rule() {
+        let config: crate::types::LintConfig =
+            toml::from_str("[naming]\nquery_prefixes = [\"Claim\"]\n").expect("[lint.naming] parses");
+        let mut registry = crate::registry::default_registry();
+        registry.apply_config(&config);
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name ClaimUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let (rule, _) = registry
+            .all_rules()
+            .into_iter()
+            .find(|(rule, _)| rule.id() == "SC-N03")
+            .expect("SC-N03 is registered");
+        assert!(rule.check_query(&ctx).is_empty());
+
+        assert!(toml::from_str::<crate::types::LintConfig>("[naming]\nquery_prefix = [\"Get\"]\n").is_err());
+    }
+
+    #[test]
     fn bad_query_name_fires() {
         let cat = make_catalog();
         let q = parse_query("-- @name doStuff\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert_eq!(v.len(), 1);
     }
 
@@ -364,7 +421,7 @@ mod tests {
             parse_query("-- @name UpdateUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert!(v.is_empty());
     }
 
@@ -477,7 +534,7 @@ mod tests {
         let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert!(v.is_empty());
     }
 
@@ -487,7 +544,7 @@ mod tests {
         let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert!(v.is_empty());
     }
 
@@ -499,7 +556,7 @@ mod tests {
                 .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert!(v.is_empty());
     }
 
@@ -509,7 +566,7 @@ mod tests {
         let q = parse_query("-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert!(v.is_empty());
     }
 
@@ -519,7 +576,7 @@ mod tests {
         let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert!(v.is_empty());
     }
 
@@ -532,7 +589,7 @@ mod tests {
         .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert!(v.is_empty());
     }
 
@@ -543,7 +600,7 @@ mod tests {
             parse_query("-- @name RecordLogin\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert!(v.is_empty());
     }
 
@@ -553,7 +610,7 @@ mod tests {
         let q = parse_query("-- @name getuser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        let v = QueryNameConvention.check_query(&ctx);
+        let v = QueryNameConvention::default().check_query(&ctx);
         assert_eq!(v.len(), 1);
     }
 
