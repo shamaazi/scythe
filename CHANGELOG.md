@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `[lint.naming] query_prefixes` replaces the verb prefixes `SC-N03` accepts at
+  the start of a query name, for projects whose verbs differ from the built-in
+  list. `LintConfig` gains `naming` (`LintNamingConfig`), and
+  `QueryNameConvention` carries its prefixes.
 - `schema_types = "<path>"` with `schema_types_import = "<specifier>"` for
   `typescript-bun` and `typescript-postgres`: the schema's enums and domains are
   written once per target to one module, each `CREATE DOMAIN` as an alias of

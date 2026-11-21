@@ -597,6 +597,19 @@ like `row_type` and `field_case`, requires the `[[sql.gen]]` array form above.
 
 See [Linting](/scythe/guide/linting/) for the full list of rules and categories.
 
+### `[lint.naming]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `query_prefixes` | array of strings | built-in list | The verb prefixes `SC-N03` accepts at the start of a query name. Replaces the built-in list (`Get`, `List`, `Create`, `Update`, `Delete`, `Count`, `Upsert`, `Search`, `Find`, ...) rather than adding to it, so list every verb the project uses. |
+
+```toml
+[lint.naming]
+query_prefixes = ["Get", "List", "Count", "Insert", "Update", "Delete", "Upsert", "Claim", "Enqueue"]
+```
+
+An unknown key in `[lint.naming]` is an error.
+
 ### `[lint.sqruff]`
 
 Controls the sqruff style-rule integration used by `scythe lint` (not `scythe fmt`, which always runs

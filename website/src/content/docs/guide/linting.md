@@ -54,7 +54,7 @@ resolves, the live checks are silently skipped — no error, no warning.
 |------|---------|-------------|
 | `SC-N01` | warn | Column aliases should use snake_case |
 | `SC-N02` | warn | Table names should use snake_case |
-| `SC-N03` | warn | Query name should start with an action verb |
+| `SC-N03` | warn | Query name should start with an action verb (configurable with [`[lint.naming] query_prefixes`](/scythe/guide/configuration/#lintnaming)) |
 | `SC-N04` | warn | Table aliases should be lowercase |
 
 ### Style

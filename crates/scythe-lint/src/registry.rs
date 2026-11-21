@@ -35,13 +35,22 @@ impl RuleRegistry {
         self.rules.push(rule);
     }
 
-    /// Apply a lint configuration (category and per-rule overrides).
+    /// Apply a lint configuration: category and per-rule overrides, and the
+    /// settings rules take (`[lint.naming]`).
     pub fn apply_config(&mut self, config: &LintConfig) {
         for (&cat, &sev) in &config.categories {
             self.category_overrides.insert(cat, sev);
         }
         for (id, &sev) in &config.rules {
             self.severity_overrides.insert(id.clone(), sev);
+        }
+        if let Some(prefixes) = &config.naming.query_prefixes {
+            let configured = rules::naming::QueryNameConvention::with_prefixes(prefixes.clone());
+            for rule in &mut self.rules {
+                if rule.id() == configured.id() {
+                    *rule = Box::new(configured.clone());
+                }
+            }
         }
     }
 
@@ -136,7 +145,7 @@ pub fn default_registry() -> RuleRegistry {
 
     reg.register(Box::new(rules::naming::PreferSnakeCaseColumns));
     reg.register(Box::new(rules::naming::PreferSnakeCaseTables));
-    reg.register(Box::new(rules::naming::QueryNameConvention));
+    reg.register(Box::new(rules::naming::QueryNameConvention::default()));
     reg.register(Box::new(rules::naming::ConsistentAliasCasing));
 
     reg.register(Box::new(rules::antipattern::NotEqualNull));
