@@ -349,6 +349,7 @@ export type GetUserOrdersRow = {
 | `outer_join_unions` | `true`, `false` | `false` | Discriminated unions for outer-join nullability instead of independent optionals |
 | `structs_only` | `true`, `false` | `false` | Emit only row types (interfaces/Zod schemas, enums, composites) -- no query functions, no driver import |
 | `field_case` | `snake_case`, `camelCase` | `snake_case` | Case convention for generated row/interface field names and function parameter names |
+| `row_keys` | `remap`, `driver` | `remap` | `typescript-postgres` and `typescript-bun` with `field_case = "camelCase"`: `driver` trusts a client that already returns camelCase keys (`transform: postgres.camel`, `transform: SQL.camel`) instead of rebuilding each row from snake_case keys |
 
 `structs_only` is supported by every TypeScript backend, including `typescript-postgres`, `typescript-pg`, and `typescript-kysely`. Combined with `row_type = "zod"` it produces a types-only package with no driver dependency:
 

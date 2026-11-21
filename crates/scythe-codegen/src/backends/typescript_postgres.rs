@@ -465,6 +465,11 @@ pub struct TypescriptPostgresBackend {
     /// `sql<StructName[]>` tag's generic. `Snake` (the default) keeps that
     /// generic, which is sound there.
     field_case: TsFieldCase,
+    /// `row_keys = "driver"`: the client already returns keys in `field_case`, as postgres.js
+    /// with `transform: postgres.camel` or Bun with `transform: SQL.camel` does, so rows keep
+    /// the `sql<StructName[]>` generic instead of being rebuilt field by field. `false`
+    /// (`"remap"`, the default) rebuilds camelCase rows from raw snake_case keys.
+    driver_keys: bool,
     /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
     /// `javascript-postgres` registry name (#81). See
     /// `TypescriptPgBackend::js_mode` for the shared rationale, including why
@@ -502,9 +507,15 @@ impl TypescriptPostgresBackend {
             outer_join_unions: false,
             structs_only: false,
             field_case: TsFieldCase::default(),
+            driver_keys: false,
             js_mode: false,
             driver: TemplateDriver::PostgresJs,
         })
+    }
+
+    /// Whether camelCase rows are rebuilt from the driver's raw snake_case keys.
+    fn remaps_rows(&self) -> bool {
+        self.field_case == TsFieldCase::Camel && !self.driver_keys
     }
 
     /// As [`Self::new`], but selecting the `javascript-postgres` JSDoc emit mode.
@@ -530,6 +541,7 @@ impl TypescriptPostgresBackend {
             outer_join_unions: false,
             structs_only: false,
             field_case: TsFieldCase::default(),
+            driver_keys: false,
             js_mode: false,
             driver: TemplateDriver::Bun,
         })
@@ -803,39 +815,36 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = writeln!(out, "/** Fetch a single {}. */", struct_name);
                 let ret = format!("Promise<{}>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
-                match self.field_case {
-                    TsFieldCase::Snake => {
-                        let _ = writeln!(out, "\tconst rows = await sql<{}[]>`", struct_name);
-                        let _ = writeln!(out, "    {}", sql_template);
-                        let _ = writeln!(out, "  `;");
-                        let _ = writeln!(out, "\tconst row = rows[0];");
-                        let _ = writeln!(out, "\tif (row === undefined) {{");
-                        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                        let _ = writeln!(out, "\t}}");
-                        let overrides = ts_composite_field_overrides(columns, "row");
-                        if overrides.is_empty() {
-                            let _ = writeln!(out, "\treturn row;");
-                        } else {
-                            let _ = writeln!(out, "\treturn {{");
-                            let _ = writeln!(out, "\t\t...row,");
-                            for (key, expr) in &overrides {
-                                let _ = writeln!(out, "\t\t{key}: {expr},");
-                            }
-                            let _ = writeln!(out, "\t}};");
+                if self.remaps_rows() {
+                    let _ = writeln!(out, "\tconst rows = await sql<Record<string, unknown>[]>`");
+                    let _ = writeln!(out, "    {}", sql_template);
+                    let _ = writeln!(out, "  `;");
+                    let _ = writeln!(out, "\tconst row = rows[0];");
+                    out.push_str(&generate_ts_one_row_remap(
+                        columns,
+                        TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                        &analyzed.command,
+                        &analyzed.name,
+                        ts_composite_aware_row_access(columns),
+                    ));
+                } else {
+                    let _ = writeln!(out, "\tconst rows = await sql<{}[]>`", struct_name);
+                    let _ = writeln!(out, "    {}", sql_template);
+                    let _ = writeln!(out, "  `;");
+                    let _ = writeln!(out, "\tconst row = rows[0];");
+                    let _ = writeln!(out, "\tif (row === undefined) {{");
+                    let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
+                    let _ = writeln!(out, "\t}}");
+                    let overrides = ts_composite_field_overrides(columns, "row");
+                    if overrides.is_empty() {
+                        let _ = writeln!(out, "\treturn row;");
+                    } else {
+                        let _ = writeln!(out, "\treturn {{");
+                        let _ = writeln!(out, "\t\t...row,");
+                        for (key, expr) in &overrides {
+                            let _ = writeln!(out, "\t\t{key}: {expr},");
                         }
-                    }
-                    TsFieldCase::Camel => {
-                        let _ = writeln!(out, "\tconst rows = await sql<Record<string, unknown>[]>`");
-                        let _ = writeln!(out, "    {}", sql_template);
-                        let _ = writeln!(out, "  `;");
-                        let _ = writeln!(out, "\tconst row = rows[0];");
-                        out.push_str(&generate_ts_one_row_remap(
-                            columns,
-                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            &analyzed.command,
-                            &analyzed.name,
-                            ts_composite_aware_row_access(columns),
-                        ));
+                        let _ = writeln!(out, "\t}};");
                     }
                 }
                 let _ = write!(out, "}}");
@@ -844,39 +853,36 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("Promise<{} | null>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
-                match self.field_case {
-                    TsFieldCase::Snake => {
-                        let _ = writeln!(out, "\tconst rows = await sql<{}[]>`", struct_name);
-                        let _ = writeln!(out, "    {}", sql_template);
-                        let _ = writeln!(out, "  `;");
-                        let overrides = ts_composite_field_overrides(columns, "row");
-                        if overrides.is_empty() {
-                            let _ = writeln!(out, "\treturn rows[0] ?? null;");
-                        } else {
-                            let _ = writeln!(out, "\tconst row = rows[0];");
-                            let _ = writeln!(out, "\tif (row === undefined) {{");
-                            let _ = writeln!(out, "\t\treturn null;");
-                            let _ = writeln!(out, "\t}}");
-                            let _ = writeln!(out, "\treturn {{");
-                            let _ = writeln!(out, "\t\t...row,");
-                            for (key, expr) in &overrides {
-                                let _ = writeln!(out, "\t\t{key}: {expr},");
-                            }
-                            let _ = writeln!(out, "\t}};");
-                        }
-                    }
-                    TsFieldCase::Camel => {
-                        let _ = writeln!(out, "\tconst rows = await sql<Record<string, unknown>[]>`");
-                        let _ = writeln!(out, "    {}", sql_template);
-                        let _ = writeln!(out, "  `;");
+                if self.remaps_rows() {
+                    let _ = writeln!(out, "\tconst rows = await sql<Record<string, unknown>[]>`");
+                    let _ = writeln!(out, "    {}", sql_template);
+                    let _ = writeln!(out, "  `;");
+                    let _ = writeln!(out, "\tconst row = rows[0];");
+                    out.push_str(&generate_ts_one_row_remap(
+                        columns,
+                        TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                        &analyzed.command,
+                        &analyzed.name,
+                        ts_composite_aware_row_access(columns),
+                    ));
+                } else {
+                    let _ = writeln!(out, "\tconst rows = await sql<{}[]>`", struct_name);
+                    let _ = writeln!(out, "    {}", sql_template);
+                    let _ = writeln!(out, "  `;");
+                    let overrides = ts_composite_field_overrides(columns, "row");
+                    if overrides.is_empty() {
+                        let _ = writeln!(out, "\treturn rows[0] ?? null;");
+                    } else {
                         let _ = writeln!(out, "\tconst row = rows[0];");
-                        out.push_str(&generate_ts_one_row_remap(
-                            columns,
-                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            &analyzed.command,
-                            &analyzed.name,
-                            ts_composite_aware_row_access(columns),
-                        ));
+                        let _ = writeln!(out, "\tif (row === undefined) {{");
+                        let _ = writeln!(out, "\t\treturn null;");
+                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(out, "\treturn {{");
+                        let _ = writeln!(out, "\t\t...row,");
+                        for (key, expr) in &overrides {
+                            let _ = writeln!(out, "\t\t{key}: {expr},");
+                        }
+                        let _ = writeln!(out, "\t}};");
                     }
                 }
                 let _ = write!(out, "}}");
@@ -938,32 +944,29 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
                 let ret = format!("Promise<{}[]>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
-                match self.field_case {
-                    TsFieldCase::Snake => {
-                        let _ = writeln!(out, "\tconst rows = await sql<{}[]>`", struct_name);
-                        let _ = writeln!(out, "    {}", sql_template);
-                        let _ = writeln!(out, "  `;");
-                        let overrides = ts_composite_field_overrides(columns, "row");
-                        if overrides.is_empty() {
-                            let _ = writeln!(out, "\treturn rows;");
-                        } else {
-                            let _ = writeln!(out, "\treturn rows.map((row) => ({{");
-                            let _ = writeln!(out, "\t\t...row,");
-                            for (key, expr) in &overrides {
-                                let _ = writeln!(out, "\t\t{key}: {expr},");
-                            }
-                            let _ = writeln!(out, "\t}}));");
+                if self.remaps_rows() {
+                    let _ = writeln!(out, "\tconst rows = await sql<Record<string, unknown>[]>`");
+                    let _ = writeln!(out, "    {}", sql_template);
+                    let _ = writeln!(out, "  `;");
+                    out.push_str(&generate_ts_many_row_remap(
+                        columns,
+                        TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                        ts_composite_aware_row_access(columns),
+                    ));
+                } else {
+                    let _ = writeln!(out, "\tconst rows = await sql<{}[]>`", struct_name);
+                    let _ = writeln!(out, "    {}", sql_template);
+                    let _ = writeln!(out, "  `;");
+                    let overrides = ts_composite_field_overrides(columns, "row");
+                    if overrides.is_empty() {
+                        let _ = writeln!(out, "\treturn rows;");
+                    } else {
+                        let _ = writeln!(out, "\treturn rows.map((row) => ({{");
+                        let _ = writeln!(out, "\t\t...row,");
+                        for (key, expr) in &overrides {
+                            let _ = writeln!(out, "\t\t{key}: {expr},");
                         }
-                    }
-                    TsFieldCase::Camel => {
-                        let _ = writeln!(out, "\tconst rows = await sql<Record<string, unknown>[]>`");
-                        let _ = writeln!(out, "    {}", sql_template);
-                        let _ = writeln!(out, "  `;");
-                        out.push_str(&generate_ts_many_row_remap(
-                            columns,
-                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            ts_composite_aware_row_access(columns),
-                        ));
+                        let _ = writeln!(out, "\t}}));");
                     }
                 }
                 let _ = write!(out, "}}");
@@ -1250,7 +1253,13 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         reject_unknown_options(
-            &["row_type", "outer_join_unions", "structs_only", "field_case"],
+            &[
+                "row_type",
+                "outer_join_unions",
+                "structs_only",
+                "field_case",
+                "row_keys",
+            ],
             options,
         )?;
 
@@ -1262,6 +1271,18 @@ impl CodegenBackend for TypescriptPostgresBackend {
         }
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
+        }
+        if let Some(value) = options.get("row_keys") {
+            self.driver_keys = match value.as_str() {
+                "remap" => false,
+                "driver" => true,
+                other => {
+                    return Err(ScytheError::new(
+                        ErrorCode::InvalidConfig,
+                        format!("row_keys must be \"remap\" or \"driver\", got \"{other}\""),
+                    ));
+                }
+            };
         }
         if let Some(value) = options.get("field_case") {
             self.field_case = TsFieldCase::from_option(value)?;
@@ -2326,6 +2347,51 @@ mod tests {
             query_fn.contains("userId: row['user_id'] as number,"),
             "must remap the declared camelCase field from the driver's raw key; got:\n{query_fn}"
         );
+    }
+
+    #[test]
+    fn test_camel_case_rows_keep_the_struct_generic_when_the_driver_transforms_keys() {
+        for mut backend in [
+            TypescriptPostgresBackend::new("postgresql").unwrap(),
+            TypescriptPostgresBackend::new_bun("postgresql").unwrap(),
+        ] {
+            backend
+                .apply_options(&std::collections::HashMap::from([
+                    ("field_case".to_string(), "camelCase".to_string()),
+                    ("row_keys".to_string(), "driver".to_string()),
+                ]))
+                .unwrap();
+            for command in [QueryCommand::One, QueryCommand::Opt, QueryCommand::Many] {
+                let query = make_query_with_snake_case_column(command);
+                let result = crate::generate_with_backend(&query, &backend).unwrap();
+                let query_fn = result.query_fn.as_deref().unwrap();
+                let declaration = result.row_struct.as_deref().unwrap();
+                assert!(
+                    declaration.contains("userId"),
+                    "the row type still declares camelCase fields; got:\n{declaration}"
+                );
+                assert!(
+                    query_fn.contains("sql<GetUserByIdRow[]>"),
+                    "must trust the driver's camelCase keys; got:\n{query_fn}"
+                );
+                assert!(
+                    !query_fn.contains("row['user_id']"),
+                    "must not remap from raw snake_case keys; got:\n{query_fn}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_row_keys_rejects_unknown_values() {
+        let mut backend = TypescriptPostgresBackend::new_bun("postgresql").unwrap();
+        let error = backend
+            .apply_options(&std::collections::HashMap::from([(
+                "row_keys".to_string(),
+                "both".to_string(),
+            )]))
+            .unwrap_err();
+        assert!(error.to_string().contains("row_keys"), "got: {error}");
     }
 
     #[test]
