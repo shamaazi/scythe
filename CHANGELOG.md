@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `column_types = "<module>"` for `typescript-bun`, `typescript-postgres` and
+  `typescript-pg`: every row and params property that reads a table column
+  unchanged, or is written directly into one, is declared
+  `Column<'table.column', T>` from the module's generic `Column<Name, Own>`,
+  with `T` the type it would otherwise have and `| null` outside. Views
+  resolve to the table column they read; the file imports `Column` once, only
+  when used. Result columns and written parameters carry the column as
+  `AnalyzedColumn::base_column` and `AnalyzedParam::base_column`.
 - `row_keys = "driver"` for `typescript-postgres` and `typescript-bun`: with
   `field_case = "camelCase"`, generated functions trust a client that already
   returns camelCase keys (`transform: postgres.camel` or `transform: SQL.camel`)

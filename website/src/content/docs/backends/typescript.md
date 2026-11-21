@@ -353,6 +353,7 @@ export type GetUserOrdersRow = {
 | `validation` | `none`, `jsdoc` | `none` | Render [schema constraints](/scythe/guide/schema-constraints/) as JSDoc tags and literal unions on row and params properties (`typescript-bun`, `typescript-postgres`, `typescript-pg`) |
 | `constraints` | `ignore`, `warn`, `error` | `ignore` | What happens to a schema constraint `validation` cannot carry -- see [Untranslated constraints](/scythe/guide/schema-constraints/#untranslated-constraints) |
 | `row_keys` | `remap`, `driver` | `remap` | `typescript-postgres` and `typescript-bun` with `field_case = "camelCase"`: `driver` trusts a client that already returns camelCase keys (`transform: postgres.camel`, `transform: SQL.camel`) instead of rebuilding each row from snake_case keys |
+| `column_types` | module specifier | unset | Declare each row and params property that reads or writes a table column as that module's `Column<'table.column', T>` -- see [Column types](#column-types-column_types) (`typescript-bun`, `typescript-postgres`, `typescript-pg`) |
 
 `structs_only` is supported by every TypeScript backend, including `typescript-postgres`, `typescript-pg`, and `typescript-kysely`. Combined with `row_type = "zod"` it produces a types-only package with no driver dependency:
 
@@ -365,7 +366,7 @@ structs_only = "true"
 ```
 
 Every key besides `row_type`, `outer_join_unions`, `structs_only`, `field_case` and (where
-supported) `params`, `validation` and `constraints` is rejected --
+supported) `params`, `validation`, `constraints`, `row_keys` and `column_types` is rejected --
 an unrecognized option aborts generation with a "did you mean" suggestion rather than being
 silently ignored. See [`field_case`](/scythe/guide/configuration/#field_case) in the Configuration
 guide for the runtime-remap behavior it triggers and its collision-detection error.
@@ -488,6 +489,53 @@ properties: a `bigint` or `numeric` column the backend types as `string` cannot 
 Such a rule, and every constraint without a translation, is handled by `constraints`: ignored
 (the default), printed as a warning (`warn`), or a generation error (`error`). Outer-join
 discriminated unions (`outer_join_unions`) keep their tags on the flat columns only.
+
+### Column types (`column_types`)
+
+`typescript-bun`, `typescript-postgres` and `typescript-pg` can give individual columns their own
+TypeScript types -- a `jsonb` column typed as `Allocation[]`, a `text` column as a string union --
+from one module, without annotating each query. Set `column_types` to the module's specifier; the
+module exports a generic `Column<Name, Own>`:
+
+```toml
+[[sql.gen]]
+backend = "typescript-bun"
+output = "src/generated"
+params = "object"
+column_types = "@app/database/columns"
+```
+
+```typescript
+// @app/database/columns
+export type Columns = {
+	"schedules.causes": Allocation[];
+	"schedules.metadata": ScheduleMetadata;
+};
+export type Column<Name extends string, Own> = Name extends keyof Columns ? Columns[Name] : Own;
+```
+
+Every row and `<Query>Params` property (and positional parameter) whose value is read unchanged
+from a table column, or written directly into one, is declared `Column<'table.column', T>`, where
+`T` is the type it would have had -- an enum, an `IN (...)` literal union, a Bun typed array -- and
+`| null` stays outside. A view's column names the table column it reads, or the view's own column
+when the view computes it; computed values and parameters that are only compared keep their plain
+type. Names are the schema's `table.column`, without the schema. The file imports `Column` once,
+only when a declaration names it:
+
+```typescript
+import type { Column } from "@app/database/columns";
+
+/** Row type for GetSchedule queries. */
+export interface GetScheduleRow {
+	id: Column<'schedules.id', number>;
+	causes: Column<'schedules.causes', SqlJsonValue>;
+	metadata: Column<'schedules.metadata', SqlJsonValue> | null;
+	status: Column<'schedules.status', string>;
+	next_amount: number;
+}
+```
+
+`Column` is a type, so `row_type = "zod"` and the JavaScript (JSDoc) backends reject the option.
 
 ## typescript-node-sqlite and typescript-wasm-sqlite
 
@@ -642,6 +690,7 @@ use instead:
 | `field_case = "snake_case"` | Supported | The default -- driver rows pass straight through |
 | `params = "object"` | Error | Not implemented for JSDoc output |
 | `validation = "jsdoc"` | Error | Not implemented for JSDoc output |
+| `column_types` | Error | Not implemented for JSDoc output |
 | `structs_only` | Supported | Emits only typedefs; there was no driver import to drop |
 
 Enums always take the `const` object plus derived-type form, spelled `/** @type {const} */` and
