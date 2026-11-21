@@ -174,7 +174,7 @@ def create_user(conn, name, email, status) do
   end
 end
 
-@spec update_user_email(MyXQL.conn(), String.t(), String.t()) :: :ok | {:error, term()}
+@spec update_user_email(MyXQL.conn(), String.t() | nil, String.t()) :: :ok | {:error, term()}
 def update_user_email(conn, email, id) do
   case MyXQL.query(conn, "UPDATE users SET email = ? WHERE id = ?", [email, id]) do
     {:ok, _} -> :ok

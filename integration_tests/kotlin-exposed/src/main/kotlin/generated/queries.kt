@@ -230,7 +230,7 @@ fun createUser(name: String, email: String?, status: UserStatus): CreateUserRow 
     }
 
 
-fun updateUserEmail(email: String, id: Int) =
+fun updateUserEmail(email: String?, id: Int) =
     transaction {
         exec("UPDATE users SET email = ? WHERE id = ?", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to email, IntegerColumnType() to id))
     }

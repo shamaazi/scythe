@@ -184,7 +184,7 @@ fun createUser(
 
 fun updateUserEmail(
     conn: Connection,
-    email: String,
+    email: String?,
     id: Long,
 ) {
     conn.prepareStatement("UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP() WHERE id = ?").use { ps ->

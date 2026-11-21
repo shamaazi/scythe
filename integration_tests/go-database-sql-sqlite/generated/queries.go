@@ -98,7 +98,7 @@ func CreateUser(ctx context.Context, db *sql.DB, Name string, Email *string, Sta
 	return err
 }
 
-func UpdateUserEmail(ctx context.Context, db *sql.DB, Email string, Id int64) error {
+func UpdateUserEmail(ctx context.Context, db *sql.DB, Email *string, Id int64) error {
 	_, err := db.ExecContext(ctx, "UPDATE users SET email = ? WHERE id = ?", Email, Id)
 	return err
 }

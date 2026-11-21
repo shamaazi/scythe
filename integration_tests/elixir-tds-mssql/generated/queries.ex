@@ -165,7 +165,7 @@ VALUES (@1, @2, @3, @4)", [%Tds.Parameter{name: "@1", value: id, type: :integer}
   end
 end
 
-@spec update_user_email(pid(), String.t(), integer()) :: :ok | {:error, term()}
+@spec update_user_email(pid(), String.t() | nil, integer()) :: :ok | {:error, term()}
 def update_user_email(conn, email, id) do
   case Tds.query(conn, "UPDATE users SET email = @1 WHERE id = @2", [%Tds.Parameter{name: "@1", value: email, type: :string}, %Tds.Parameter{name: "@2", value: id, type: :integer}]) do
     {:ok, _} -> :ok

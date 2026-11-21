@@ -250,11 +250,11 @@ final class Queries {
 
     /**
      * @param \Amp\Sql\SqlExecutor $pool
-     * @param string $email
+     * @param ?string $email
      * @param int $id
      * @return void
      */
-    public static function updateUserEmail(\Amp\Sql\SqlExecutor $pool, string $email, int $id): void {
+    public static function updateUserEmail(\Amp\Sql\SqlExecutor $pool, ?string $email, int $id): void {
         $result = $pool->prepare('UPDATE users SET email = ? WHERE id = ?')->execute([$email, $id]);
     }
 

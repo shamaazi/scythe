@@ -274,13 +274,16 @@ VALUES (@p1, @p2, @p3, @p4)"#,
 
 pub async fn update_user_email(
     client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
-    email: &str,
+    email: Option<&str>,
     id: i32,
 ) -> Result<(), tiberius::error::Error> {
     client
         .execute(
             r#"UPDATE users SET email = @p1 WHERE id = @p2"#,
-            &[&email.to_string() as &dyn tiberius::ToSql, &id as &dyn tiberius::ToSql],
+            &[
+                &email.map(|s| s.to_string()) as &dyn tiberius::ToSql,
+                &id as &dyn tiberius::ToSql,
+            ],
         )
         .await?;
     Ok(())

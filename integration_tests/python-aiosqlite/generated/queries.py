@@ -110,7 +110,7 @@ async def create_user(conn: aiosqlite.Connection, *, name: str, email: str | Non
     await conn.execute("""INSERT INTO users (name, email, status) VALUES (?, ?, ?)""", (name, email, status))
 
 
-async def update_user_email(conn: aiosqlite.Connection, *, email: str, id: int) -> None:
+async def update_user_email(conn: aiosqlite.Connection, *, email: str | None, id: int) -> None:
     """Execute UpdateUserEmail query."""
     await conn.execute("""UPDATE users SET email = ? WHERE id = ?""", (email, id))
 

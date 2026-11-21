@@ -181,7 +181,7 @@ async def get_last_insert_user(conn: aiomysql.Connection) -> GetLastInsertUserRo
     )
 
 
-async def update_user_email(conn: aiomysql.Connection, *, email: str, id: int) -> None:
+async def update_user_email(conn: aiomysql.Connection, *, email: str | None, id: int) -> None:
     """Execute UpdateUserEmail query."""
     async with conn.cursor() as cur:
         await cur.execute("""UPDATE users SET email = %s WHERE id = %s""", (email, id))

@@ -66,7 +66,7 @@ module Queries
 
   def self.create_user: (Trilogy, String, String?, String) -> CreateUserRow
 
-  def self.update_user_email: (Trilogy, String, String) -> void
+  def self.update_user_email: (Trilogy, String?, String) -> void
 
   def self.delete_user: (Trilogy, String) -> void
 

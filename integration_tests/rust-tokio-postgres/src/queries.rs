@@ -314,7 +314,7 @@ pub async fn create_user(
 
 pub async fn update_user_email(
     client: &(impl tokio_postgres::GenericClient + Sync),
-    email: &str,
+    email: Option<&str>,
     id: i32,
 ) -> Result<(), tokio_postgres::Error> {
     client

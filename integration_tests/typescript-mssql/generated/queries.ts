@@ -151,7 +151,7 @@ VALUES (@p1, @p2, @p3, @p4)`);
 /** Execute a query returning no rows. */
 export async function updateUserEmail(
 	pool: sql.ConnectionPool,
-	email: string,
+	email: string | null,
 	id: number,
 ): Promise<void> {
 	const request = pool.request();

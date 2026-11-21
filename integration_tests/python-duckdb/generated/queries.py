@@ -157,7 +157,12 @@ def create_user(
     )
 
 
-def update_user_email(conn: duckdb.DuckDBPyConnection, *, email: str, id: int) -> None:
+def update_user_email(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    email: str | None,
+    id: int,
+) -> None:
     """Execute UpdateUserEmail query."""
     conn.execute(
         """UPDATE users SET email = ? WHERE id = ?""",

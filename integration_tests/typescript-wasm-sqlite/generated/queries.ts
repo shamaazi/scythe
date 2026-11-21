@@ -88,7 +88,11 @@ export function createUser(
 }
 
 /** Execute a query returning no rows. */
-export function updateUserEmail(db: Database, email: string, id: number): void {
+export function updateUserEmail(
+	db: Database,
+	email: string | null,
+	id: number,
+): void {
 	db.exec({ sql: `UPDATE users SET email = ? WHERE id = ?`, bind: [email, id] });
 }
 

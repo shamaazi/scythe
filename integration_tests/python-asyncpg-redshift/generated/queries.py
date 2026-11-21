@@ -185,7 +185,7 @@ RETURNING id, name, email, status, created_at""",
     )
 
 
-async def update_user_email(conn: Connection, *, email: str, id: int) -> None:
+async def update_user_email(conn: Connection, *, email: str | None, id: int) -> None:
     """Execute UpdateUserEmail query."""
     await conn.execute(
         """UPDATE users SET email = $1 WHERE id = $2""",

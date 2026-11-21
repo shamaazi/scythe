@@ -225,7 +225,7 @@ public static async Task<CreateUserRow> CreateUser(OracleConnection conn, string
     );
 }
 
-public static async Task UpdateUserEmail(OracleConnection conn, string email, long id) {
+public static async Task UpdateUserEmail(OracleConnection conn, string? email, long id) {
     using var cmd = new OracleCommand(@"UPDATE users SET email = :1 WHERE id = :2", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)email ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)id ?? DBNull.Value });

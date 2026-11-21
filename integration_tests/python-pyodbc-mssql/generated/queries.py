@@ -182,7 +182,7 @@ VALUES (?, ?, ?, ?)""",
     )
 
 
-def update_user_email(conn: pyodbc.Connection, *, email: str, id: int) -> None:
+def update_user_email(conn: pyodbc.Connection, *, email: str | None, id: int) -> None:
     """Execute UpdateUserEmail query."""
     cursor = conn.cursor()
     cursor.execute("""UPDATE users SET email = ? WHERE id = ?""", (email, id))

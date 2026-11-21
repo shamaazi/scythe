@@ -192,7 +192,7 @@ def get_last_insert_user(conn) do
   end
 end
 
-@spec update_user_email(MyXQL.conn(), String.t(), integer()) :: :ok | {:error, term()}
+@spec update_user_email(MyXQL.conn(), String.t() | nil, integer()) :: :ok | {:error, term()}
 def update_user_email(conn, email, id) do
   case MyXQL.query(conn, "UPDATE users SET email = ? WHERE id = ?", [email, id]) do
     {:ok, _} -> :ok

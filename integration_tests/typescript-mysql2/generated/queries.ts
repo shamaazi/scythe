@@ -165,7 +165,7 @@ export async function getLastInsertUser(
 /** Execute a query returning no rows. */
 export async function updateUserEmail(
 	pool: Pool,
-	email: string,
+	email: string | null,
 	id: number,
 ): Promise<void> {
 	await pool.execute(

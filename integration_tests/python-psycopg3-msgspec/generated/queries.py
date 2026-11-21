@@ -371,7 +371,7 @@ async def create_user(conn: AsyncConnection, *, name: str, email: str | None, st
     )
 
 
-async def update_user_email(conn: AsyncConnection, *, email: str, id: int) -> None:
+async def update_user_email(conn: AsyncConnection, *, email: str | None, id: int) -> None:
     """Execute UpdateUserEmail query."""
     await conn.execute(
         """UPDATE users SET email = %(email)s WHERE id = %(id)s""",

@@ -72,7 +72,7 @@ module Queries
 
   def self.get_last_insert_user: (Mysql2::Client) -> GetLastInsertUserRow
 
-  def self.update_user_email: (Mysql2::Client, String, Integer) -> void
+  def self.update_user_email: (Mysql2::Client, String?, Integer) -> void
 
   def self.delete_user: (Mysql2::Client, Integer) -> void
 

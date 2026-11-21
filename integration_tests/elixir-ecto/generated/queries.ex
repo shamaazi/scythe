@@ -302,7 +302,7 @@ def create_user(repo, name, email, status) do
   end
 end
 
-@spec update_user_email(Ecto.Repo.t(), String.t(), integer()) :: :ok | {:error, term()}
+@spec update_user_email(Ecto.Repo.t(), String.t() | nil, integer()) :: :ok | {:error, term()}
 def update_user_email(repo, email, id) do
   case Ecto.Adapters.SQL.query(repo, "UPDATE users SET email = $1 WHERE id = $2", [email, id], []) do
     {:ok, _} -> :ok

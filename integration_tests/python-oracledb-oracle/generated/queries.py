@@ -256,7 +256,7 @@ async def create_user(conn: oracledb.AsyncConnection, *, name: str, email: str |
         )
 
 
-async def update_user_email(conn: oracledb.AsyncConnection, *, email: str, id: int) -> None:
+async def update_user_email(conn: oracledb.AsyncConnection, *, email: str | None, id: int) -> None:
     """Execute UpdateUserEmail query."""
     async with conn.cursor() as cur:
         await cur.execute("""UPDATE users SET email = :1 WHERE id = :2""", [email, id])

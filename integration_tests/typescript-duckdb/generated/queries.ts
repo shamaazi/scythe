@@ -139,7 +139,7 @@ export async function createUser(
 /** Execute a query returning no rows. */
 export async function updateUserEmail(
 	conn: DuckDBConnection,
-	email: string,
+	email: string | null,
 	id: number,
 ): Promise<void> {
 	const stmt = await conn.prepare(`UPDATE users SET email = $1 WHERE id = $2`);

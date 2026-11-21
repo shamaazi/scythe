@@ -77,7 +77,7 @@ VALUES (#{id}, '#{client.escape(name)}', #{ email.nil? ? 'NULL' : "'#{client.esc
   end
 
   def self.update_user_email(client, email, id)
-    sql = "UPDATE users SET email = '#{client.escape(email)}' WHERE id = #{id}"
+    sql = "UPDATE users SET email = #{ email.nil? ? 'NULL' : "'#{client.escape(email)}'"} WHERE id = #{id}"
     client.execute(sql).do
     nil
   end

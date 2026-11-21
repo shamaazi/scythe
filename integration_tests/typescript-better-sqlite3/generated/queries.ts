@@ -103,7 +103,7 @@ export function createUser(
 /** Execute a query returning no rows. */
 export function updateUserEmail(
 	db: Database.Database,
-	email: string,
+	email: string | null,
 	id: number,
 ): void {
 	const stmt = db.prepare(`UPDATE users SET email = ? WHERE id = ?`);

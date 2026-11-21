@@ -137,7 +137,7 @@ func GetLastInsertUser(ctx context.Context, db *sql.DB) (GetLastInsertUserRow, e
 	return r, err
 }
 
-func UpdateUserEmail(ctx context.Context, db *sql.DB, Email string, Id int32) error {
+func UpdateUserEmail(ctx context.Context, db *sql.DB, Email *string, Id int32) error {
 	_, err := db.ExecContext(ctx, "UPDATE users SET email = ? WHERE id = ?", Email, Id)
 	return err
 }

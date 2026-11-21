@@ -303,7 +303,7 @@ public static CreateUserRow createUser(Connection conn, @Nonnull String name, @N
     }
 }
 
-public static void updateUserEmail(Connection conn, @Nonnull String email, long id) throws SQLException {
+public static void updateUserEmail(Connection conn, @Nullable String email, long id) throws SQLException {
     try (var ps = conn.prepareStatement("UPDATE users SET email = ? WHERE id = ?")) {
         ps.setString(1, email);
         ps.setLong(2, id);

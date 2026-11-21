@@ -75,7 +75,7 @@ module Queries
 
   def self.create_user: (PG::Connection, String, String?, String) -> CreateUserRow
 
-  def self.update_user_email: (PG::Connection, String, Integer) -> void
+  def self.update_user_email: (PG::Connection, String?, Integer) -> void
 
   def self.delete_user: (PG::Connection, Integer) -> void
 

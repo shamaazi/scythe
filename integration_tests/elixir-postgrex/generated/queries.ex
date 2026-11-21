@@ -302,7 +302,7 @@ def create_user(conn, name, email, status) do
   end
 end
 
-@spec update_user_email(Postgrex.conn(), String.t(), integer()) :: :ok | {:error, term()}
+@spec update_user_email(Postgrex.conn(), String.t() | nil, integer()) :: :ok | {:error, term()}
 def update_user_email(conn, email, id) do
   case Postgrex.query(conn, "UPDATE users SET email = $1 WHERE id = $2", [email, id]) do
     {:ok, _} -> :ok

@@ -238,7 +238,7 @@ def create_user(conn, name, email, status) do
   end
 end
 
-@spec update_user_email(Exqlite.Sqlite3.db(), String.t(), integer()) :: :ok | {:error, term()}
+@spec update_user_email(Exqlite.Sqlite3.db(), String.t() | nil, integer()) :: :ok | {:error, term()}
 def update_user_email(conn, email, id) do
   sql = "UPDATE users SET email = ? WHERE id = ?"
   with {:ok, stmt} <- Exqlite.Sqlite3.prepare(conn, sql) do

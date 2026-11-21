@@ -241,7 +241,7 @@ def create_user(conn, name, email, active) do
   end
 end
 
-@spec update_user_email(DBConnection.conn(), String.t(), integer()) :: :ok | {:error, term()}
+@spec update_user_email(DBConnection.conn(), String.t() | nil, integer()) :: :ok | {:error, term()}
 def update_user_email(conn, email, id) do
   case DBConnection.execute(conn, %Jamdb.Oracle.Query{statement: "UPDATE users SET email = :1 WHERE id = :2"}, [email, id]) do
     {:ok, _query, _result} -> :ok

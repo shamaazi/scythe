@@ -118,7 +118,7 @@ public static async Task CreateUser(SnowflakeDbConnection conn, string name, str
     await cmd.ExecuteNonQueryAsync();
 }
 
-public static async Task UpdateUserEmail(SnowflakeDbConnection conn, string email, long id) {
+public static async Task UpdateUserEmail(SnowflakeDbConnection conn, string? email, long id) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = @"UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP() WHERE id = ?";
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "1", DbType = System.Data.DbType.String, Value = email });

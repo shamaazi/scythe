@@ -107,8 +107,8 @@ func CreateUser(ctx context.Context, db *sql.DB, Name string, Email *string, Sta
 	return err
 }
 
-func UpdateUserEmail(ctx context.Context, db *sql.DB, Email string, Id int32) error {
-	_, err := db.ExecContext(ctx, "UPDATE users SET email = $1 WHERE id = $2", Email, Id)
+func UpdateUserEmail(ctx context.Context, db *sql.DB, Email *string, Id int32) error {
+	_, err := db.ExecContext(ctx, "UPDATE users SET email = $1 WHERE id = $2", duckdbBindValue(Email), Id)
 	return err
 }
 

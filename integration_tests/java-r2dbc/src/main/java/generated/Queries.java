@@ -371,12 +371,12 @@ public static Mono<CreateUserRow> createUser(ConnectionFactory cf, @Nonnull Stri
     );
 }
 
-public static Mono<Void> updateUserEmail(ConnectionFactory cf, @Nonnull String email, int id) {
+public static Mono<Void> updateUserEmail(ConnectionFactory cf, @Nullable String email, int id) {
     return Mono.usingWhen(
         Mono.from(cf.create()),
         conn -> {
             var stmt = conn.createStatement("UPDATE users SET email = $1 WHERE id = $2");
-            stmt.bind(0, email);
+            bindNullable(stmt, 0, email, String.class);
             stmt.bind(1, id);
             return Mono.from(stmt.execute())
                 .flatMap(result -> Mono.from(result.getRowsUpdated()))

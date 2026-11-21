@@ -43,7 +43,7 @@ module Queries
 
   def self.create_user: (SQLite3::Database, String, String?, String) -> void
 
-  def self.update_user_email: (SQLite3::Database, String, Integer) -> void
+  def self.update_user_email: (SQLite3::Database, String?, Integer) -> void
 
   def self.delete_user: (SQLite3::Database, Integer) -> void
 

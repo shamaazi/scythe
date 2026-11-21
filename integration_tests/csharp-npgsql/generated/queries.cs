@@ -159,7 +159,7 @@ public static async Task<CreateUserRow> CreateUser(NpgsqlConnection conn, string
     );
 }
 
-public static async Task UpdateUserEmail(NpgsqlConnection conn, string email, int id) {
+public static async Task UpdateUserEmail(NpgsqlConnection conn, string? email, int id) {
     await using var cmd = new NpgsqlCommand(@"UPDATE users SET email = @p1 WHERE id = @p2", conn);
     cmd.Parameters.AddWithValue("p1", email);
     cmd.Parameters.AddWithValue("p2", id);

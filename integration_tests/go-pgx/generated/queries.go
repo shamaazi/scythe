@@ -248,7 +248,7 @@ func CreateUser(ctx context.Context, db *pgxpool.Pool, Name string, Email *strin
 	return r, err
 }
 
-func UpdateUserEmail(ctx context.Context, db *pgxpool.Pool, Email string, Id int32) error {
+func UpdateUserEmail(ctx context.Context, db *pgxpool.Pool, Email *string, Id int32) error {
 	_, err := db.Exec(ctx, "UPDATE users SET email = $1 WHERE id = $2", Email, Id)
 	return err
 }

@@ -72,7 +72,7 @@ module Queries
 
   def self.get_last_insert_user: (Trilogy) -> GetLastInsertUserRow
 
-  def self.update_user_email: (Trilogy, String, Integer) -> void
+  def self.update_user_email: (Trilogy, String?, Integer) -> void
 
   def self.delete_user: (Trilogy, Integer) -> void
 

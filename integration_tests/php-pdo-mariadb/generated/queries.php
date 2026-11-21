@@ -241,11 +241,11 @@ final class Queries {
 
     /**
      * @param \PDO $pdo
-     * @param string $email
+     * @param ?string $email
      * @param string $id
      * @return void
      */
-    public static function updateUserEmail(\PDO $pdo, string $email, string $id): void {
+    public static function updateUserEmail(\PDO $pdo, ?string $email, string $id): void {
         $stmt = $pdo->prepare('UPDATE users SET email = :p1 WHERE id = :p2');
         $stmt->execute(["p1" => $email, "p2" => $id]);
     }

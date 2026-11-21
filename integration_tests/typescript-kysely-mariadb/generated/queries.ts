@@ -133,7 +133,7 @@ export async function createUser(
 /** Execute a query returning no rows. */
 export async function updateUserEmail(
 	db: QueryExecutorProvider,
-	email: string,
+	email: string | null,
 	id: string,
 ): Promise<void> {
 	await sql`UPDATE users SET email = ${email} WHERE id = ${id}`.execute(db);

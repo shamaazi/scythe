@@ -85,7 +85,7 @@ module Queries
 
   def self.create_user: (OCI8, String, String?, Integer) -> CreateUserRow
 
-  def self.update_user_email: (OCI8, String, Integer) -> void
+  def self.update_user_email: (OCI8, String?, Integer) -> void
 
   def self.delete_user: (OCI8, Integer) -> void
 

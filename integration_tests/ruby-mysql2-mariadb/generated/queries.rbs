@@ -66,7 +66,7 @@ module Queries
 
   def self.create_user: (Mysql2::Client, String, String?, String) -> CreateUserRow
 
-  def self.update_user_email: (Mysql2::Client, String, String) -> void
+  def self.update_user_email: (Mysql2::Client, String?, String) -> void
 
   def self.delete_user: (Mysql2::Client, String) -> void
 

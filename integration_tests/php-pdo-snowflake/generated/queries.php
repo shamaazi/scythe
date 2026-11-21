@@ -190,11 +190,11 @@ final class Queries {
 
     /**
      * @param \PDO $pdo
-     * @param string $email
+     * @param ?string $email
      * @param int $id
      * @return void
      */
-    public static function updateUserEmail(\PDO $pdo, string $email, int $id): void {
+    public static function updateUserEmail(\PDO $pdo, ?string $email, int $id): void {
         $stmt = $pdo->prepare('UPDATE users SET email = :p1, updated_at = CURRENT_TIMESTAMP() WHERE id = :p2');
         $stmt->execute(["p1" => $email, "p2" => $id]);
     }

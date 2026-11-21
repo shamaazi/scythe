@@ -108,7 +108,7 @@ public static async Task CreateUser(SqliteConnection conn, string name, string? 
     await cmd.ExecuteNonQueryAsync();
 }
 
-public static async Task UpdateUserEmail(SqliteConnection conn, string email, long id) {
+public static async Task UpdateUserEmail(SqliteConnection conn, string? email, long id) {
     await using var cmd = new SqliteCommand(@"UPDATE users SET email = ?1 WHERE id = ?2", conn);
     cmd.Parameters.AddWithValue("?1", email);
     cmd.Parameters.AddWithValue("?2", id);

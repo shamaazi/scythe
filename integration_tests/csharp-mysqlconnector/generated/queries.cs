@@ -155,7 +155,7 @@ public static async Task<GetLastInsertUserRow> GetLastInsertUser(MySqlConnection
     );
 }
 
-public static async Task UpdateUserEmail(MySqlConnection conn, string email, int id) {
+public static async Task UpdateUserEmail(MySqlConnection conn, string? email, int id) {
     await using var cmd = new MySqlCommand(@"UPDATE users SET email = @p1 WHERE id = @p2", conn);
     cmd.Parameters.AddWithValue("@p1", email);
     cmd.Parameters.AddWithValue("@p2", id);

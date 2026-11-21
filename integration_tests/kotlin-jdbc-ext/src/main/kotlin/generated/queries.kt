@@ -248,7 +248,7 @@ fun Connection.createUser(
 
 
 fun Connection.updateUserEmail(
-    email: String,
+    email: String?,
     id: Int,
 ) {
     this.prepareStatement("UPDATE users SET email = ? WHERE id = ?").use { ps ->

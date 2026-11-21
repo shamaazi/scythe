@@ -463,13 +463,13 @@ suspend fun createUser(
 
 suspend fun updateUserEmail(
     cf: ConnectionFactory,
-    email: String,
+    email: String?,
     id: Int,
 ) {
     val conn = Mono.from(cf.create()).awaitFirst()
     try {
         val stmt = conn.createStatement("UPDATE users SET email = \$1 WHERE id = \$2")
-        stmt.bind(0, email)
+        bindNullable(stmt, 0, email, String::class.java)
         stmt.bind(1, id)
         Mono.from(stmt.execute()).flatMap { result -> Mono.from(result.rowsUpdated) }.awaitFirstOrNull()
     } finally {

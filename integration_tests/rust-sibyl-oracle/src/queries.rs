@@ -454,7 +454,7 @@ pub async fn create_user<'a>(
     })
 }
 
-pub async fn update_user_email<'a>(session: &'a Session<'a>, email: &str, id: i64) -> sibyl::Result<()> {
+pub async fn update_user_email<'a>(session: &'a Session<'a>, email: Option<&str>, id: i64) -> sibyl::Result<()> {
     let stmt = session
         .prepare("UPDATE users SET email = :EMAIL WHERE id = :ID")
         .await?;

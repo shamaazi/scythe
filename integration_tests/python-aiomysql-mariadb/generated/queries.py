@@ -161,7 +161,7 @@ async def create_user(conn: aiomysql.Connection, *, name: str, email: str | None
     return CreateUserRow(id=row[0], name=row[1], email=row[2])
 
 
-async def update_user_email(conn: aiomysql.Connection, *, email: str, id: str) -> None:
+async def update_user_email(conn: aiomysql.Connection, *, email: str | None, id: str) -> None:
     """Execute UpdateUserEmail query."""
     async with conn.cursor() as cur:
         await cur.execute("""UPDATE users SET email = %s WHERE id = %s""", (email, id))

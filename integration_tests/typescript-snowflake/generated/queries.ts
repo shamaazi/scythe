@@ -137,7 +137,7 @@ export async function createUser(
 /** Execute a query returning no rows. */
 export async function updateUserEmail(
 	conn: Connection,
-	email: string,
+	email: string | null,
 	id: number,
 ): Promise<void> {
 	await new Promise<void>((resolve, reject) => {

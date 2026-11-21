@@ -265,7 +265,7 @@ fun createUser(
 
 fun updateUserEmail(
     conn: Connection,
-    email: String,
+    email: String?,
     id: Int,
 ) {
     conn.prepareStatement("UPDATE users SET email = ? WHERE id = ?").use { ps ->

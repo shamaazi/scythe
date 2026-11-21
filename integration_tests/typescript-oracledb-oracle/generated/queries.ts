@@ -204,7 +204,7 @@ export async function createUser(conn: oracledb.Connection, name: string, email:
 	};
 }
 
-export async function updateUserEmail(conn: oracledb.Connection, email: string, id: number): Promise<void> {
+export async function updateUserEmail(conn: oracledb.Connection, email: string | null, id: number): Promise<void> {
 	await conn.execute("UPDATE users SET email = :1 WHERE id = :2", [email, id]);
 }
 

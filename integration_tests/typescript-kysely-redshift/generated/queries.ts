@@ -135,7 +135,7 @@ RETURNING id, name, email, status, created_at`.execute(db);
 /** Execute a query returning no rows. */
 export async function updateUserEmail(
 	db: QueryExecutorProvider,
-	email: string,
+	email: string | null,
 	id: number,
 ): Promise<void> {
 	await sql`UPDATE users SET email = ${email} WHERE id = ${id}`.execute(db);

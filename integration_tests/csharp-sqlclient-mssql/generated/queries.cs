@@ -140,7 +140,7 @@ public static async Task<CreateUserRow> CreateUser(SqlConnection conn, int id, s
     );
 }
 
-public static async Task UpdateUserEmail(SqlConnection conn, string email, int id) {
+public static async Task UpdateUserEmail(SqlConnection conn, string? email, int id) {
     await using var cmd = new SqlCommand(@"UPDATE users SET email = @p1 WHERE id = @p2", conn);
     cmd.Parameters.AddWithValue("p1", email);
     cmd.Parameters.AddWithValue("p2", id);

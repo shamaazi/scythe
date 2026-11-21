@@ -145,7 +145,7 @@ export async function createUser(
 /** Execute a query returning no rows. */
 export async function updateUserEmail(
 	pool: Pool,
-	email: string,
+	email: string | null,
 	id: string,
 ): Promise<void> {
 	await pool.execute(

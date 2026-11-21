@@ -193,7 +193,7 @@ def create_user(
 def update_user_email(
     conn: snowflake.connector.SnowflakeConnection,
     *,
-    email: str,
+    email: str | None,
     id: int,
 ) -> None:
     """Execute UpdateUserEmail query."""

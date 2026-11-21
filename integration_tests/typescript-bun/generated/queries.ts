@@ -1,4 +1,4 @@
-// scythe:provenance v=0.20.2 backend=typescript-bun engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.20.3 backend=typescript-bun engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
 import type { SQL } from "bun";
 
 
@@ -55,7 +55,7 @@ export interface CreateOrderRow {
 export async function createOrder(
 	sql: SQL,
 	user_id: number,
-	total: string,
+	total: number | string,
 	notes: string | null,
 ): Promise<CreateOrderRow> {
 	const rows = await sql<CreateOrderRow[]>`
@@ -82,7 +82,7 @@ export async function getOrdersByUser(
 	const rows = await sql<GetOrdersByUserRow[]>`
     SELECT id, total, notes, created_at FROM orders WHERE user_id = ${user_id} ORDER BY created_at DESC
   `;
-	return rows;
+	return [...rows];
 }
 
 /** Row type for GetOrderTotal queries. */
@@ -169,7 +169,7 @@ export async function listActiveUsers(
 	const rows = await sql<ListActiveUsersRow[]>`
     SELECT id, name, email FROM users WHERE status = ${status}
   `;
-	return rows;
+	return [...rows];
 }
 
 /** Row type for CreateUser queries. */
@@ -199,7 +199,7 @@ export async function createUser(
 /** Execute a query returning no rows. */
 export async function updateUserEmail(
 	sql: SQL,
-	email: string,
+	email: string | null,
 	id: number,
 ): Promise<void> {
 	await sql`
@@ -233,7 +233,7 @@ FROM users u
 LEFT JOIN orders o ON u.id = o.user_id
 WHERE u.status = ${status}
   `;
-	return rows;
+	return [...rows];
 }
 
 /** Row type for CountUsersByStatus queries. */
@@ -274,7 +274,7 @@ INNER JOIN user_tags ut ON u.id = ut.user_id
 INNER JOIN tags t ON ut.tag_id = t.id
 WHERE u.id = ${id}
   `;
-	return rows;
+	return [...rows];
 }
 
 /** Row type for SearchUsers queries. */
@@ -292,7 +292,7 @@ export async function searchUsers(
 	const rows = await sql<SearchUsersRow[]>`
     SELECT id, name, email FROM users WHERE name LIKE ${name}
   `;
-	return rows;
+	return [...rows];
 }
 
 /** Composite type user_address. */
