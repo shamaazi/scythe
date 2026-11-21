@@ -55,40 +55,8 @@ fn test_select_all_columns() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -240,40 +208,8 @@ fn test_select_count() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -433,40 +369,8 @@ fn test_select_one() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -645,40 +549,8 @@ fn test_select_star() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -833,40 +705,8 @@ fn test_select_with_alias() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -1021,40 +861,8 @@ fn test_select_with_nullable() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -1209,40 +1017,8 @@ fn test_expression_alias() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -1402,40 +1178,8 @@ fn test_join_duplicate_column_names_disambiguated() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -1588,40 +1332,8 @@ fn test_repeated_explicit_alias_disambiguated() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -1776,40 +1488,8 @@ fn test_simple_alias() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -1961,40 +1641,8 @@ fn test_select_distinct() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -2168,40 +1816,8 @@ fn test_select_distinct_on() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -2361,40 +1977,8 @@ fn test_join_table_with_view() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -2556,40 +2140,8 @@ fn test_select_from_view() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -2747,40 +2299,8 @@ fn test_select_for_share() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -2945,40 +2465,8 @@ fn test_select_for_update() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -3139,40 +2627,8 @@ fn test_order_by_case_expression() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -3327,40 +2783,8 @@ fn test_order_by_function_expression() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -3519,40 +2943,8 @@ fn test_select_except() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -3711,40 +3103,8 @@ fn test_select_intersect() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -3899,40 +3259,8 @@ fn test_star_from_cte() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -4116,40 +3444,8 @@ fn test_star_single_table() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -4335,40 +3631,8 @@ fn test_star_with_join() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -4524,40 +3788,8 @@ fn test_exists_subquery() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -4719,40 +3951,8 @@ fn test_scalar_subquery() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -4908,40 +4108,8 @@ fn test_scalar_subquery_non_aggregate_nullable() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -5103,40 +4271,8 @@ fn test_scalar_subquery_sum_nullable() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -5292,40 +4428,8 @@ fn test_scalar_subquery_windowed_aggregate_nullable() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -5480,40 +4584,8 @@ fn test_subquery_in_from() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -5674,40 +4746,8 @@ fn test_subquery_in_where() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -5857,40 +4897,8 @@ fn test_generate_series_bigint() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -6040,40 +5048,8 @@ fn test_generate_series_timestamptz() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -6230,40 +5206,8 @@ fn test_union() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -6419,40 +5363,8 @@ fn test_union_all() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -6615,40 +5527,8 @@ fn test_values_multi_row_widening() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -6824,40 +5704,8 @@ fn test_where_between() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -7023,40 +5871,8 @@ fn test_where_equals() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -7225,40 +6041,8 @@ fn test_where_in() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -7413,40 +6197,8 @@ fn test_where_is_not_null() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -7601,40 +6353,8 @@ fn test_where_is_null() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -7801,40 +6521,8 @@ fn test_where_like() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
@@ -8007,40 +6695,8 @@ fn test_where_multiple() {
         "rust-sqlx",
         #[cfg(all(feature = "lang-rust", feature = "postgres"))]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-psycopg3",
-        #[cfg(all(feature = "lang-python", feature = "postgres"))]
-        "python-asyncpg",
         #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
         "typescript-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-pg",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-        "typescript-kysely",
-        #[cfg(all(feature = "lang-go", feature = "postgres"))]
-        "go-pgx",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-jdbc",
-        #[cfg(all(feature = "lang-java", feature = "postgres"))]
-        "java-r2dbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-exposed",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-jdbc",
-        #[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-        "kotlin-r2dbc",
-        #[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-        "csharp-npgsql",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-postgrex",
-        #[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-        "elixir-ecto",
-        #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-        "ruby-pg",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-pdo",
-        #[cfg(all(feature = "lang-php", feature = "postgres"))]
-        "php-amphp",
     ];
     for backend_name in all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {

@@ -44,16 +44,7 @@ const QUERY: &str = "-- @name FindItem\n-- @returns :one\n\
     SELECT id, \"my col\", \"with-dash\", \"2fa\" FROM items WHERE id = $1;";
 
 /// One backend per target language that declares `sanitize_field_names`.
-const MANGLING_BACKENDS: [&str; 8] = [
-    "rust-sqlx",
-    "python-psycopg3",
-    "go-pgx",
-    "java-jdbc",
-    "kotlin-jdbc",
-    "csharp-npgsql",
-    "php-pdo",
-    "elixir-postgrex",
-];
+const MANGLING_BACKENDS: [&str; 1] = ["rust-sqlx"];
 
 fn generate(backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
@@ -100,17 +91,7 @@ fn outside_string_literals(source: &str) -> String {
     out
 }
 
-#[cfg(all(
-    feature = "lang-csharp",
-    feature = "lang-elixir",
-    feature = "lang-go",
-    feature = "lang-java",
-    feature = "lang-kotlin",
-    feature = "lang-php",
-    feature = "lang-python",
-    feature = "lang-rust",
-    feature = "postgres"
-))]
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]
 fn no_backend_emits_a_space_or_dash_inside_a_generated_name() {
     for backend_name in MANGLING_BACKENDS {
@@ -129,17 +110,7 @@ fn no_backend_emits_a_space_or_dash_inside_a_generated_name() {
 /// Rust and Python, `MyCol` wherever the backend PascalCases on top. What
 /// every one of them must agree on is that the two words survived and are
 /// joined by something an identifier can hold.
-#[cfg(all(
-    feature = "lang-csharp",
-    feature = "lang-elixir",
-    feature = "lang-go",
-    feature = "lang-java",
-    feature = "lang-kotlin",
-    feature = "lang-php",
-    feature = "lang-python",
-    feature = "lang-rust",
-    feature = "postgres"
-))]
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]
 fn every_backend_emits_the_mangled_names() {
     for backend_name in MANGLING_BACKENDS {
@@ -159,17 +130,7 @@ fn every_backend_emits_the_mangled_names() {
 /// applies on top -- go-pgx and the csharp family PascalCase the field name
 /// again. A bare `_` does not survive either, which is why the guard is a
 /// word.
-#[cfg(all(
-    feature = "lang-csharp",
-    feature = "lang-elixir",
-    feature = "lang-go",
-    feature = "lang-java",
-    feature = "lang-kotlin",
-    feature = "lang-php",
-    feature = "lang-python",
-    feature = "lang-rust",
-    feature = "postgres"
-))]
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]
 fn a_leading_digit_never_survives_into_a_generated_name() {
     for backend_name in MANGLING_BACKENDS {
@@ -190,17 +151,7 @@ fn a_leading_digit_never_survives_into_a_generated_name() {
 /// The SQL text is not a generated name and must keep the column exactly as
 /// the database spells it -- mangling there would query a column that does
 /// not exist.
-#[cfg(all(
-    feature = "lang-csharp",
-    feature = "lang-elixir",
-    feature = "lang-go",
-    feature = "lang-java",
-    feature = "lang-kotlin",
-    feature = "lang-php",
-    feature = "lang-python",
-    feature = "lang-rust",
-    feature = "postgres"
-))]
+#[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]
 fn the_sql_text_still_names_the_columns_as_the_database_does() {
     for backend_name in MANGLING_BACKENDS {
@@ -210,20 +161,4 @@ fn the_sql_text_still_names_the_columns_as_the_database_does() {
             "{backend_name}: the SQL must still select \"my col\":\n{code}"
         );
     }
-}
-
-/// TypeScript is the counter-case, asserted here rather than assumed: its
-/// manifests deliberately leave `sanitize_field_names` off.
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
-#[test]
-fn typescript_quotes_instead_of_mangling() {
-    let code = generate("typescript-pg");
-    assert!(
-        code.contains("\"my col\": string;"),
-        "typescript-pg must quote the key, not mangle it:\n{code}"
-    );
-    assert!(
-        !code.contains("my_col: string;"),
-        "a mangled key would not match the object `pg` returns:\n{code}"
-    );
 }

@@ -48,9 +48,6 @@ const SCHEMA: &str = "CREATE TYPE inner_thing AS (n INTEGER, label TEXT, flag BO
 const QUERY: &str = "-- @name GetWidget\n-- @returns :one\n\
     SELECT id, home_address, home_address_required, tag_only FROM widgets WHERE id = $1;";
 
-const QUERY_MANY: &str = "-- @name ListWidgets\n-- @returns :many\n\
-    SELECT id, home_address, home_address_required, tag_only FROM widgets;";
-
 fn generate(backend: &dyn CodegenBackend, sql: &str) -> GeneratedCode {
     let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).expect("schema must parse");
     let parsed = parse_query_with_dialect(sql, &SqlDialect::PostgreSQL).expect("query must parse");
@@ -115,133 +112,7 @@ fn assert_contains(backend: &str, code: &str, needle: &str, why: &str) {
     );
 }
 
-fn assert_absent(backend: &str, code: &str, needle: &str, why: &str) {
-    assert!(
-        !code.contains(needle),
-        "{backend}: `{needle}` must not appear ({why});\ngenerated:\n{code}"
-    );
-}
-
 // -- pg: composite columns route through parse{Name}, never a bare cast -----------------------
-
-#[test]
-fn pg_reads_composite_columns_through_parse_fn_not_bare_cast() {
-    let code = generated_text("typescript-pg", QUERY);
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "home_address: parseWidgetAddress(row.home_address) as WidgetAddress | null,",
-        "pg hands back the composite's raw text form as a string; it must be parsed, not \
-         merely cast to WidgetAddress | null",
-    );
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "home_address_required: parseWidgetAddress(row.home_address_required) as WidgetAddress,",
-        "a NOT NULL composite column needs the same conversion as a nullable one",
-    );
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "tag_only: parseInnerThing(row.tag_only) as InnerThing,",
-        "a composite selected directly, not only nested, must read the same way",
-    );
-}
-
-#[test]
-fn pg_composite_parse_fn_returns_null_for_a_null_column() {
-    let code = generated_text("typescript-pg", QUERY);
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "export function parseWidgetAddress(raw: unknown): WidgetAddress | null {",
-        "the function must accept the driver's untyped value and be able to return null",
-    );
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "if (raw === null || raw === undefined) {\n\t\treturn null;\n\t}",
-        "a SQL NULL composite column must produce null, never an all-default WidgetAddress \
-         built from an empty/garbage parse",
-    );
-}
-
-#[test]
-fn pg_nested_composite_field_recurses_through_inner_parse_fn() {
-    let code = generated_text("typescript-pg", QUERY);
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "tag: f[2] === null ? null : parseInnerThing(f[2]) as InnerThing,",
-        "a composite-typed field must recurse through the inner type's own parse function, not \
-         attempt to parse the (already-unescaped) nested text form itself",
-    );
-}
-
-#[test]
-fn pg_composite_scalar_fields_are_converted_not_left_as_strings() {
-    let code = generated_text("typescript-pg", QUERY);
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "n: f[0] === null ? null : Number(f[0]),",
-        "an int32 composite field (`n`) must be parsed, not assigned the raw text token",
-    );
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "flag: f[2] === null ? null : f[2] === \"t\",",
-        "PostgreSQL's boolean text output is \"t\"/\"f\", not \"true\"/\"false\"",
-    );
-}
-
-#[test]
-fn pg_parse_composite_fields_implements_the_escaping_rules() {
-    let code = generated_text("typescript-pg", QUERY);
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "isNull = chars.length === 0;",
-        "an empty *unquoted* field is SQL NULL -- the case a quoted empty string \"\" must not hit",
-    );
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "fields.push(isNull ? null : chars);",
-        "the parsed token is null for a NULL field, never the literal string \"null\"",
-    );
-}
-
-/// `field_case = "snake"` (the default) previously returned `rows[0]` untouched -- no per-field
-/// reconstruction at all, so a composite column had no read path to fix short of this one.
-#[test]
-fn pg_snake_mode_one_command_still_converts_composite_columns() {
-    let code = generated_text("typescript-pg", QUERY);
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "return {\n\t\t...row,\n\t\thome_address: parseWidgetAddress(row.home_address) as WidgetAddress | null,",
-        "the default (snake) field_case must spread the row and override just the composite \
-         fields, not trust the bare client.query<GetWidgetRow> generic",
-    );
-}
-
-#[test]
-fn pg_snake_mode_many_command_converts_composite_columns_too() {
-    let code = generated_text("typescript-pg", QUERY_MANY);
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "return rows.map((row) => ({",
-        ":many under snake field_case must map every row through the composite override too",
-    );
-    assert_contains(
-        "typescript-pg",
-        &code,
-        "home_address: parseWidgetAddress(row.home_address) as WidgetAddress | null,",
-        ":many's per-row override must apply the same conversion as :one's",
-    );
-}
 
 // -- postgres.js: same defect, bracket-access row shape -----------------------------------------
 
@@ -281,42 +152,6 @@ fn postgres_composite_parse_fn_returns_null_for_a_null_column() {
 
 // -- kysely: same defect; generate_query_fn previously ignored `columns` entirely --------------
 
-#[test]
-fn kysely_reads_composite_columns_through_parse_fn_not_bare_cast() {
-    let code = generated_text("typescript-kysely", QUERY);
-    assert_contains(
-        "typescript-kysely",
-        &code,
-        "home_address: parseWidgetAddress(row.home_address) as WidgetAddress | null,",
-        "kysely's sql tag hands back the composite's raw text form as a string, unconverted by \
-         the query builder; it must be parsed, not merely cast",
-    );
-    assert_absent(
-        "typescript-kysely",
-        &code,
-        "\treturn row;\n}",
-        "the pre-fix form: trusting sql<GetWidgetRow>`...`.execute(db) blindly, which is how a \
-         composite column's fields silently read undefined at runtime",
-    );
-}
-
-#[test]
-fn kysely_composite_parse_fn_returns_null_for_a_null_column() {
-    let code = generated_text("typescript-kysely", QUERY);
-    assert_contains(
-        "typescript-kysely",
-        &code,
-        "export function parseWidgetAddress(raw: unknown): WidgetAddress | null {",
-        "the function must accept the driver's untyped value and be able to return null",
-    );
-    assert_contains(
-        "typescript-kysely",
-        &code,
-        "if (raw === null || raw === undefined) {\n\t\treturn null;\n\t}",
-        "a SQL NULL composite column must produce null",
-    );
-}
-
 // -- the compilers, additively (mirrors jvm_composite_read_regression.rs) ---------------------
 
 fn assert_file_compiles(backend_name: &str, file: String) {
@@ -345,16 +180,6 @@ fn assert_file_compiles(backend_name: &str, file: String) {
 }
 
 #[test]
-fn pg_composite_read_file_compiles() {
-    assert_file_compiles("typescript-pg", generated_file("typescript-pg", QUERY));
-}
-
-#[test]
 fn postgres_composite_read_file_compiles() {
     assert_file_compiles("typescript-postgres", generated_file("typescript-postgres", QUERY));
-}
-
-#[test]
-fn kysely_composite_read_file_compiles() {
-    assert_file_compiles("typescript-kysely", generated_file("typescript-kysely", QUERY));
 }

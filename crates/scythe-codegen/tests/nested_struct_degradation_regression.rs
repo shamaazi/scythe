@@ -50,38 +50,10 @@ fn generate(backend_name: &str) -> Result<GeneratedCode, ScytheError> {
     generate_with_backend(&analyzed, &*backend)
 }
 
-/// `java-jdbc` implements neither `generate_nested_struct_def` nor the
-/// `json_array` scalar marker, so `orders` falls all the way back to plain
-/// `json`. This is the exact defect shape from the issue: `generate` must
-/// still succeed (this is not a hard error by default), but the result must
-/// name the column, the struct that could not be built, the fallback it got
-/// instead, and the backend responsible.
-#[cfg(all(feature = "lang-java", feature = "postgres"))]
-#[test]
-fn unsupported_backend_reports_the_degraded_column_struct_and_backend() {
-    let code = generate("java-jdbc").expect("degradation is not a hard error by default");
-
-    assert_eq!(
-        code.degraded_nested_structs.len(),
-        1,
-        "exactly one column (orders) referenced the unsupported struct: {:?}",
-        code.degraded_nested_structs
-    );
-    let degradation = &code.degraded_nested_structs[0];
-    assert_eq!(degradation.column, "orders");
-    assert_eq!(degradation.struct_name, "GetUserOrdersRowOrders");
-    assert_eq!(degradation.fallback_type, "json");
-    assert_eq!(degradation.backend, "java-jdbc");
-
-    // ~keep The rewrite itself still happened -- this pins that the diagnostic is
-    // additive, not a replacement for the existing (already-tested) rewrite.
-    assert!(code.row_struct.is_some(), "codegen must still produce a row struct");
-}
-
 #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn typescript_postgresql_backends_emit_native_nested_structs() {
-    for backend in ["typescript-pg", "typescript-postgres", "typescript-kysely"] {
+    for backend in ["typescript-postgres", "typescript-bun"] {
         let code = generate(backend).expect("TypeScript nested JSON codegen must succeed");
         assert!(
             code.degraded_nested_structs.is_empty(),
@@ -109,7 +81,7 @@ fn typescript_postgresql_backends_emit_native_nested_structs() {
 #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn javascript_aliases_keep_the_plain_json_fallback() {
-    for backend in ["javascript-pg", "javascript-postgres"] {
+    for backend in ["javascript-postgres", "javascript-bun"] {
         let code = generate(backend).expect("JavaScript fallback codegen must succeed");
         assert_eq!(code.degraded_nested_structs.len(), 1);
         assert_eq!(code.degraded_nested_structs[0].fallback_type, "json_array");
@@ -128,7 +100,7 @@ fn unsupported_future_json_field_degrades_the_entire_nested_struct() {
             nullable: false,
         }],
     };
-    for backend_name in ["typescript-pg", "typescript-postgres", "typescript-kysely"] {
+    for backend_name in ["typescript-postgres", "typescript-bun"] {
         let backend = get_backend(backend_name, "postgresql").expect("backend must support PostgreSQL");
         assert!(
             backend

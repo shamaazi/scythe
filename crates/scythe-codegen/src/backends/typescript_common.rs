@@ -1851,7 +1851,7 @@ mod tests {
     }
 
     fn postgres_manifest() -> BackendManifest {
-        crate::backends::parse_manifest(include_str!("../../manifests/typescript-pg.toml"))
+        crate::backends::parse_manifest(include_str!("../../manifests/typescript-postgres.toml"))
             .expect("TypeScript PostgreSQL manifest must parse")
     }
 

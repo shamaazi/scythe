@@ -4,98 +4,11 @@ use std::process::Command;
 /// Returns a list of errors (empty = passed).
 pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
     match backend_name {
-        "python-psycopg3" | "python-asyncpg" | "python-aiomysql" | "python-aiosqlite" | "python-duckdb"
-        | "python-pyodbc" | "python-oracledb" | "python-snowflake" => validate_python(code),
-        "typescript-postgres"
-        | "typescript-bun"
-        | "typescript-pg"
-        | "typescript-mysql2"
-        | "typescript-better-sqlite3"
-        | "typescript-node-sqlite"
-        | "typescript-wasm-sqlite"
-        | "typescript-duckdb"
-        | "typescript-kysely"
-        | "typescript-mssql"
-        | "typescript-oracledb"
-        | "typescript-snowflake" => validate_typescript(code),
-        "javascript-pg"
-        | "javascript-postgres"
-        | "javascript-bun"
-        | "javascript-mysql2"
-        | "javascript-better-sqlite3"
-        | "javascript-node-sqlite"
-        | "javascript-wasm-sqlite"
-        | "javascript-snowflake"
-        | "javascript-duckdb"
-        | "javascript-oracledb"
-        | "javascript-mssql" => validate_javascript(code),
-        "go-pgx" | "go-database-sql" | "go-godror" | "go-gosnowflake" => validate_go(code),
-        "java-jdbc" => validate_java(code),
-        "java-r2dbc" => validate_java_r2dbc(code),
-        "kotlin-exposed" => validate_kotlin_exposed(code),
-        "kotlin-jdbc" => validate_kotlin(code),
-        "kotlin-r2dbc" => validate_kotlin_r2dbc(code),
-        "csharp-npgsql"
-        | "csharp-mysqlconnector"
-        | "csharp-microsoft-sqlite"
-        | "csharp-sqlclient"
-        | "csharp-oracle"
-        | "csharp-snowflake" => validate_csharp(code),
-        "elixir-postgrex" | "elixir-ecto" | "elixir-myxql" | "elixir-exqlite" | "elixir-tds" | "elixir-jamdb" => {
-            validate_elixir(code)
-        }
-        "ruby-pg" | "ruby-mysql2" | "ruby-sqlite3" | "ruby-trilogy" | "ruby-oci8" | "ruby-tiny-tds" => {
-            validate_ruby(code)
-        }
-        "php-pdo" | "php-amphp" => validate_php(code),
-        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl" => vec![],
+        "typescript-postgres" | "typescript-bun" => validate_typescript(code),
+        "javascript-postgres" | "javascript-bun" => validate_javascript(code),
+        "rust-sqlx" | "rust-tokio-postgres" => vec![],
         _ => vec![format!("unknown backend: {}", backend_name)],
     }
-}
-
-fn validate_python(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    if code.contains("from __future__ import annotations") {
-        errors.push("unnecessary `from __future__ import annotations` — target is Python 3.11+".into());
-    }
-
-    let has_struct = code.contains("@dataclass")
-        || code.contains("(BaseModel)")
-        || code.contains("(msgspec.Struct)")
-        || code.contains("class ");
-    if !has_struct && !code.contains("async def ") && !code.contains("def ") {
-        errors.push("missing `@dataclass`/`class` and `def ` -- no meaningful output".into());
-    }
-
-    if !code.contains("async def ") && !code.contains("def ") {
-        errors.push("missing `async def ` or `def ` (for query functions)".into());
-    }
-
-    if code.contains("from typing import Union") {
-        errors.push("contains `from typing import Union` (pre-3.10 style)".into());
-    }
-
-    if code.contains("from typing import Optional") {
-        errors.push("contains `from typing import Optional` (pre-3.10 style)".into());
-    }
-
-    if code.contains("List[") {
-        errors.push("contains `List[` (use lowercase `list[`)".into());
-    }
-
-    if code.contains("Dict[") {
-        errors.push("contains `Dict[` (use lowercase `dict[`)".into());
-    }
-
-    for (i, line) in code.lines().enumerate() {
-        if line.starts_with('\t') {
-            errors.push(format!("line {} uses tab indentation (should use 4 spaces)", i + 1));
-            break;
-        }
-    }
-
-    errors
 }
 
 /// Structurally validate the `javascript-*` (JSDoc emit mode, #81) backends.
@@ -202,243 +115,6 @@ fn is_ident_byte(b: u8) -> bool {
 /// `export async function foo<DB = any>(db: Kysely<DB>): ... {`.
 fn is_kysely_db_generic_default(line: &str, start: usize, end: usize) -> bool {
     line[..start].ends_with("<DB = ") && line[end..].starts_with('>')
-}
-
-fn validate_go(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_func = code.contains("func ");
-    let has_struct = code.contains("type ") && code.contains("struct {");
-
-    if !has_struct && !has_func {
-        errors.push("missing `type ... struct {` (for structs)".into());
-    }
-
-    if !has_func {
-        errors.push("missing `func ` (for functions)".into());
-    }
-
-    if !code.contains("context.Context") {
-        errors.push("missing `context.Context` as first param".into());
-    }
-
-    let has_indented_lines = code.lines().any(|l| l.starts_with('\t') || l.starts_with("  "));
-    if has_indented_lines {
-        let uses_spaces = code.lines().any(|l| l.starts_with("    ") && !l.trim().is_empty());
-        if uses_spaces {
-            errors.push("uses space indentation (Go standard is tabs)".into());
-        }
-    }
-
-    if has_struct && !code.contains("json:\"") {
-        errors.push("missing `json:\"` tags on struct fields".into());
-    }
-
-    errors
-}
-
-fn validate_java(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_static = code.contains("public static ");
-
-    if !code.contains("public record ") && !has_static {
-        errors.push("missing `public record ` (for DTOs)".into());
-    }
-
-    if !has_static {
-        errors.push("missing `public static ` (for query methods)".into());
-    }
-
-    if !code.contains("throws SQLException") {
-        errors.push("missing `throws SQLException`".into());
-    }
-
-    if !code.contains("try (") {
-        errors.push("missing `try (` (try-with-resources)".into());
-    }
-
-    errors
-}
-
-fn validate_kotlin(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_fun = code.contains("fun ");
-
-    if !code.contains("data class ") && !has_fun {
-        errors.push("missing `data class ` (for DTOs)".into());
-    }
-
-    if !has_fun {
-        errors.push("missing `fun ` (for functions)".into());
-    }
-
-    if !code.contains(".use {") {
-        errors.push("missing `.use {` (resource management)".into());
-    }
-
-    errors
-}
-
-fn validate_kotlin_exposed(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_fun = code.contains("fun ");
-
-    if !code.contains("data class ") && !code.contains("object ") && !has_fun {
-        errors.push("missing `data class ` or `object ` (for DTOs/Tables)".into());
-    }
-
-    if !has_fun {
-        errors.push("missing `fun ` (for functions)".into());
-    }
-
-    if !code.contains("transaction {") {
-        errors.push("missing `transaction {` (Exposed transaction block)".into());
-    }
-
-    errors
-}
-
-fn validate_java_r2dbc(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_static = code.contains("public static ");
-
-    if !code.contains("public record ") && !has_static {
-        errors.push("missing `public record ` (for DTOs)".into());
-    }
-
-    if !has_static {
-        errors.push("missing `public static ` (for query methods)".into());
-    }
-
-    if !code.contains("Mono<") && !code.contains("Flux<") {
-        errors.push("missing `Mono<` or `Flux<` (reactive types)".into());
-    }
-
-    if !code.contains("ConnectionFactory") {
-        errors.push("missing `ConnectionFactory` parameter".into());
-    }
-
-    errors
-}
-
-fn validate_kotlin_r2dbc(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_fun = code.contains("fun ");
-
-    if !code.contains("data class ") && !has_fun {
-        errors.push("missing `data class ` (for DTOs)".into());
-    }
-
-    if !has_fun {
-        errors.push("missing `fun ` (for functions)".into());
-    }
-
-    if !code.contains("ConnectionFactory") {
-        errors.push("missing `ConnectionFactory` parameter".into());
-    }
-
-    if !code.contains("suspend fun") && !code.contains("Flow<") {
-        errors.push("missing `suspend fun` or `Flow<` (coroutine/reactive types)".into());
-    }
-
-    errors
-}
-
-fn validate_csharp(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_async = code.contains("async Task<") || code.contains("async Task ");
-
-    if !code.contains("public record ") && !has_async {
-        errors.push("missing `public record ` (for DTOs)".into());
-    }
-
-    if !has_async {
-        errors.push("missing `async Task<` or `async Task` (for async methods)".into());
-    }
-
-    if !code.contains("await ") {
-        errors.push("missing `await `".into());
-    }
-
-    errors
-}
-
-fn validate_elixir(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_def = code.contains("def ") || code.contains("defp ");
-
-    if !code.contains("defmodule ") && !has_def {
-        errors.push("missing `defmodule ` (for modules)".into());
-    }
-
-    if !code.contains("defstruct") && !has_def {
-        errors.push("missing `defstruct` (for structs)".into());
-    }
-
-    if !has_def {
-        errors.push("missing `def ` or `defp ` (for functions)".into());
-    }
-
-    if !code.contains("@type ") && !code.contains("@spec ") {
-        errors.push("missing `@type ` or `@spec ` (for typespecs)".into());
-    }
-
-    errors
-}
-
-fn validate_ruby(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_method = code.contains("def self.");
-
-    if !code.contains("Data.define") && !has_method {
-        errors.push("missing `Data.define` (for DTOs)".into());
-    }
-
-    if !has_method {
-        errors.push("missing `def self.` (for module methods)".into());
-    }
-
-    if !code.contains("# frozen_string_literal: true") {
-        errors.push("missing `# frozen_string_literal: true`".into());
-    }
-
-    if !code.contains("module Queries") {
-        errors.push("missing `module Queries` wrapper".into());
-    }
-
-    errors
-}
-
-fn validate_php(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_function = code.contains("function ");
-
-    if !code.contains("readonly class ") && !has_function {
-        errors.push("missing `readonly class ` (for DTOs)".into());
-    }
-
-    if !has_function {
-        errors.push("missing `function ` (for query functions)".into());
-    }
-
-    if !code.contains("declare(strict_types=1)") {
-        errors.push("missing `declare(strict_types=1)`".into());
-    }
-
-    if !code.contains("<?php") {
-        errors.push("missing `<?php`".into());
-    }
-
-    errors
 }
 
 /// Environment variable that turns on strict tool validation.
@@ -740,55 +416,13 @@ fn check_with(
 /// see [`ToolOutcome`] for why.
 pub fn validate_with_tools(code: &str, backend_name: &str) -> ToolValidation {
     let outcomes = match backend_name {
-        name if name.starts_with("python") => validate_python_tools(code),
         name if name.starts_with("javascript") => validate_javascript_tools(code),
         name if name.starts_with("typescript") => validate_typescript_tools(code),
-        name if name.starts_with("go") => validate_go_tools(code),
-        name if name.starts_with("ruby") => validate_ruby_tools(code),
-        name if name.starts_with("php") => validate_php_tools(code),
-        // Both Java backends compile against real `javac`. `java-jdbc` needs
-        // only the two-annotation JSR-305 stub (see
-        // `java_annotation_stub_paths`); `java-r2dbc` additionally needs
-        // `io.r2dbc.spi` and Reactor's `Mono`/`Flux`, stubbed in
-        // `tests/java_stubs/` -- see `java_r2dbc_stub_paths` for why that is
-        // worth doing despite the generic surface involved.
-        "java-jdbc" => validate_java_tools(code),
-        "java-r2dbc" => validate_java_r2dbc_tools(code),
-        // Only the JDBC backend: `kotlin-exposed` needs the Exposed DSL
-        // framework (`transaction { }`, `exec(sql, args) { rs -> }`, and a
-        // `*ColumnType` per scalar), and `kotlin-r2dbc` needs
-        // `kotlinx.coroutines.flow.Flow` plus the `awaitFirst`/`asFlow`
-        // suspend bridges, whose stubs would have to reproduce the coroutines
-        // compiler plugin's view of `suspend`. `kotlin-jdbc` itself touches
-        // nothing but `java.sql`/`java.math`/`java.time`, so `kotlinc` alone
-        // (no extra classpath) resolves it.
-        "kotlin-jdbc" => validate_kotlin_tools(code),
-        // Every `elixir-*` backend, not just one: unlike Java/Kotlin/C#,
-        // Elixir does not resolve a remote *function* call at compile time --
-        // `Postgrex.query/3` when `Postgrex` was never compiled is a
-        // *warning* ("module is not available or is yet to be defined"), not
-        // an error, and `elixirc` still exits 0. A struct reference is the
-        // exception (verified against real `elixirc` output, not assumed):
-        // `%Mod{...}` expands `__struct__/1` at compile time regardless, so
-        // the two backends that construct or match one against an external
-        // driver's struct (`elixir-myxql`, `elixir-tds`) need the small stubs
-        // in `tests/elixir_stubs/` -- see `validate_elixir_tools`.
-        name if name.starts_with("elixir") => validate_elixir_tools(code),
-        // C#: every `csharp-*` backend references a NuGet-only driver
-        // (Npgsql, MySqlConnector, Microsoft.Data.Sqlite, Microsoft.Data.
-        // SqlClient, Oracle.ManagedDataAccess.Core, Snowflake.Data.Client).
-        // `using Npgsql;` with no compiled `Npgsql.dll` on the reference path
-        // is a hard `CS0246`, unlike Elixir's soft warning above, so there is
-        // no stub-free path through `dotnet build`/`csc` here, and six
-        // different driver APIs is too much surface to hand-stub credibly
-        // (unlike the two-interface JSR-305 case above). `validate_structural`
-        // still covers these backends.
-        //
         // Rust: `rust-sqlx` expands `sqlx::query_as!`/`sqlx::query!` at
         // compile time, which needs either a live database connection or an
         // `SQLX_OFFLINE` `.sqlx` query cache -- there is no way to satisfy
-        // that from a bare generated file. `rust-tokio-postgres`,
-        // `rust-tiberius` and `rust-sibyl` reference their driver crates by
+        // that from a bare generated file. `rust-tokio-postgres`
+        // references its driver crate by
         // fully-qualified path (`tokio_postgres::Row`, etc.) with no `use`
         // to stub around; making `rustc --emit=metadata` resolve them needs
         // `--extern` pointing at real compiled `.rlib`s, i.e. standing up a
@@ -940,90 +574,6 @@ fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
     Some(path)
 }
 
-/// A directory a checker writes build artifacts into, removed on drop.
-///
-/// `javac -d`, `kotlinc -d` and `elixirc -o` all require a writable output
-/// directory and happily leave `.class`/`.beam` files behind in it -- unlike
-/// `poly`, `gofmt`, `ruby -c` and `node --check`, none of which write
-/// anything to disk. Without this, running these checkers would litter
-/// whatever directory `cargo test` happens to run from. Mirrors
-/// [`TempSource`]'s cleanup guarantee, and is deliberately its own per-call
-/// directory (not a fixed shared path) so parallel test threads cannot race
-/// on each other's output.
-struct TempOutDir {
-    path: std::path::PathBuf,
-}
-
-impl TempOutDir {
-    fn new(tool: &'static str) -> Result<Self, ToolOutcome> {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("scythe_validate_out_{tool}_{n}"));
-        std::fs::create_dir_all(&path).map_err(|error| ToolOutcome::Failed {
-            tool,
-            reason: format!("{tool}: could not create output directory: {error}"),
-        })?;
-        Ok(Self { path })
-    }
-
-    fn arg(&self, tool: &'static str) -> Result<&str, ToolOutcome> {
-        self.path.to_str().ok_or_else(|| ToolOutcome::Failed {
-            tool,
-            reason: format!("{tool}: temporary output directory path is not valid UTF-8"),
-        })
-    }
-}
-
-impl Drop for TempOutDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
-    }
-}
-
-/// Like [`check_with`], but for compilers that must be pointed at a writable
-/// output directory. See [`TempOutDir`] for why that can't just be `check_with`
-/// with an extra flag baked into `build_args`.
-fn check_with_output(
-    tool: &'static str,
-    probe_arg: &str,
-    code: &str,
-    ext: &str,
-    build_args: impl Fn(&str, &str) -> Vec<String>,
-    stream: Stream,
-    max_lines: usize,
-) -> ToolOutcome {
-    if !tool_present(tool, probe_arg) {
-        return ToolOutcome::Missing { tool };
-    }
-
-    let source = match TempSource::new(tool, code, ext) {
-        Ok(source) => source,
-        Err(outcome) => return outcome,
-    };
-    let source_path = match source.arg(tool) {
-        Ok(path) => path,
-        Err(outcome) => return outcome,
-    };
-
-    let out_dir = match TempOutDir::new(tool) {
-        Ok(dir) => dir,
-        Err(outcome) => return outcome,
-    };
-    let out_path = match out_dir.arg(tool) {
-        Ok(path) => path,
-        Err(outcome) => return outcome,
-    };
-
-    let args = build_args(source_path, out_path);
-    let args: Vec<&str> = args.iter().map(String::as_str).collect();
-
-    match run_tool(tool, &args, stream, max_lines) {
-        Ok(errors) => ToolOutcome::Ran { tool, errors },
-        Err(outcome) => outcome,
-    }
-}
-
 /// Run `poly` against a generated file.
 ///
 /// `poly` is this repository's linter and formatter, and it bundles the
@@ -1068,13 +618,6 @@ fn poly_check(code: &str, ext: &str) -> ToolOutcome {
 /// differs from the repository's `poly.toml`.
 fn generated_code_poly_config() -> std::path::PathBuf {
     std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/generated-code-poly.toml")).to_path_buf()
-}
-
-/// `poly`'s bundled `ruff`, which reports syntax errors and the `E`/`F`/`I`
-/// rule families -- the same ground the previous `python3 -m ast` plus
-/// standalone `ruff` pair covered, in one tool that needs no install step.
-fn validate_python_tools(code: &str) -> Vec<ToolOutcome> {
-    vec![poly_check(code, ".py")]
 }
 
 /// `poly`'s bundled `oxc`.
@@ -1173,332 +716,6 @@ fn validate_javascript_tools(code: &str) -> Vec<ToolOutcome> {
     vec![parse, typecheck]
 }
 
-fn validate_go_tools(code: &str) -> Vec<ToolOutcome> {
-    vec![check_with(
-        "gofmt",
-        "-h",
-        code,
-        ".go",
-        |path| ["-e", path].iter().map(|arg| (*arg).to_string()).collect(),
-        Stream::Stderr,
-        3,
-    )]
-}
-
-fn validate_ruby_tools(code: &str) -> Vec<ToolOutcome> {
-    vec![check_with(
-        "ruby",
-        "--version",
-        code,
-        ".rb",
-        |path| ["-c", path].iter().map(|arg| (*arg).to_string()).collect(),
-        Stream::Stderr,
-        1,
-    )]
-}
-
-/// `poly`'s bundled `mago`, which parses PHP -- the same thing `php -l` did,
-/// without needing a PHP runtime installed.
-fn validate_php_tools(code: &str) -> Vec<ToolOutcome> {
-    vec![poly_check(code, ".php")]
-}
-
-/// Paths to the hand-written JSR-305 `@Nonnull`/`@Nullable` stub sources
-/// `javac` needs to resolve `java-jdbc`'s nullability annotations. See
-/// `tests/java_stubs/javax/annotation/Nonnull.java` for why these are
-/// hand-written stand-ins rather than the real `com.google.code.findbugs:
-/// jsr305` jar -- same reasoning as [`js_mode_driver_stub_path`], one
-/// directory over.
-fn java_annotation_stub_paths() -> Result<(String, String), ToolOutcome> {
-    const TOOL: &str = "javac";
-    let dir = std::path::Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/java_stubs/javax/annotation"
-    ));
-    let nonnull = dir.join("Nonnull.java");
-    let nullable = dir.join("Nullable.java");
-    match (nonnull.to_str(), nullable.to_str()) {
-        (Some(a), Some(b)) => Ok((a.to_string(), b.to_string())),
-        _ => Err(ToolOutcome::Failed {
-            tool: TOOL,
-            reason: format!("{TOOL}: stub annotation path is not valid UTF-8"),
-        }),
-    }
-}
-
-/// A `java-jdbc` source file, written to `<unique dir>/Queries.java`.
-///
-/// `javac` rejects a `public class Queries { ... }` unless the file it lives
-/// in is literally named `Queries.java` -- and `java-jdbc`'s `file_header`
-/// (`src/backends/java_jdbc.rs`) always wraps its output in exactly that
-/// class, for every engine. The generic [`TempSource`]/`write_temp` naming
-/// (`scythe_validate_<n>.java`) would therefore always fail to compile
-/// regardless of what the generated code itself says, so this exists
-/// alongside it rather than reusing it. A unique per-call directory, not a
-/// fixed name in the shared system temp dir, is what keeps this collision-
-/// safe under parallel `cargo test` execution.
-struct JavaSource {
-    dir: std::path::PathBuf,
-}
-
-impl JavaSource {
-    fn new(code: &str) -> Result<Self, ToolOutcome> {
-        const TOOL: &str = "javac";
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("scythe_validate_java_{n}"));
-        std::fs::create_dir_all(&dir).map_err(|error| ToolOutcome::Failed {
-            tool: TOOL,
-            reason: format!("{TOOL}: could not create source directory: {error}"),
-        })?;
-        let trimmed = format!("{}\n", code.trim_end());
-        std::fs::write(dir.join("Queries.java"), trimmed).map_err(|error| ToolOutcome::Failed {
-            tool: TOOL,
-            reason: format!("{TOOL}: could not write Queries.java: {error}"),
-        })?;
-        Ok(Self { dir })
-    }
-
-    fn source_arg(&self) -> Result<String, ToolOutcome> {
-        self.dir
-            .join("Queries.java")
-            .to_str()
-            .map(str::to_string)
-            .ok_or_else(|| ToolOutcome::Failed {
-                tool: "javac",
-                reason: "javac: temporary source path is not valid UTF-8".to_string(),
-            })
-    }
-}
-
-impl Drop for JavaSource {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-/// Validate generated `java-jdbc` code against the real `javac` compiler.
-///
-/// `java-jdbc` needs nothing beyond the JDK standard library plus the
-/// two-annotation JSR-305 stub from [`java_annotation_stub_paths`], so this
-/// compiles real generated code with no network access and no extra classpath
-/// setup. `java-r2dbc` goes through [`validate_java_r2dbc_tools`], which adds
-/// the R2DBC SPI and Reactor stubs it needs on top.
-fn validate_java_tools(code: &str) -> Vec<ToolOutcome> {
-    javac_with_stubs(code, &[])
-}
-
-/// The R2DBC SPI + Reactive Streams + Reactor stub sources `java-r2dbc` needs
-/// on top of the JSR-305 annotations, in `tests/java_stubs/`.
-///
-/// These exist because `java-r2dbc`'s output is almost entirely *inferred*:
-/// `Mono.usingWhen(...).flatMap(result -> Mono.from(result.map((row, meta) ->
-/// new GetUserRow(...))))` never spells its own element type, so the row
-/// mapping -- the part the reader defects behind #191/#213/#214 lived in -- is
-/// checked by nothing at all unless `Mono`, `Flux`, `Result`, and `Row`
-/// resolve. Every generic bound in the stubs is copied verbatim from Reactor 3
-/// and R2DBC SPI 1.0 rather than loosened, so a file these accept is one the
-/// real libraries accept; that is verified by mutation, not assumed (see the
-/// header comment on `tests/java_stubs/reactor/core/publisher/Mono.java`).
-fn java_r2dbc_stub_paths() -> Result<Vec<String>, ToolOutcome> {
-    const TOOL: &str = "javac";
-    const RELATIVE: [&str; 9] = [
-        "org/reactivestreams/Publisher.java",
-        "io/r2dbc/spi/ConnectionFactory.java",
-        "io/r2dbc/spi/Connection.java",
-        "io/r2dbc/spi/Statement.java",
-        "io/r2dbc/spi/Result.java",
-        "io/r2dbc/spi/Row.java",
-        "io/r2dbc/spi/RowMetadata.java",
-        "reactor/core/publisher/Mono.java",
-        "reactor/core/publisher/Flux.java",
-    ];
-    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/java_stubs"));
-    RELATIVE
-        .iter()
-        .map(|relative| {
-            dir.join(relative)
-                .to_str()
-                .map(str::to_string)
-                .ok_or_else(|| ToolOutcome::Failed {
-                    tool: TOOL,
-                    reason: format!("{TOOL}: stub source path is not valid UTF-8: {relative}"),
-                })
-        })
-        .collect()
-}
-
-/// Validate generated `java-r2dbc` code against the real `javac` compiler,
-/// with the R2DBC SPI and Reactor stubs on the source path.
-fn validate_java_r2dbc_tools(code: &str) -> Vec<ToolOutcome> {
-    let stubs = match java_r2dbc_stub_paths() {
-        Ok(paths) => paths,
-        Err(outcome) => return vec![outcome],
-    };
-    javac_with_stubs(code, &stubs)
-}
-
-/// Compile `code` as `Queries.java` with `javac`, alongside the JSR-305
-/// annotation stubs and any `extra_stubs` the backend needs.
-fn javac_with_stubs(code: &str, extra_stubs: &[String]) -> Vec<ToolOutcome> {
-    const TOOL: &str = "javac";
-
-    if !tool_present(TOOL, "-version") {
-        return vec![ToolOutcome::Missing { tool: TOOL }];
-    }
-
-    let source = match JavaSource::new(code) {
-        Ok(source) => source,
-        Err(outcome) => return vec![outcome],
-    };
-    let source_arg = match source.source_arg() {
-        Ok(path) => path,
-        Err(outcome) => return vec![outcome],
-    };
-    let (nonnull, nullable) = match java_annotation_stub_paths() {
-        Ok(paths) => paths,
-        Err(outcome) => return vec![outcome],
-    };
-    let out_dir = match TempOutDir::new(TOOL) {
-        Ok(dir) => dir,
-        Err(outcome) => return vec![outcome],
-    };
-    let out_arg = match out_dir.arg(TOOL) {
-        Ok(path) => path,
-        Err(outcome) => return vec![outcome],
-    };
-
-    let mut args = vec![
-        "-d".to_string(),
-        out_arg.to_string(),
-        "-nowarn".to_string(),
-        source_arg,
-        nonnull,
-        nullable,
-    ];
-    args.extend(extra_stubs.iter().cloned());
-    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-
-    vec![match run_tool(TOOL, &arg_refs, Stream::Both, 20) {
-        Ok(errors) => ToolOutcome::Ran { tool: TOOL, errors },
-        Err(outcome) => outcome,
-    }]
-}
-
-/// Validate generated `kotlin-jdbc` code against the real `kotlinc` compiler.
-///
-/// Only `kotlin-jdbc`, not `kotlin-exposed` or `kotlin-r2dbc` -- see the
-/// comment on that match arm in [`validate_with_tools`] for why those two
-/// need frameworks this checker cannot cheaply stand up. `kotlin-jdbc`
-/// touches only `java.sql`/`java.math`/`java.time`, all part of the JDK
-/// `kotlinc` already resolves against, so unlike those two this needs no
-/// extra classpath at all -- and unlike `java-jdbc`, Kotlin does not require
-/// the source file name to match a public class name, so this can reuse the
-/// generic [`check_with_output`] instead of [`JavaSource`]'s bespoke naming.
-fn validate_kotlin_tools(code: &str) -> Vec<ToolOutcome> {
-    vec![check_with_output(
-        "kotlinc",
-        "-version",
-        code,
-        ".kt",
-        |source, out| ["-d", out, source].iter().map(|arg| (*arg).to_string()).collect(),
-        Stream::Both,
-        10,
-    )]
-}
-
-/// Every file in `tests/elixir_stubs/`: hand-written stand-ins for the external driver structs
-/// the `elixir-*` backends construct or pattern-match on (`elixir-myxql`'s `%MyXQL.Result{...}`,
-/// `elixir-tds`'s `%Tds.Parameter{...}`, `elixir-jamdb`'s `%Jamdb.Oracle.Query{...}`). See
-/// `tests/elixir_stubs/myxql_result.ex` for why a struct reference needs a stub when a plain
-/// remote call does not.
-///
-/// Read from the directory rather than named one by one: a backend that starts referencing a new
-/// driver struct then needs only the stub file, and cannot fail here because someone added the
-/// file and forgot the corresponding line. Missing or unreadable directory is an error, not an
-/// empty list -- silently validating against no stubs at all would turn every struct reference
-/// into a compile error attributed to the generated code.
-fn elixir_stub_paths() -> Result<Vec<String>, ToolOutcome> {
-    const TOOL: &str = "elixirc";
-    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/elixir_stubs"));
-    let entries = std::fs::read_dir(dir).map_err(|e| ToolOutcome::Failed {
-        tool: TOOL,
-        reason: format!("{TOOL}: cannot read stub directory {}: {e}", dir.display()),
-    })?;
-    let mut paths: Vec<String> = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("ex") {
-            continue;
-        }
-        match path.to_str() {
-            Some(p) => paths.push(p.to_string()),
-            None => {
-                return Err(ToolOutcome::Failed {
-                    tool: TOOL,
-                    reason: format!("{TOOL}: stub struct path is not valid UTF-8"),
-                });
-            }
-        }
-    }
-    if paths.is_empty() {
-        return Err(ToolOutcome::Failed {
-            tool: TOOL,
-            reason: format!("{TOOL}: no stub modules found in {}", dir.display()),
-        });
-    }
-    // ~keep Deterministic argument order, so a failure reproduces identically run to run.
-    paths.sort();
-    Ok(paths)
-}
-
-/// Validate generated `elixir-*` code against the real `elixirc` compiler.
-///
-/// Covers every `elixir-*` backend (`elixir-postgrex`, `-ecto`, `-myxql`,
-/// `-exqlite`, `-tds`, `-jamdb`). Almost none of them need a stub, which is
-/// not laziness -- it is a real asymmetry with Java/Kotlin/C#/Rust. Elixir
-/// does not resolve a remote *function* call at compile time:
-/// `Postgrex.query/3` when `Postgrex` itself was never compiled is a
-/// *warning* ("module is not available or is yet to be defined"), not an
-/// error, and `elixirc` still exits `0`. `run_tool` only turns a checker's
-/// output into findings when the process itself failed
-/// (`output.status.success()` short-circuits otherwise), so these expected
-/// warnings about undefined driver modules are silently and correctly
-/// ignored -- while a genuine syntax error (verified against `elixirc`
-/// directly: a real `MismatchedDelimiterError` exits `1`) still surfaces
-/// normally.
-///
-/// A struct reference is the one place that asymmetry does not hold: `%Mod{
-/// ...}` -- construction or pattern match -- expands `Mod.__struct__/1` (or,
-/// under this Elixir's set-theoretic type checker, statically checks the
-/// pattern) at compile time, and both fail hard when `Mod` was never
-/// compiled. Verified directly against `elixirc`, not assumed: `elixir-myxql`
-/// and `elixir-tds` are the only two backends that reference an external
-/// struct at all (`%MyXQL.Result{...}`, `%Tds.Parameter{...}`), so
-/// [`elixir_stub_paths`] supplies both unconditionally -- an unused stub
-/// module compiles to a harmless, un-invoked `.beam` file for the other four
-/// backends.
-fn validate_elixir_tools(code: &str) -> Vec<ToolOutcome> {
-    let stubs = match elixir_stub_paths() {
-        Ok(paths) => paths,
-        Err(outcome) => return vec![outcome],
-    };
-    vec![check_with_output(
-        "elixirc",
-        "--version",
-        code,
-        ".ex",
-        move |source, out| {
-            let mut args = vec!["-o".to_string(), out.to_string(), source.to_string()];
-            args.extend(stubs.iter().cloned());
-            args
-        },
-        Stream::Both,
-        8,
-    )]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1517,38 +734,6 @@ mod tests {
     }
 
     #[test]
-    fn test_python_valid() {
-        let code = r#"from dataclasses import dataclass
-
-@dataclass
-class ListUsersRow:
-    id: int
-    name: str
-
-async def list_users(conn) -> list[ListUsersRow]:
-    pass
-"#;
-        let errors = validate_structural(code, "python-psycopg3");
-        assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
-    }
-
-    #[test]
-    fn test_python_invalid_typing() {
-        let code = r#"from typing import Optional
-
-@dataclass
-class Row:
-    id: int
-
-def query() -> List[Row]:
-    pass
-"#;
-        let errors = validate_structural(code, "python-asyncpg");
-        assert!(errors.iter().any(|e| e.contains("Optional")));
-        assert!(errors.iter().any(|e| e.contains("List[")));
-    }
-
-    #[test]
     fn test_typescript_valid() {
         let code = r#"export interface ListUsersRow {
   id: number;
@@ -1561,20 +746,6 @@ export async function listUsers(): Promise<ListUsersRow[]> {
 "#;
         let errors = validate_structural(code, "typescript-postgres");
         assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
-    }
-
-    #[test]
-    fn test_typescript_allows_kysely_db_generic_default() {
-        let code = r#"export async function listUsers<DB = any>(db: Kysely<DB>): Promise<ListUsersRow[]> {
-  return [];
-}
-"#;
-        let errors = validate_structural(code, "typescript-kysely");
-        assert!(
-            errors.is_empty(),
-            "the `<DB = any>` generic default must be allowlisted, got: {:?}",
-            errors
-        );
     }
 
     #[test]
@@ -1593,34 +764,6 @@ export async function listUsers(): Promise<ListUsersRow[]> {
             "expected an `any` violation, got: {:?}",
             errors
         );
-    }
-
-    #[test]
-    fn test_go_valid() {
-        let code = "package db\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n)\n\ntype ListUsersRow struct {\n\tID   int    `json:\"id\"`\n\tName string `json:\"name\"`\n}\n\nfunc ListUsers(ctx context.Context) ([]ListUsersRow, error) {\n\treturn nil, nil\n}\n";
-        let errors = validate_structural(code, "go-pgx");
-        assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
-    }
-
-    #[test]
-    fn test_php_valid() {
-        let code = r#"<?php
-
-declare(strict_types=1);
-
-readonly class ListUsersRow {
-    public function __construct(
-        public int $id,
-        public string $name,
-    ) {}
-}
-
-function listUsers($pdo): array {
-    return [];
-}
-"#;
-        let errors = validate_structural(code, "php-pdo");
-        assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
     }
 
     /// The bug this whole type exists to prevent: before `ToolValidation`,
@@ -1687,35 +830,26 @@ function listUsers($pdo): array {
         assert!(partial.into_result_with_strictness(true).is_err());
     }
 
-    /// The languages `poly` bundles an engine for are checked by `poly` alone
-    /// -- one binary, no per-language install. A regression that reintroduced
-    /// a separate `ruff`/`biome`/`php` invocation would show up here as an
-    /// extra outcome.
+    /// TypeScript is checked by `poly` alone -- one binary, no separate
+    /// install. A regression that reintroduced a separate `biome` invocation
+    /// would show up here as an extra outcome.
     #[test]
-    fn poly_backed_languages_report_exactly_one_tool() {
-        for (label, outcomes) in [
-            ("python", validate_python_tools("x = 1\n")),
-            ("typescript", validate_typescript_tools("export const x = 1;\n")),
-            ("php", validate_php_tools("<?php\ndeclare(strict_types=1);\n")),
-        ] {
-            assert_eq!(outcomes.len(), 1, "{label} must be checked by poly alone");
-            let tool = match &outcomes[0] {
-                ToolOutcome::Ran { tool, .. } | ToolOutcome::Missing { tool } | ToolOutcome::Failed { tool, .. } => {
-                    *tool
-                }
-            };
-            assert_eq!(tool, "poly", "{label} must go through poly");
-        }
+    fn poly_backed_typescript_reports_exactly_one_tool() {
+        let outcomes = validate_typescript_tools("export const x = 1;\n");
+        assert_eq!(outcomes.len(), 1, "typescript must be checked by poly alone");
+        let tool = match &outcomes[0] {
+            ToolOutcome::Ran { tool, .. } | ToolOutcome::Missing { tool } | ToolOutcome::Failed { tool, .. } => *tool,
+        };
+        assert_eq!(tool, "poly", "typescript must go through poly");
     }
 
     /// A language with no validator must not masquerade as a clean pass
-    /// either -- `_ => None` previously made Java, C#, Elixir and Rust
-    /// unconditionally green. `java-jdbc`, `kotlin-jdbc` and every `elixir-*`
-    /// backend have real validators now (see `validate_with_tools`); `csharp-*`
-    /// is still in the gap this guards, so it is what this test exercises.
+    /// either -- `_ => None` previously made every unvalidated language
+    /// unconditionally green. Rust has no single-file validator (see
+    /// `validate_with_tools`), so it is what this test exercises.
     #[test]
     fn a_backend_with_no_validator_is_unsupported_not_clean() {
-        let validation = validate_with_tools("public class Foo {}", "csharp-npgsql");
+        let validation = validate_with_tools("pub struct Foo;", "rust-sqlx");
 
         assert_eq!(validation, ToolValidation::Unsupported);
         assert!(validation.errors().is_empty());

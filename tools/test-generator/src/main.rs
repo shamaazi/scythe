@@ -12,30 +12,7 @@ use std::path::PathBuf;
 /// registry (to add real MySQL/SQLite/etc. coverage) is separate follow-up work from the defect
 /// this list exists to fix: which of these actually applies to a *given* fixture's engine. See
 /// #156.
-const CANDIDATE_BACKENDS: &[&str] = &[
-    "rust-sqlx",
-    "rust-tokio-postgres",
-    "rust-tiberius",
-    "rust-sibyl",
-    "python-psycopg3",
-    "python-asyncpg",
-    "typescript-postgres",
-    "typescript-pg",
-    "typescript-kysely",
-    "go-pgx",
-    "java-jdbc",
-    "java-r2dbc",
-    "kotlin-exposed",
-    "kotlin-jdbc",
-    "kotlin-r2dbc",
-    "csharp-npgsql",
-    "elixir-postgrex",
-    "elixir-ecto",
-    "ruby-pg",
-    "ruby-trilogy",
-    "php-pdo",
-    "php-amphp",
-];
+const CANDIDATE_BACKENDS: &[&str] = &["rust-sqlx", "rust-tokio-postgres", "typescript-postgres"];
 
 /// The engine string a fixture targets, defaulting to `"postgresql"` when unset -- the same
 /// default `catalog_expr` and `Engine::dialect_path` use.
@@ -1151,21 +1128,6 @@ mod tests {
         assert!(
             !mysql_backends.contains(&"csharp-npgsql"),
             "csharp-npgsql (Npgsql) has no MySQL manifest and must be excluded, got: {mysql_backends:?}"
-        );
-    }
-
-    #[test]
-    fn should_include_engine_specific_rust_backends() {
-        let mssql_backends = applicable_backends("mssql");
-        assert!(
-            mssql_backends.contains(&"rust-tiberius"),
-            "rust-tiberius supports mssql and must be included, got: {mssql_backends:?}"
-        );
-
-        let oracle_backends = applicable_backends("oracle");
-        assert!(
-            oracle_backends.contains(&"rust-sibyl"),
-            "rust-sibyl supports oracle and must be included, got: {oracle_backends:?}"
         );
     }
 

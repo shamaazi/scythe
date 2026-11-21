@@ -94,68 +94,6 @@ fn query_fn_for(backend_name: &str, engine: &str, command: QueryCommand) -> Stri
 // rust-tiberius: the panic fix (crates/scythe-codegen/src/backends/rust_tiberius.rs)
 // ---------------------------------------------------------------------
 
-/// The bug itself: `stream.into_row().await?.expect("expected one row")` was
-/// emitted for both `:one` and `:opt`. For `:opt` that `.expect()` panics at
-/// runtime the moment the row is legitimately absent -- the one case `:opt`
-/// is supposed to hand back as `None` rather than fail on.
-#[cfg(all(feature = "lang-rust", feature = "mssql"))]
-#[test]
-fn rust_tiberius_opt_returns_option_and_does_not_panic_on_missing_row() {
-    let opt_fn = query_fn_for("rust-tiberius", "mssql", QueryCommand::Opt);
-
-    assert!(
-        opt_fn.contains("Result<Option<GetItemRow>, tiberius::error::Error>"),
-        "rust-tiberius :opt must return an Option-wrapped row type; got:\n{opt_fn}"
-    );
-    assert!(
-        !opt_fn.contains(".expect(\"expected one row\")"),
-        "rust-tiberius :opt must not use .expect() on a possibly-absent row -- that panics \
-         at runtime for the exact case :opt exists to handle (issue #197):\n{opt_fn}"
-    );
-    assert!(
-        opt_fn.contains(".transpose()"),
-        "rust-tiberius :opt is expected to map the optional row through `from_row` and fold it \
-         with `.transpose()` into Result<Option<Row>, Error>, so an absent row becomes `Ok(None)` \
-         rather than a panic; got:\n{opt_fn}"
-    );
-}
-
-/// `:one` keeps its pre-existing "exactly one row, `.expect()` if absent"
-/// shape -- this fix only stops `:opt` from being folded into it. Whether
-/// `:one` panicking (rather than returning an `Err`) on a missing row is
-/// itself desirable is a separate question, out of scope for #197.
-#[cfg(all(feature = "lang-rust", feature = "mssql"))]
-#[test]
-fn rust_tiberius_one_is_unchanged_by_the_opt_fix() {
-    let one_fn = query_fn_for("rust-tiberius", "mssql", QueryCommand::One);
-
-    assert!(
-        one_fn.contains("-> Result<GetItemRow, tiberius::error::Error>"),
-        "rust-tiberius :one must keep returning the bare row type, not Option-wrapped; got:\n{one_fn}"
-    );
-    assert!(
-        one_fn.contains(".expect(\"expected one row\")"),
-        "rust-tiberius :one's exactly-one-row behaviour must be unchanged by the :opt fix; \
-         got:\n{one_fn}"
-    );
-}
-
-/// The regression itself, phrased the way #197 named it: before this fix,
-/// `:opt` on rust-tiberius rendered byte-identical code to `:one`, which is
-/// exactly what made it panic instead of returning `None`.
-#[cfg(all(feature = "lang-rust", feature = "mssql"))]
-#[test]
-fn rust_tiberius_opt_and_one_generate_different_code() {
-    let one_fn = query_fn_for("rust-tiberius", "mssql", QueryCommand::One);
-    let opt_fn = query_fn_for("rust-tiberius", "mssql", QueryCommand::Opt);
-
-    assert_ne!(
-        one_fn, opt_fn,
-        "rust-tiberius must generate different code for :one and :opt -- identical code is the \
-         exact fold GH #197 named (\"opt silently treated as one\")"
-    );
-}
-
 // ---------------------------------------------------------------------
 // Census: does *any* backend actually distinguish :one from :opt?
 // ---------------------------------------------------------------------
@@ -175,68 +113,10 @@ fn rust_tiberius_opt_and_one_generate_different_code() {
 const ALL_BACKEND_NAMES: &[&str] = &[
     "rust-sqlx",
     "rust-tokio-postgres",
-    "rust-tiberius",
-    "rust-sibyl",
-    "python-psycopg3",
-    "python-asyncpg",
-    "python-aiomysql",
-    "python-aiosqlite",
-    "python-duckdb",
-    "python-pyodbc",
-    "python-oracledb",
-    "python-snowflake",
     "typescript-postgres",
     "javascript-postgres",
     "typescript-bun",
     "javascript-bun",
-    "typescript-pg",
-    "javascript-pg",
-    "typescript-mysql2",
-    "javascript-mysql2",
-    "typescript-better-sqlite3",
-    "javascript-better-sqlite3",
-    "typescript-duckdb",
-    "javascript-duckdb",
-    "typescript-node-sqlite",
-    "javascript-node-sqlite",
-    "typescript-wasm-sqlite",
-    "javascript-wasm-sqlite",
-    "typescript-kysely",
-    "typescript-mssql",
-    "javascript-mssql",
-    "typescript-oracledb",
-    "javascript-oracledb",
-    "typescript-snowflake",
-    "javascript-snowflake",
-    "go-database-sql",
-    "go-pgx",
-    "go-godror",
-    "go-gosnowflake",
-    "java-jdbc",
-    "java-r2dbc",
-    "kotlin-exposed",
-    "kotlin-jdbc",
-    "kotlin-r2dbc",
-    "csharp-npgsql",
-    "csharp-mysqlconnector",
-    "csharp-microsoft-sqlite",
-    "csharp-sqlclient",
-    "csharp-oracle",
-    "csharp-snowflake",
-    "elixir-postgrex",
-    "elixir-ecto",
-    "elixir-myxql",
-    "elixir-exqlite",
-    "elixir-tds",
-    "elixir-jamdb",
-    "ruby-pg",
-    "ruby-mysql2",
-    "ruby-sqlite3",
-    "ruby-trilogy",
-    "ruby-tiny-tds",
-    "ruby-oci8",
-    "php-pdo",
-    "php-amphp",
 ];
 
 /// Tried in order until one resolves the backend's manifest -- mirrors
@@ -315,19 +195,7 @@ const KNOWN_UNDIFFERENTIATED_BACKENDS: &[BackendNote] = &[];
 /// every other allowlisted backend does) -- both are silent downgrades of
 /// one command's contract into the other's, and both are exactly what
 /// "a backend silently downgrades :opt" (or, symmetrically, :one) means.
-#[cfg(all(
-    feature = "lang-csharp",
-    feature = "lang-elixir",
-    feature = "lang-go",
-    feature = "lang-java",
-    feature = "lang-kotlin",
-    feature = "lang-php",
-    feature = "lang-python",
-    feature = "lang-ruby",
-    feature = "lang-rust",
-    feature = "lang-typescript",
-    feature = "postgres"
-))]
+#[cfg(all(feature = "lang-rust", feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn one_and_opt_render_different_code_except_on_the_known_allowlist() {
     let mut regressions = Vec::new();

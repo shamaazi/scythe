@@ -180,11 +180,11 @@ const RANGE_CAPABLE_ENGINES: &[&str] = &["postgresql"];
 
 /// Total manifests expected on disk. A floor, not the count: a glob that has
 /// stopped matching must fail rather than sweep nothing and pass.
-const MANIFEST_FLOOR: usize = 102;
+const MANIFEST_FLOOR: usize = 10;
 
 /// Manifests expected to declare `range` -- the PostgreSQL targets. Also a
 /// floor.
-const DECLARATION_FLOOR: usize = 19;
+const DECLARATION_FLOOR: usize = 4;
 
 /// One entry in an exception list: the manifest file it exempts, and why.
 /// Same shape as `opt_command_regression.rs`'s `BackendNote`, and for the
@@ -208,26 +208,16 @@ const RANGE_CAPABILITY_EXCEPTIONS: &[ManifestNote] = &[];
 
 /// Manifests allowed to spell `range` differently from the rest of their
 /// language family.
-const RANGE_SPELLING_EXCEPTIONS: &[ManifestNote] = &[
-    ManifestNote {
-        manifest: "python-psycopg3.toml",
-        reason: "asyncpg and psycopg3 each ship their own Range class -- asyncpg.Range and \
-                 psycopg.types.range.Range -- confirmed live to be two distinct classes (asyncpg.Range \
-                 is not psycopg.types.range.Range, and each driver decodes a range column into its own \
-                 class, never the other's). Normalizing python-psycopg3 onto asyncpg.Range[{T}] would \
-                 produce a type hint the psycopg driver never actually returns.",
-    },
-    ManifestNote {
-        manifest: "rust-tokio-postgres.toml",
-        reason: "rust-sqlx spells range as sqlx::postgres::types::PgRange<{T}>, a real type sqlx-postgres \
+const RANGE_SPELLING_EXCEPTIONS: &[ManifestNote] = &[ManifestNote {
+    manifest: "rust-tokio-postgres.toml",
+    reason: "rust-sqlx spells range as sqlx::postgres::types::PgRange<{T}>, a real type sqlx-postgres \
                  ships with Type/Encode/Decode impls. tokio-postgres's own type crate (postgres-types \
                  0.2.14) has no equivalent, so rust-tokio-postgres.rs hand-rolls its own PgRange<T> -- a \
                  FromSql/ToSql pair built on postgres_protocol::types::range_from_sql/range_to_sql, \
                  emitted directly into the generated file rather than imported from a crate. Normalizing \
                  onto sqlx's fully-qualified spelling would name a type this backend's dependency tree \
                  does not have.",
-    },
-];
+}];
 
 /// A manifest's `range` declaration as it exists on disk.
 struct RangeDeclaration {

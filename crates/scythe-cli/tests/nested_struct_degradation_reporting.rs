@@ -53,39 +53,6 @@ fn write_project(dir: &std::path::Path, backend: &str) -> String {
     config_path.to_string_lossy().into_owned()
 }
 
-/// `java-jdbc` maps `json` to a bare `String` and implements no
-/// `generate_nested_struct_def`, so the `orders` column degrades. Reverting the
-/// reporting loop in `generate_for_backend` makes this assertion fail: the run
-/// still succeeds and still writes the file, and stderr goes quiet.
-#[test]
-fn generate_reports_a_nested_aggregate_it_degraded_to_opaque_json() {
-    let dir = TempDir::new().unwrap();
-    let config_path = write_project(dir.path(), "java-jdbc");
-
-    let output = scythe_bin()
-        .args(["generate", "--config", &config_path])
-        .output()
-        .expect("run scythe generate");
-
-    let err = stderr(&output);
-    assert!(
-        output.status.success(),
-        "degradation is reported, not fatal -- generate must still succeed; stderr: {err}"
-    );
-    assert!(
-        err.contains("degraded to"),
-        "stderr must say the column was degraded; got:\n{err}"
-    );
-    assert!(
-        err.contains("orders"),
-        "stderr must name the column that lost its shape; got:\n{err}"
-    );
-    assert!(
-        err.contains("java-jdbc"),
-        "stderr must name the backend responsible; got:\n{err}"
-    );
-}
-
 /// The counterpart that keeps the assertion above honest: `rust-sqlx` is one of
 /// the four backends that genuinely builds the nested struct, so nothing is
 /// degraded and nothing must be reported. Without this, a reporting loop that

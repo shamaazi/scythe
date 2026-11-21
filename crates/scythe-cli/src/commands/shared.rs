@@ -895,15 +895,15 @@ mod tests {
 
     #[test]
     fn resolve_contained_output_rejects_escape_by_default() {
-        let err = resolve_contained_output(Path::new("proj"), "../../ESCAPED", "python-psycopg3", false).unwrap_err();
-        assert!(err.contains("python-psycopg3"));
+        let err = resolve_contained_output(Path::new("proj"), "../../ESCAPED", "rust-sqlx", false).unwrap_err();
+        assert!(err.contains("rust-sqlx"));
         assert!(err.contains("../../ESCAPED"));
         assert!(err.contains("--allow-output-escape"));
     }
 
     #[test]
     fn resolve_contained_output_allows_escape_with_opt_out() {
-        let result = resolve_contained_output(Path::new("proj"), "../../ESCAPED", "python-psycopg3", true);
+        let result = resolve_contained_output(Path::new("proj"), "../../ESCAPED", "rust-sqlx", true);
         assert!(result.is_ok());
     }
 

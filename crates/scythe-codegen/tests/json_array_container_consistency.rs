@@ -27,47 +27,12 @@ use scythe_backend::manifest::load_manifest;
 /// Manifests allowed to declare `json_array`, each with why it is honest.
 const JSON_ARRAY_ALLOWLIST: &[(&str, &str)] = &[
     (
-        "elixir-postgrex",
-        "Postgrex/Jason decodes a top-level JSON array to a list; verified live against PostgreSQL 16 (board #219).",
-    ),
-    (
-        "elixir-ecto",
-        "Ecto.Adapters.SQL.query runs raw SQL through the same Postgrex binary protocol as elixir-postgrex.",
-    ),
-    (
-        "php-pdo",
-        "php_pdo.rs emits json_decode($value, true) for a json column; PHP's json_decode yields array for both JSON shapes.",
-    ),
-    (
-        "php-amphp",
-        "php_amphp.rs independently emits the identical json_decode($value, true) call.",
-    ),
-    (
-        "python-asyncpg",
-        "asyncpg decodes json/jsonb through its own codec into native Python values; a top-level array becomes a list.",
-    ),
-    (
-        "typescript-pg",
-        "node-postgres auto-parses json/jsonb via its default OID type parsers (JSON.parse), with no caller configuration.",
-    ),
-    (
-        "typescript-kysely",
-        "Kysely's PostgresDialect wraps node-postgres unchanged for this manifest, so it inherits the same auto-parsing.",
-    ),
-    (
         "typescript-postgres",
         "postgres.js parses json/jsonb by default, giving the same shape guarantee as node-postgres.",
     ),
     (
         "typescript-bun",
         "Bun's built-in SQL client parses json/jsonb by default, giving the same shape guarantee as node-postgres.",
-    ),
-    (
-        "ruby-pg",
-        "ruby_pg.rs's ruby_coercion now emits JSON.parse(...) for a json/jsonb column (GH #147); the pg \
-         gem itself does no client-side JSON decoding, so JSON.parse is scythe's own call, applied \
-         uniformly regardless of the JSON document's top-level shape, and a top-level array becomes a \
-         Ruby Array.",
     ),
 ];
 
@@ -79,15 +44,9 @@ const JSON_ARRAY_ALLOWLIST: &[(&str, &str)] = &[
 /// would be a declaration that does nothing at all, which is why this list is
 /// pinned rather than left to drift.
 const JSON_NESTED_BACKENDS: &[&str] = &[
-    "go-pgx",
-    "php-amphp",
-    "php-pdo",
-    "python-psycopg3",
     "rust-sqlx",
     "rust-tokio-postgres",
     "typescript-bun",
-    "typescript-kysely",
-    "typescript-pg",
     "typescript-postgres",
 ];
 

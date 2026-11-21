@@ -767,7 +767,7 @@ schema = ["{schema}"]
 queries = ["{queries}"]
 
 [[sql.gen]]
-backend = "javascript-pg"
+backend = "javascript-bun"
 output = "{output}"
 "#,
         schema = schema_path.display().to_string().replace('\\', "/"),
@@ -796,7 +796,7 @@ output = "{output}"
 
     assert!(
         output_dir.join("queries.js").exists(),
-        "javascript-pg must write queries.js; found {:?}",
+        "javascript-bun must write queries.js; found {:?}",
         std::fs::read_dir(&output_dir)
             .map(|entries| entries
                 .filter_map(Result::ok)
@@ -806,7 +806,7 @@ output = "{output}"
     );
     assert!(
         !output_dir.join("queries.ts").exists(),
-        "javascript-pg must not write a .ts file"
+        "javascript-bun must not write a .ts file"
     );
 
     // The provenance header has to name the js backend, not the ts one it
@@ -814,7 +814,7 @@ output = "{output}"
     // this project's own output forever.
     let code = std::fs::read_to_string(output_dir.join("queries.js")).expect("generated file");
     assert!(
-        code.contains("backend=javascript-pg"),
-        "provenance must name javascript-pg; got:\n{code}"
+        code.contains("backend=javascript-bun"),
+        "provenance must name javascript-bun; got:\n{code}"
     );
 }

@@ -41,7 +41,7 @@ const GROUPED: &str = "-- @name DonorsWithDonations\n-- @returns :grouped\n-- @g
     -- @param $1 since\n\
     SELECT donor_id, id FROM donations WHERE given_at >= $1;";
 
-const BACKENDS: [&str; 3] = ["typescript-bun", "typescript-postgres", "typescript-pg"];
+const BACKENDS: [&str; 2] = ["typescript-bun", "typescript-postgres"];
 
 fn generate(backend: &dyn CodegenBackend, sql: &str) -> GeneratedCode {
     let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).unwrap();
@@ -104,13 +104,6 @@ fn tagged_template_backends_bind_the_properties_in_place() {
             "{name}:\n{query_fn}"
         );
     }
-}
-
-#[test]
-fn pg_binds_the_properties_in_placeholder_order() {
-    let code = generate(&*object_backend("typescript-pg"), RECENT);
-    let query_fn = query_fn(&code);
-    assert!(query_fn.contains("[params.donorId, params.from]"), "{query_fn}");
 }
 
 #[test]
@@ -229,7 +222,7 @@ fn rejects_an_unknown_params_style() {
 
 #[test]
 fn javascript_backends_reject_the_object_style() {
-    for name in ["javascript-bun", "javascript-postgres", "javascript-pg"] {
+    for name in ["javascript-bun", "javascript-postgres"] {
         let mut backend = get_backend(name, "postgresql").unwrap();
         let err = backend
             .apply_options(&HashMap::from([("params".to_string(), "object".to_string())]))

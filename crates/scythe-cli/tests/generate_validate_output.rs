@@ -45,12 +45,12 @@ fn write_project(dir: &std::path::Path, backend: &str) -> String {
     config_path.to_string_lossy().into_owned()
 }
 
-/// Writes a minimal project targeting the `python-psycopg3` backend (its
+/// Writes a minimal project targeting the `typescript-bun` backend (its
 /// only real-tool checker is `poly`, wired through
-/// `scythe_codegen::validation::validate_python_tools`) and returns the
+/// `scythe_codegen::validation::validate_typescript_tools`) and returns the
 /// `scythe.toml` path.
-fn write_python_project(dir: &std::path::Path) -> String {
-    write_project(dir, "python-psycopg3")
+fn write_typescript_project(dir: &std::path::Path) -> String {
+    write_project(dir, "typescript-bun")
 }
 
 /// `scythe generate` without `--validate-output` must never run the
@@ -60,7 +60,7 @@ fn write_python_project(dir: &std::path::Path) -> String {
 #[test]
 fn generate_without_validate_output_never_reports_validation() {
     let dir = TempDir::new().unwrap();
-    let config_path = write_python_project(dir.path());
+    let config_path = write_typescript_project(dir.path());
 
     let output = scythe_bin()
         .args(["generate", "--config", &config_path])
@@ -89,7 +89,7 @@ fn generate_without_validate_output_never_reports_validation() {
 #[ignore = "needs poly on PATH; the devenv shell does not provide it"]
 fn generate_validate_output_reports_validated_when_the_tool_is_present() {
     let dir = TempDir::new().unwrap();
-    let config_path = write_python_project(dir.path());
+    let config_path = write_typescript_project(dir.path());
 
     let output = scythe_bin()
         .args(["generate", "--config", &config_path, "--validate-output"])
@@ -115,7 +115,7 @@ fn generate_validate_output_reports_validated_when_the_tool_is_present() {
 /// stripped of it) must report SKIPPED, not silently report success.
 ///
 /// `PATH` is overridden to a directory with nothing in it so `poly` -- the
-/// only checker `python-psycopg3` output uses -- is genuinely not found by
+/// only checker `typescript-bun` output uses -- is genuinely not found by
 /// `tool_present`'s real probe spawn, regardless of what happens to be
 /// installed on the machine running this test. This is the exact case board
 /// #187 calls out: `ValidationOutcome::Passed` with an empty `tools_run` is
@@ -125,7 +125,7 @@ fn generate_validate_output_reports_validated_when_the_tool_is_present() {
 #[test]
 fn generate_validate_output_reports_skipped_when_the_tool_is_absent() {
     let dir = TempDir::new().unwrap();
-    let config_path = write_python_project(dir.path());
+    let config_path = write_typescript_project(dir.path());
     let empty_path_dir = TempDir::new().unwrap();
 
     let output = scythe_bin()

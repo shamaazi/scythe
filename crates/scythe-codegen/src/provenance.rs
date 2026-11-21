@@ -513,12 +513,6 @@ mod tests {
         assert_eq!(comment_prefix("cobol"), "//");
     }
 
-    /// Ruff's default `line-length`. The provenance header exceeds it for
-    /// every Python backend, which is the whole reason [`header_suffix`]
-    /// exists; `validate_python_tools` runs `ruff check --select E,F,I` with
-    /// no config file, so this default is what generated files are held to.
-    const RUFF_DEFAULT_LINE_LENGTH: usize = 88;
-
     /// The suppression is Python-specific and must not leak: `# noqa` is a
     /// syntax error in most of the other nine languages, and meaningless
     /// noise in Ruby and Elixir, which share Python's `#` comment token.
@@ -540,86 +534,6 @@ mod tests {
         ] {
             assert_eq!(header_suffix(language), "", "language: {language}");
         }
-    }
-
-    /// Every Python backend's header line must either fit ruff's default
-    /// line length or carry an `E501` suppression — otherwise `ruff check
-    /// --select E` reports `E501 Line too long` on line 1 of every file
-    /// scythe generates for that backend.
-    ///
-    /// Expressed as the real constraint rather than as "ends with the
-    /// suffix", so it stays honest if a future backend name is short enough
-    /// not to need one. It still fails loudly if the suffix is dropped: the
-    /// shortest Python backend name in the tree today still produces a line
-    /// well past 88 characters, which the premise assertion below pins.
-    #[cfg(all(
-        feature = "lang-python",
-        feature = "duckdb",
-        feature = "mssql",
-        feature = "mysql",
-        feature = "oracle",
-        feature = "postgres",
-        feature = "snowflake",
-        feature = "sqlite"
-    ))]
-    #[test]
-    fn python_header_lines_never_trip_ruffs_default_line_length() {
-        for (backend_name, engine) in [
-            ("python-psycopg3", "postgresql"),
-            ("python-asyncpg", "postgresql"),
-            ("python-aiomysql", "mysql"),
-            ("python-aiosqlite", "sqlite"),
-            ("python-duckdb", "duckdb"),
-            ("python-oracledb", "oracle"),
-            ("python-pyodbc", "mssql"),
-            ("python-snowflake", "snowflake"),
-        ] {
-            let backend = crate::get_backend(backend_name, engine)
-                .unwrap_or_else(|e| panic!("{backend_name} with {engine}: {e}"));
-            let line = header_line(
-                backend.as_ref(),
-                "0.13.0",
-                engine,
-                "sch1:0123456789abcdef",
-                "q1:fedcba9876543210",
-            );
-            let line = line.strip_suffix('\n').expect("header line ends with a newline");
-
-            assert!(
-                line.len() > RUFF_DEFAULT_LINE_LENGTH,
-                "test premise: {backend_name}'s header is expected to exceed ruff's default \
-                 line length, so the suppression is genuinely required; got {} chars: {line:?}",
-                line.len()
-            );
-            assert!(
-                line.ends_with("  # noqa: E501"),
-                "{backend_name}: a header longer than ruff's default {RUFF_DEFAULT_LINE_LENGTH} \
-                 columns must carry an E501 suppression, or every generated file fails \
-                 `ruff check --select E` on line 1: {line:?}"
-            );
-        }
-    }
-
-    /// The suppression must not leak into a language that shares Python's
-    /// `#` comment token. Ruby is the case that would actually ship broken:
-    /// its header is emitted into `queries.rb` *and* `queries.rbs`.
-    #[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-    #[test]
-    fn hash_comment_languages_other_than_python_get_no_suffix() {
-        let backend = crate::get_backend("ruby-pg", "postgresql").expect("ruby-pg should support postgresql");
-        let line = header_line(
-            backend.as_ref(),
-            "0.13.0",
-            "postgresql",
-            "sch1:0123456789abcdef",
-            "q1:fedcba9876543210",
-        );
-
-        assert_eq!(
-            line,
-            "# scythe:provenance v=0.13.0 backend=ruby-pg engine=postgresql schema=sch1:0123456789abcdef \
-             queries=q1:fedcba9876543210\n"
-        );
     }
 
     #[test]
@@ -676,7 +590,6 @@ mod tests {
             "0.13.0",
             "0.15.0-rc.1",
             "rust-sqlx",
-            "python-psycopg3",
             "postgresql",
             "mariadb",
             "sch1:0123456789abcdef",
@@ -745,13 +658,11 @@ mod tests {
     /// Also asserts the two structural guarantees a caller cannot recover
     /// from if they are lost: the header stays exactly one line, and it
     /// stays behind a comment token.
-    #[cfg(all(feature = "lang-python", feature = "lang-rust", feature = "postgres"))]
+    #[cfg(all(feature = "lang-rust", feature = "lang-typescript", feature = "postgres"))]
     #[test]
     fn header_line_round_trips_adversarial_field_values() {
-        // Two backends, because the emitted line differs by language:
-        // `python-psycopg3` appends `# noqa: E501` after the last field,
-        // which the reader must skip rather than read as a field.
-        for backend_name in ["rust-sqlx", "python-psycopg3"] {
+        // One backend per language, because the emitted line differs by language.
+        for backend_name in ["rust-sqlx", "typescript-bun"] {
             let backend = crate::get_backend(backend_name, "postgresql")
                 .unwrap_or_else(|e| panic!("{backend_name} with postgresql: {e}"));
             let comment = comment_prefix(&backend.manifest().backend.language);
@@ -827,31 +738,6 @@ mod tests {
             .map(|(_, value)| value.as_str());
 
         assert_eq!(parsed_engine, Some(engine), "header: {header:?}");
-    }
-
-    /// Tokens with no `=` must be skipped, or Python's `# noqa: E501`
-    /// suffix would be read as fields. Asserted on the real emitted line
-    /// rather than a hand-written one.
-    #[cfg(all(feature = "lang-python", feature = "postgres"))]
-    #[test]
-    fn parse_header_fields_skips_the_python_noqa_suffix() {
-        let backend =
-            crate::get_backend("python-psycopg3", "postgresql").expect("python-psycopg3 should support postgresql");
-        let line = header_line(
-            backend.as_ref(),
-            "0.15.0",
-            "postgresql",
-            "sch1:0123456789abcdef",
-            "q1:fedcba9876543210",
-        );
-
-        let keys: Vec<&str> = parse_header_fields(&line)
-            .expect("header line must parse")
-            .into_iter()
-            .map(|(key, _)| key)
-            .collect();
-
-        assert_eq!(keys, vec!["v", "backend", "engine", "schema", "queries"]);
     }
 
     #[test]
@@ -985,28 +871,6 @@ mod tests {
             line,
             "// scythe:provenance v=0.15.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef \
              queries=q1:fedcba9876543210 options=opt1:0011223344556677\n"
-        );
-    }
-
-    /// The suffix (Python's `# noqa: E501`) must stay the last thing on the
-    /// line, after `options=`, exactly as it already stays after `queries=`.
-    #[cfg(all(feature = "lang-python", feature = "postgres"))]
-    #[test]
-    fn header_line_with_options_keeps_the_python_suffix_last() {
-        let backend =
-            crate::get_backend("python-psycopg3", "postgresql").expect("python-psycopg3 should support postgresql");
-        let line = header_line_with_options(
-            backend.as_ref(),
-            "0.15.0",
-            "postgresql",
-            "sch1:0123456789abcdef",
-            "q1:fedcba9876543210",
-            "opt1:0011223344556677",
-        );
-
-        assert!(
-            line.ends_with("options=opt1:0011223344556677  # noqa: E501\n"),
-            "got: {line:?}"
         );
     }
 

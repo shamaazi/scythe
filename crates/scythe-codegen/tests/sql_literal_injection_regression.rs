@@ -175,171 +175,19 @@ fn compiles_or_skipped(tool: &str, probe_arg: &str, args: &[&str]) {
 // #176: Kotlin non-raw string interpolation
 // ---------------------------------------------------------------------
 
-const KOTLIN_176_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
-    SELECT id, name FROM users WHERE name = $1 AND name != 'literal-$name-marker';";
-
-/// Direct regression test for #176 through the real backend, not just the
-/// escape function: a query whose SQL contains `$name` -- exactly matching
-/// an in-scope parameter's field name -- must not produce Kotlin source
-/// that interpolates it.
-#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-#[test]
-fn kotlin_jdbc_176_injection_is_neutralized() {
-    let file = generate_full_file("kotlin-jdbc", KOTLIN_176_QUERY);
-    assert!(
-        !file.contains("literal-$name-marker"),
-        "unescaped $name must never reach Kotlin source (this is the #176 injection):\n{file}"
-    );
-    assert!(
-        file.contains("literal-\\$name-marker"),
-        "expected \\$name (Kotlin's escape for a literal dollar sign):\n{file}"
-    );
-
-    let path = write_temp(&file, ".kt");
-    compiles_or_skipped(
-        "kotlinc",
-        "-version",
-        &[
-            path.to_str().unwrap(),
-            "-d",
-            std::env::temp_dir().join("scythe_kotlinc_out").to_str().unwrap(),
-        ],
-    );
-    let _ = std::fs::remove_file(&path);
-}
-
-#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-#[test]
-fn kotlin_r2dbc_176_injection_is_neutralized() {
-    let file = generate_full_file("kotlin-r2dbc", KOTLIN_176_QUERY);
-    assert!(!file.contains("literal-$name-marker"), "got:\n{file}");
-    assert!(file.contains("literal-\\$name-marker"), "got:\n{file}");
-}
-
-#[cfg(all(feature = "lang-kotlin", feature = "postgres"))]
-#[test]
-fn kotlin_exposed_176_injection_is_neutralized() {
-    let file = generate_full_file("kotlin-exposed", KOTLIN_176_QUERY);
-    assert!(!file.contains("literal-$name-marker"), "got:\n{file}");
-    assert!(file.contains("literal-\\$name-marker"), "got:\n{file}");
-}
-
 // ---------------------------------------------------------------------
 // Ruby / Elixir #{...} interpolation
 // ---------------------------------------------------------------------
-
-const HASH_BRACE_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
-    SELECT id, name FROM users WHERE name = $1 AND name != 'literal-#{evil}-marker';";
-
-#[cfg(all(feature = "lang-ruby", feature = "postgres"))]
-#[test]
-fn ruby_pg_hash_brace_interpolation_is_neutralized() {
-    let file = generate_full_file("ruby-pg", HASH_BRACE_QUERY);
-    assert!(
-        !file.contains("literal-#{evil}-marker"),
-        "unescaped #{{}} must never reach Ruby source:\n{file}"
-    );
-    assert!(file.contains("literal-\\#{evil}-marker"), "got:\n{file}");
-
-    let path = write_temp(&file, ".rb");
-    compiles_or_skipped("ruby", "--version", &["-c", path.to_str().unwrap()]);
-    let _ = std::fs::remove_file(&path);
-}
-
-#[cfg(all(feature = "lang-elixir", feature = "postgres"))]
-#[test]
-fn elixir_postgrex_hash_brace_interpolation_is_neutralized() {
-    let file = generate_full_file("elixir-postgrex", HASH_BRACE_QUERY);
-    assert!(
-        !file.contains("literal-#{evil}-marker"),
-        "unescaped #{{}} must never reach Elixir source:\n{file}"
-    );
-    assert!(file.contains("literal-\\#{evil}-marker"), "got:\n{file}");
-
-    let path = write_temp(&file, ".exs");
-    compiles_or_skipped(
-        "elixirc",
-        "--version",
-        &["-o", std::env::temp_dir().to_str().unwrap(), path.to_str().unwrap()],
-    );
-    let _ = std::fs::remove_file(&path);
-}
 
 // ---------------------------------------------------------------------
 // PHP $-interpolation (double-quoted strings interpolate; switched to
 // single-quoted, which never does)
 // ---------------------------------------------------------------------
 
-const PHP_DOLLAR_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
-    SELECT id, name FROM users WHERE name = $1 AND name != 'literal-$pdo-marker';";
-
-#[cfg(all(feature = "lang-php", feature = "postgres"))]
-#[test]
-fn php_pdo_dollar_interpolation_is_neutralized() {
-    let file = generate_full_file("php-pdo", PHP_DOLLAR_QUERY);
-    // A PHP *double*-quoted literal here would interpolate $pdo -- the
-    // connection handle parameter -- into the SQL text. The fix routes SQL
-    // through a single-quoted literal instead, which performs no
-    // interpolation, so the raw text survives verbatim and inertly.
-    assert!(
-        file.contains("->prepare('") && file.contains("literal-$pdo-marker"),
-        "SQL must be emitted as a single-quoted (non-interpolating) PHP literal:\n{file}"
-    );
-    assert!(
-        !file.contains("->prepare(\""),
-        "SQL must not be spliced into a double-quoted (interpolating) PHP literal:\n{file}"
-    );
-
-    let path = write_temp(&file, ".php");
-    compiles_or_skipped("php", "--version", &["-l", path.to_str().unwrap()]);
-    let _ = std::fs::remove_file(&path);
-}
-
 // ---------------------------------------------------------------------
 // Quote / backslash: breaks non-interpolating host literals outright
 // (issue #150's "loud case" and #179's silent-corruption case)
 // ---------------------------------------------------------------------
-
-const QUOTE_BACKSLASH_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
-    SELECT id, name FROM users WHERE name = $1 AND name != 'has \"quotes\" and a\\backslash and a\\_b%';";
-
-#[cfg(all(feature = "lang-go", feature = "postgres"))]
-#[test]
-fn go_pgx_quote_and_backslash_are_escaped() {
-    let file = generate_full_file("go-pgx", QUOTE_BACKSLASH_QUERY);
-    assert!(file.contains("\\\"quotes\\\""), "got:\n{file}");
-    assert!(file.contains("a\\\\backslash"), "got:\n{file}");
-
-    let path = write_temp(&file, ".go");
-    compiles_or_skipped("gofmt", "-h", &["-e", path.to_str().unwrap()]);
-    let _ = std::fs::remove_file(&path);
-}
-
-#[cfg(all(feature = "lang-python", feature = "postgres"))]
-#[test]
-fn python_psycopg3_quote_and_backslash_are_escaped() {
-    let file = generate_full_file("python-psycopg3", QUOTE_BACKSLASH_QUERY);
-    assert!(file.contains("\\\"quotes\\\""), "got:\n{file}");
-    assert!(file.contains("a\\\\backslash"), "got:\n{file}");
-
-    let path = write_temp(&file, ".py");
-    compiles_or_skipped("python3", "--version", &["-m", "py_compile", path.to_str().unwrap()]);
-    let _ = std::fs::remove_file(&path);
-}
-
-#[cfg(all(feature = "lang-csharp", feature = "postgres"))]
-#[test]
-fn csharp_npgsql_quote_is_doubled_and_backslash_stays_literal() {
-    let file = generate_full_file("csharp-npgsql", QUOTE_BACKSLASH_QUERY);
-    // Verbatim (@"...") strings double an embedded quote and treat
-    // backslash as an ordinary character -- both correct for SQL text.
-    assert!(file.contains("\"\"quotes\"\""), "got:\n{file}");
-    assert!(file.contains("a\\backslash"), "got:\n{file}");
-    assert!(
-        file.contains("NpgsqlCommand(@\""),
-        "SQL must use a verbatim string literal:\n{file}"
-    );
-}
 
 // ---------------------------------------------------------------------
 // Rust raw-string delimiter widening (#179's `"#` raw-string-breaking case)
@@ -362,16 +210,6 @@ fn tokio_postgres_raw_string_widens_delimiter_for_hash_quote() {
     );
 }
 
-#[cfg(all(feature = "lang-rust", feature = "mssql"))]
-#[test]
-fn rust_tiberius_raw_string_widens_delimiter_for_hash_quote() {
-    const MSSQL_SCHEMA: &str = "CREATE TABLE users (id INT IDENTITY(1,1) PRIMARY KEY, name NVARCHAR(255) NOT NULL);";
-    const MSSQL_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
-        SELECT id, name FROM users WHERE name = @p1 AND name != 'ends with a hash-quote \"# sequence';";
-    let file = generate_full_file_for_engine("rust-tiberius", "mssql", &SqlDialect::MsSql, MSSQL_SCHEMA, MSSQL_QUERY);
-    assert!(file.contains("r##\"") && file.contains("\"##"), "got:\n{file}");
-}
-
 /// Minimal standalone Rust and Java snippets, compiled directly, proving the
 /// literal-building helpers produce syntactically valid output without
 /// depending on external crates/packages the full generated files reference
@@ -391,23 +229,4 @@ fn rust_raw_string_literal_compiles_standalone() {
     );
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(&out);
-}
-
-#[test]
-fn java_string_literal_compiles_standalone() {
-    let sql = "has \"quotes\" and a\\backslash and a\\_b% and\ta tab";
-    let literal = scythe_codegen::sql_literal::escape_java_string(sql);
-    let source = format!(
-        "public class ScytheEscapeCheck {{ public static void main(String[] a) {{ String sql = \"{literal}\"; System.out.println(sql); }} }}"
-    );
-    let dir = std::env::temp_dir().join("scythe_javac_check");
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("ScytheEscapeCheck.java");
-    std::fs::write(&path, &source).expect("failed to write temp file");
-    compiles_or_skipped(
-        "javac",
-        "-version",
-        &["-d", dir.to_str().unwrap(), path.to_str().unwrap()],
-    );
-    let _ = std::fs::remove_file(&path);
 }

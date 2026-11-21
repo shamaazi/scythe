@@ -1,3 +1,0 @@
-allowBuilds:
-  oracledb: true
-  esbuild: true

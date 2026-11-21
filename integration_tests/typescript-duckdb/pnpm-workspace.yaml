@@ -1,3 +1,0 @@
-allowBuilds:
-  "@duckdb/node-api": true
-  esbuild: true

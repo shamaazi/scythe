@@ -145,13 +145,13 @@ fn generate_rejects_two_targets_that_would_clobber_each_other() {
     std::fs::write(dir.path().join("schema.sql"), SCHEMA_SQL).unwrap();
     std::fs::write(dir.path().join("queries.sql"), QUERY_SQL).unwrap();
 
-    // python-psycopg3 and python-asyncpg are both Python backends, so both
-    // emit "queries.py" -- sharing `output = "o"` makes them collide.
+    // typescript-postgres and typescript-bun are both TypeScript backends, so both
+    // emit "queries.ts" -- sharing `output = "o"` makes them collide.
     let config = "[scythe]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
         schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
-        [[sql.gen]]\nbackend = \"python-psycopg3\"\noutput = \"o\"\n\n\
-        [[sql.gen]]\nbackend = \"python-asyncpg\"\noutput = \"o\"\n";
+        [[sql.gen]]\nbackend = \"typescript-postgres\"\noutput = \"o\"\n\n\
+        [[sql.gen]]\nbackend = \"typescript-bun\"\noutput = \"o\"\n";
     let config_path = dir.path().join("scythe.toml");
     std::fs::write(&config_path, config).unwrap();
 
@@ -167,11 +167,11 @@ fn generate_rejects_two_targets_that_would_clobber_each_other() {
         "two targets writing the same file must be rejected, not silently clobber each other; stderr: {err}"
     );
     assert!(
-        err.contains("python-psycopg3") && err.contains("python-asyncpg"),
+        err.contains("typescript-postgres") && err.contains("typescript-bun"),
         "the error must name both colliding targets; stderr: {err}"
     );
     assert!(
-        !dir.path().join("o/queries.py").exists(),
+        !dir.path().join("o/queries.ts").exists(),
         "neither target's output should have been written once a collision is detected"
     );
 }

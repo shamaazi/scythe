@@ -121,63 +121,6 @@ fn migrate_does_not_create_a_backup_when_no_scythe_toml_existed() {
     );
 }
 
-/// #211, item 2: a non-Rust `codegen:` plugin (`golang`, sqlc's real Go
-/// plugin name) must migrate to a `scythe generate`-usable backend, not the
-/// raw plugin name as a language key with a Rust driver default.
-#[test]
-fn migrate_maps_golang_codegen_plugin_to_a_working_go_backend() {
-    let project = TempDir::new().unwrap();
-    std::fs::write(project.path().join("schema.sql"), SCHEMA_SQL).unwrap();
-    std::fs::create_dir_all(project.path().join("queries")).unwrap();
-    std::fs::write(project.path().join("queries/q.sql"), SQLC_QUERY_SQL).unwrap();
-
-    let sqlc_config = "version: \"2\"\n\
-         sql:\n\
-         \x20 - engine: postgresql\n\
-         \x20\x20\x20 schema: schema.sql\n\
-         \x20\x20\x20 queries: queries\n\
-         \x20\x20\x20 codegen:\n\
-         \x20\x20\x20\x20\x20 - plugin: golang\n\
-         \x20\x20\x20\x20\x20\x20\x20 out: gen/go\n";
-    std::fs::write(project.path().join("sqlc.yaml"), sqlc_config).unwrap();
-
-    let migrate_output = scythe_bin()
-        .args(["migrate", "sqlc.yaml"])
-        .current_dir(project.path())
-        .output()
-        .expect("run scythe migrate");
-    assert!(
-        migrate_output.status.success(),
-        "migrate must succeed; stderr: {}",
-        stderr(&migrate_output)
-    );
-
-    let scythe_toml = std::fs::read_to_string(project.path().join("scythe.toml")).unwrap();
-    assert!(
-        scythe_toml.contains("[sql.gen.go]"),
-        "expected the codegen plugin normalized to the 'go' language key, got:\n{scythe_toml}"
-    );
-    assert!(
-        !scythe_toml.contains("tokio-postgres"),
-        "a Go target must never default to a Rust driver name, got:\n{scythe_toml}"
-    );
-
-    let generate_output = scythe_bin()
-        .args(["generate", "--config", "scythe.toml"])
-        .current_dir(project.path())
-        .output()
-        .expect("run scythe generate");
-    assert!(
-        generate_output.status.success(),
-        "scythe generate must accept the migrated config; stderr: {}",
-        stderr(&generate_output)
-    );
-    assert!(
-        project.path().join("gen/go/queries.go").exists(),
-        "expected a generated queries.go under gen/go"
-    );
-}
-
 /// #211, item 3: a query file with no `-- name:` annotations passes through
 /// `migrate` unchanged and must not be counted as "converted".
 #[test]

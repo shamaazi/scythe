@@ -72,7 +72,7 @@ in
         scythe="$(cargo metadata --format-version 1 --no-deps | ${pkgs.jq}/bin/jq -r .target_directory)/debug/scythe"
         cargo run --locked --quiet -p integration-test-generator
         # These keep their scythe.toml and scaffolding by hand, outside the templates.
-        hand_maintained="kotlin-jdbc-ext php-pdo-namespace rust-sqlx-nested-json typescript-bun"
+        hand_maintained="rust-sqlx-nested-json typescript-bun"
         for backend in $(cargo run --locked --quiet -p integration-test-generator -- --list) $hand_maintained; do
           (cd "integration_tests/$backend" && "$scythe" generate)
         done
@@ -82,7 +82,9 @@ in
       description = "Fail if regenerating the fixture tests or integration code changes anything";
       after = [ "scythe:generate" ];
       exec = ''
-        status=$(git status --porcelain -- crates/scythe-codegen/tests/generated integration_tests)
+        paths="crates/scythe-codegen/tests/generated integration_tests"
+        # Against the index, so staged but uncommitted work counts as the baseline.
+        status=$(git diff --name-only -- $paths; git ls-files --others --exclude-standard -- $paths)
         if [ -n "$status" ]; then
           printf '%s\n' "$status"
           echo "Generated code is stale: run 'devenv tasks run scythe:generate' and commit the result." >&2

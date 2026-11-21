@@ -138,24 +138,3 @@ fn redshift_schema_pg_compat_matches_schema_shape() {
     // with the file everything actually uses.
     assert_same_shape("redshift/schema.sql", "redshift/schema_pg_compat.sql");
 }
-
-#[test]
-fn typescript_and_csharp_harnesses_load_the_selected_schema_fixture() {
-    for template_path in ["templates/typescript.ts.jinja", "templates/csharp.cs.jinja"] {
-        let template =
-            fs::read_to_string(template_path).unwrap_or_else(|error| panic!("reading {template_path}: {error}"));
-
-        assert!(
-            !template.contains("CREATE TABLE"),
-            "{template_path} must not duplicate fixture DDL with inline CREATE TABLE statements"
-        );
-        assert!(
-            !template.contains("schema.sql"),
-            "{template_path} must not hardcode schema.sql instead of the selected schema_file"
-        );
-        assert!(
-            template.contains("{{ schema_dir }}") && template.contains("{{ schema_file }}"),
-            "{template_path} must load the schema selected by the generator"
-        );
-    }
-}

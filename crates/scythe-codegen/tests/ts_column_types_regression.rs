@@ -45,7 +45,7 @@ const COUNT: &str = "-- @name CountSchedules\n-- @returns :one\nSELECT count(*) 
 
 const MODULE: &str = "@app/database/columns";
 
-const BACKENDS: [&str; 3] = ["typescript-bun", "typescript-postgres", "typescript-pg"];
+const BACKENDS: [&str; 2] = ["typescript-bun", "typescript-postgres"];
 
 fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
     let mut backend = get_backend(name, "postgresql").unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -199,7 +199,7 @@ fn should_reject_invalid_modules_zod_and_js_mode() {
             assert!(backend.apply_options(&options).is_err(), "{name}: {options:?}");
         }
     }
-    for name in ["javascript-bun", "javascript-postgres", "javascript-pg"] {
+    for name in ["javascript-bun", "javascript-postgres"] {
         let mut backend = get_backend(name, "postgresql").unwrap();
         let options = HashMap::from([("column_types".to_string(), MODULE.to_string())]);
         assert!(backend.apply_options(&options).is_err(), "{name}");

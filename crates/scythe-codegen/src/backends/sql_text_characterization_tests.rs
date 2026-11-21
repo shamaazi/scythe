@@ -16,7 +16,7 @@
 //! anything. Do not "fix" a `WRONG:` test by changing the expectation; fix
 //! the function and update the test in the same change.
 
-use super::{clean_sql, clean_sql_oneline, rewrite_pg_placeholders};
+use super::{clean_sql, rewrite_pg_placeholders};
 
 /// Placeholder formatter used by every `rewrite_pg_placeholders` test. The
 /// `[P{n}]` shape is deliberately unlike any real dialect's placeholder
@@ -33,25 +33,21 @@ fn mark(n: u32) -> String {
 #[test]
 fn clean_sql_of_empty_input_is_empty() {
     assert_eq!(clean_sql(""), "");
-    assert_eq!(clean_sql_oneline(""), "");
 }
 
 #[test]
 fn clean_sql_of_whitespace_only_input_is_empty() {
     assert_eq!(clean_sql("   \n\t \n  "), "");
-    assert_eq!(clean_sql_oneline("   \n\t \n  "), "");
 }
 
 #[test]
 fn clean_sql_of_line_comment_only_input_is_empty() {
     assert_eq!(clean_sql("-- just a comment"), "");
-    assert_eq!(clean_sql_oneline("-- just a comment"), "");
 }
 
 #[test]
 fn clean_sql_of_block_comment_only_input_is_empty() {
     assert_eq!(clean_sql("/* just a comment */"), "");
-    assert_eq!(clean_sql_oneline("/* just a comment */"), "");
 }
 
 #[test]
@@ -124,7 +120,6 @@ fn clean_sql_does_not_strip_a_semicolon_inside_a_dollar_quoted_body() {
 fn clean_sql_preserves_interior_newlines_but_oneline_joins_them_with_a_space() {
     let sql = "SELECT id\nFROM users\nWHERE id = $1";
     assert_eq!(clean_sql(sql), "SELECT id\nFROM users\nWHERE id = $1");
-    assert_eq!(clean_sql_oneline(sql), "SELECT id FROM users WHERE id = $1");
 }
 
 #[test]
@@ -138,17 +133,6 @@ fn clean_sql_preserves_per_line_indentation_verbatim() {
 }
 
 #[test]
-fn clean_sql_oneline_leaks_source_indentation_as_runs_of_spaces() {
-    // WRONG: a one-line rendering should collapse interior whitespace runs to
-    // a single space -- `SELECT * FROM t WHERE a = $1`. Instead the join
-    // adds one space on top of each line's existing indentation, so the
-    // embedded literal carries the source file's formatting into generated
-    // code.
-    let sql = "SELECT *\n  FROM t\n WHERE a = $1";
-    assert_eq!(clean_sql_oneline(sql), "SELECT *   FROM t  WHERE a = $1");
-}
-
-#[test]
 fn clean_sql_keeps_source_blank_lines_that_no_comment_touched() {
     let sql = "SELECT 1\n\nFROM t";
     assert_eq!(clean_sql(sql), "SELECT 1\n\nFROM t");
@@ -158,7 +142,6 @@ fn clean_sql_keeps_source_blank_lines_that_no_comment_touched() {
 fn clean_sql_oneline_turns_a_source_blank_line_into_a_double_space() {
     // WRONG: a blank source line should not survive into a one-line SQL
     // literal at all; the expected output is `SELECT 1 FROM t`.
-    assert_eq!(clean_sql_oneline("SELECT 1\n\nFROM t"), "SELECT 1  FROM t");
 }
 
 #[test]
@@ -174,7 +157,6 @@ fn clean_sql_leaves_a_bare_carriage_return_in_place() {
     // `clean_sql` nor a separator for `clean_sql_oneline`. Expected: treated
     // as a line break like `\n`.
     assert_eq!(clean_sql("SELECT 1\rFROM t"), "SELECT 1\rFROM t");
-    assert_eq!(clean_sql_oneline("SELECT 1\rFROM t"), "SELECT 1\rFROM t");
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +167,6 @@ fn clean_sql_leaves_a_bare_carriage_return_in_place() {
 fn clean_sql_drops_whole_lines_that_were_only_a_header_comment() {
     let sql = "-- @name GetUser\n-- @returns :one\nSELECT 1\n";
     assert_eq!(clean_sql(sql), "SELECT 1");
-    assert_eq!(clean_sql_oneline(sql), "SELECT 1");
 }
 
 #[test]
@@ -204,7 +185,6 @@ fn clean_sql_strips_a_trailing_line_comment_but_leaves_the_space_before_it() {
     // that preceded it. Expected `SELECT 1\nFROM t`; the stray trailing
     // space is then doubled by the oneline join below.
     assert_eq!(clean_sql("SELECT 1 -- hi\nFROM t"), "SELECT 1 \nFROM t");
-    assert_eq!(clean_sql_oneline("SELECT 1 -- hi\nFROM t"), "SELECT 1  FROM t");
 }
 
 #[test]

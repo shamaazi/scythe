@@ -78,46 +78,6 @@ fn schema_qualified_enum_sanitizes_the_dot_in_rust() {
     );
 }
 
-/// Go: before the fix this line read `type Public.status string`, which does
-/// not parse -- a `.` is a selector, not part of an identifier.
-#[cfg(all(feature = "lang-go", feature = "postgres"))]
-#[test]
-fn schema_qualified_enum_sanitizes_the_dot_in_go() {
-    let code =
-        generate(SCHEMA_QUALIFIED_ENUM_SCHEMA, SCHEMA_QUALIFIED_ENUM_QUERY, "go-pgx").expect("codegen must succeed");
-    let enum_def = code.enum_def.expect("enum definition must be emitted");
-    assert!(
-        enum_def.contains("type PublicStatus string"),
-        "expected the sanitized type name:\n{enum_def}"
-    );
-    assert!(
-        !enum_def.contains("Public.status"),
-        "the unsanitized, unparseable form must not appear:\n{enum_def}"
-    );
-}
-
-/// Python: before the fix this line read `class Public.status(str, Enum):`,
-/// which does not parse -- `.` cannot appear in a class name.
-#[cfg(all(feature = "lang-python", feature = "postgres"))]
-#[test]
-fn schema_qualified_enum_sanitizes_the_dot_in_python() {
-    let code = generate(
-        SCHEMA_QUALIFIED_ENUM_SCHEMA,
-        SCHEMA_QUALIFIED_ENUM_QUERY,
-        "python-asyncpg",
-    )
-    .expect("codegen must succeed");
-    let enum_def = code.enum_def.expect("enum definition must be emitted");
-    assert!(
-        enum_def.contains("class PublicStatus(str, Enum):"),
-        "expected the sanitized type name:\n{enum_def}"
-    );
-    assert!(
-        !enum_def.contains("Public.status"),
-        "the unsanitized, unparseable form must not appear:\n{enum_def}"
-    );
-}
-
 const DEGENERATE_LABEL_SCHEMA: &str = "\
     CREATE TYPE weird_status AS ENUM ('active', '!!!'); \
     CREATE TABLE items (id INT PRIMARY KEY, status weird_status NOT NULL);";
@@ -140,36 +100,6 @@ fn degenerate_label_does_not_collapse_to_an_empty_variant_in_rust() {
     assert!(
         !enum_def.contains("    ,\n"),
         "an empty variant must not appear:\n{enum_def}"
-    );
-}
-
-/// Go (`enum_variant_case = "PascalCase"`): before the fix this printed
-/// `\tWeirdStatus WeirdStatus = "!!!"`, colliding with the type declaration
-/// itself (`type WeirdStatus string`) -- `WeirdStatus redeclared`.
-#[cfg(all(feature = "lang-go", feature = "postgres"))]
-#[test]
-fn degenerate_label_does_not_collapse_to_an_empty_variant_in_go() {
-    let code = generate(DEGENERATE_LABEL_SCHEMA, DEGENERATE_LABEL_QUERY, "go-pgx").expect("codegen must succeed");
-    let enum_def = code.enum_def.expect("enum definition must be emitted");
-    assert!(
-        enum_def.contains("WeirdStatus___ WeirdStatus = \"!!!\""),
-        "expected the non-empty fallback variant:\n{enum_def}"
-    );
-}
-
-/// Python (`enum_variant_case = "SCREAMING_SNAKE_CASE"`) never hit this
-/// defect: `to_snake_case`/`to_uppercase` do not collapse underscores, so
-/// this line already read `    ___ = "!!!"` before and after the fix. Pinned
-/// so the Rust/Go fix above is not mistaken for covering every language.
-#[cfg(all(feature = "lang-python", feature = "postgres"))]
-#[test]
-fn degenerate_label_was_already_non_empty_under_screaming_snake_case() {
-    let code =
-        generate(DEGENERATE_LABEL_SCHEMA, DEGENERATE_LABEL_QUERY, "python-asyncpg").expect("codegen must succeed");
-    let enum_def = code.enum_def.expect("enum definition must be emitted");
-    assert!(
-        enum_def.contains("    ___ = \"!!!\""),
-        "expected the pre-existing non-empty member:\n{enum_def}"
     );
 }
 
@@ -199,18 +129,6 @@ fn two_enums_colliding_on_the_generated_name_is_rejected_not_silently_written_tw
     assert!(message.contains("order_status"), "{message}");
     assert!(message.contains("order__status"), "{message}");
     assert!(message.contains("OrderStatus"), "{message}");
-}
-
-/// The same collision, checked backend-agnostically: the guard lives in
-/// `scythe-codegen`'s shared `generate_with_backend_and_overrides`, not in
-/// any one backend, so it must reject the query under every backend, not
-/// just `rust-sqlx`.
-#[cfg(all(feature = "lang-go", feature = "postgres"))]
-#[test]
-fn two_enums_colliding_on_the_generated_name_is_rejected_under_go_too() {
-    let err =
-        generate(TWO_ENUMS_COLLIDE_SCHEMA, TWO_ENUMS_COLLIDE_QUERY, "go-pgx").expect_err("must not silently succeed");
-    assert_eq!(err.code, ErrorCode::DuplicateAlias);
 }
 
 const ENUM_VS_QUERY_TYPE_SCHEMA: &str = "\
@@ -262,18 +180,6 @@ fn enum_variant_collision_is_rejected_not_silently_written_twice_in_rust() {
     assert!(message.contains("gpt_3_5_turbo"), "{message}");
     assert!(message.contains("Gpt35Turbo"), "{message}");
     assert!(message.contains("model"), "{message}");
-}
-
-/// The same collision, checked backend-agnostically: the guard lives in
-/// `scythe-codegen`'s shared `generate_enum_defs_via_backend`, not in any one
-/// backend, so it must reject the query under every backend whose
-/// `enum_variant_case` produces the collision -- not just `rust-sqlx`.
-#[cfg(all(feature = "lang-go", feature = "postgres"))]
-#[test]
-fn enum_variant_collision_is_rejected_under_go_too() {
-    let err =
-        generate(VARIANT_COLLISION_SCHEMA, VARIANT_COLLISION_QUERY, "go-pgx").expect_err("must not silently succeed");
-    assert_eq!(err.code, ErrorCode::DuplicateAlias);
 }
 
 /// Two enum values that render to *different* variant names under

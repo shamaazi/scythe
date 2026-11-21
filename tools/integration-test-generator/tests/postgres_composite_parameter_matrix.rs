@@ -5,69 +5,19 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 const EXPECTED_PROJECTS: &[&str] = &[
-    "csharp-npgsql",
-    "elixir-ecto",
-    "elixir-postgrex",
-    "go-pgx",
-    "java-jdbc",
-    "java-r2dbc",
-    "kotlin-exposed",
-    "kotlin-jdbc",
-    "kotlin-jdbc-ext",
-    "kotlin-r2dbc",
-    "php-amphp",
-    "php-pdo",
-    "php-pdo-namespace",
-    "python-asyncpg",
-    "python-psycopg3",
-    "python-psycopg3-msgspec",
-    "python-psycopg3-pydantic",
-    "ruby-pg",
     "rust-sqlx",
     "rust-sqlx-nested-json",
     "rust-tokio-postgres",
     "typescript-bun",
-    "typescript-kysely",
-    "typescript-kysely-camel",
-    "typescript-pg",
-    "typescript-pg-camel",
-    "typescript-pg-outer-join-unions",
-    "typescript-pg-structs-only",
-    "typescript-pg-zod",
-    "typescript-pg-zod-outer-join-unions",
-    "typescript-postgres",
 ];
 
-const EXPECTED_BACKENDS: &[&str] = &[
-    "csharp-npgsql",
-    "elixir-ecto",
-    "elixir-postgrex",
-    "go-pgx",
-    "java-jdbc",
-    "java-r2dbc",
-    "kotlin-exposed",
-    "kotlin-jdbc",
-    "kotlin-r2dbc",
-    "php-amphp",
-    "php-pdo",
-    "python-asyncpg",
-    "python-psycopg3",
-    "ruby-pg",
-    "rust-sqlx",
-    "rust-tokio-postgres",
-    "typescript-bun",
-    "typescript-kysely",
-    "typescript-pg",
-    "typescript-postgres",
-];
+const EXPECTED_BACKENDS: &[&str] = &["rust-sqlx", "rust-tokio-postgres", "typescript-bun"];
 
-const DECLARATIONS_ONLY_PROJECT: &str = "typescript-pg-structs-only";
-const NAMESPACE_ONLY_PROJECT: &str = "php-pdo-namespace";
 const QUERY_SYMBOL: &str = "RoundTripUserAddress";
-const EXPECTED_PROJECT_COUNT: usize = 31;
-const EXPECTED_BACKEND_COUNT: usize = 20;
-const EXPECTED_QUERY_CAPABLE_COUNT: usize = 30;
-const EXPECTED_LIVE_HARNESS_COUNT: usize = 29;
+const EXPECTED_PROJECT_COUNT: usize = 4;
+const EXPECTED_BACKEND_COUNT: usize = 3;
+const EXPECTED_QUERY_CAPABLE_COUNT: usize = 4;
+const EXPECTED_LIVE_HARNESS_COUNT: usize = 4;
 const COMPOSITE_PARAMETER_FIXTURE: &str = "VALUES ('Composite Parameter Round Trip', 'active', ($1))";
 
 #[derive(Deserialize)]
@@ -198,13 +148,6 @@ fn every_postgres_project_covers_the_composite_parameter_query() {
             project_contains(project, QUERY_SYMBOL),
             "{project} does not generate {QUERY_SYMBOL}"
         );
-        if project == DECLARATIONS_ONLY_PROJECT || project == NAMESPACE_ONLY_PROJECT {
-            assert!(
-                !harness_contains(project, QUERY_SYMBOL),
-                "{project} must remain runtime-free"
-            );
-            continue;
-        }
         live_harnesses += 1;
         assert!(
             harness_contains(project, QUERY_SYMBOL),
@@ -212,7 +155,7 @@ fn every_postgres_project_covers_the_composite_parameter_query() {
         );
     }
     assert_eq!(
-        projects.len() - 1,
+        projects.len(),
         EXPECTED_QUERY_CAPABLE_COUNT,
         "query-capable project count drifted"
     );

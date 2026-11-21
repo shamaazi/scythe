@@ -42,7 +42,7 @@ const ADD: &str = "-- @name AddCause\n-- @returns :exec\n\
 
 const NOTES: &str = "-- @name CauseNotes\n-- @returns :many\nSELECT notes, raised FROM causes;";
 
-const BACKENDS: [&str; 3] = ["typescript-bun", "typescript-postgres", "typescript-pg"];
+const BACKENDS: [&str; 2] = ["typescript-bun", "typescript-postgres"];
 
 fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
     let mut backend = get_backend(name, "postgresql").unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -165,7 +165,7 @@ fn should_reject_invalid_option_values_and_js_mode() {
         let options = HashMap::from([(key.to_string(), value.to_string())]);
         assert!(backend.apply_options(&options).is_err(), "{key} = {value}");
     }
-    for name in ["javascript-bun", "javascript-pg"] {
+    for name in ["javascript-bun", "javascript-postgres"] {
         let mut backend = get_backend(name, "postgresql").unwrap();
         let options = HashMap::from([("validation".to_string(), "jsdoc".to_string())]);
         assert!(backend.apply_options(&options).is_err(), "{name}");

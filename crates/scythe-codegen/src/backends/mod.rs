@@ -3,132 +3,21 @@
 // which compiles every language, is the one dead-code analysis applies to.
 #![cfg_attr(not(feature = "all-languages"), allow(dead_code))]
 
-#[cfg(feature = "lang-csharp")]
-pub(crate) mod csharp_microsoft_sqlite;
-#[cfg(feature = "lang-csharp")]
-pub(crate) mod csharp_mysqlconnector;
-#[cfg(feature = "lang-csharp")]
-pub(crate) mod csharp_npgsql;
-#[cfg(feature = "lang-csharp")]
-pub(crate) mod csharp_oracle;
-#[cfg(feature = "lang-csharp")]
-pub(crate) mod csharp_snowflake;
-#[cfg(feature = "lang-csharp")]
-pub(crate) mod csharp_sqlclient;
-#[cfg(feature = "lang-elixir")]
-pub(crate) mod elixir_common;
-#[cfg(feature = "lang-elixir")]
-pub(crate) mod elixir_ecto;
-#[cfg(feature = "lang-elixir")]
-pub(crate) mod elixir_exqlite;
-#[cfg(feature = "lang-elixir")]
-pub(crate) mod elixir_jamdb;
-#[cfg(feature = "lang-elixir")]
-pub(crate) mod elixir_myxql;
-#[cfg(feature = "lang-elixir")]
-pub(crate) mod elixir_postgrex;
-#[cfg(feature = "lang-elixir")]
-pub(crate) mod elixir_tds;
-#[cfg(feature = "lang-go")]
-pub(crate) mod go_common;
-#[cfg(feature = "lang-go")]
-pub(crate) mod go_database_sql;
-#[cfg(feature = "lang-go")]
-pub(crate) mod go_godror;
-#[cfg(feature = "lang-go")]
-pub(crate) mod go_gosnowflake;
-#[cfg(feature = "lang-go")]
-pub(crate) mod go_pgx;
-#[cfg(feature = "lang-java")]
-pub(crate) mod java_jdbc;
-#[cfg(feature = "lang-java")]
-pub(crate) mod java_r2dbc;
-#[cfg(any(feature = "lang-java", feature = "lang-kotlin"))]
-pub(crate) mod jvm_common;
-#[cfg(feature = "lang-kotlin")]
-pub(crate) mod kotlin_exposed;
-#[cfg(feature = "lang-kotlin")]
-pub(crate) mod kotlin_jdbc;
-#[cfg(feature = "lang-kotlin")]
-pub(crate) mod kotlin_r2dbc;
-#[cfg(feature = "lang-php")]
-pub(crate) mod php_amphp;
-#[cfg(feature = "lang-php")]
-pub(crate) mod php_common;
-#[cfg(feature = "lang-php")]
-pub(crate) mod php_pdo;
-#[cfg(feature = "lang-python")]
-pub(crate) mod python_aiomysql;
-#[cfg(feature = "lang-python")]
-pub(crate) mod python_aiosqlite;
-#[cfg(feature = "lang-python")]
-pub(crate) mod python_asyncpg;
-#[cfg(feature = "lang-python")]
-pub(crate) mod python_common;
-#[cfg(feature = "lang-python")]
-pub(crate) mod python_duckdb;
-#[cfg(feature = "lang-python")]
-pub(crate) mod python_oracledb;
-#[cfg(feature = "lang-python")]
-pub(crate) mod python_psycopg3;
-#[cfg(feature = "lang-python")]
-pub(crate) mod python_pyodbc;
-#[cfg(feature = "lang-python")]
-pub(crate) mod python_snowflake;
-#[cfg(feature = "lang-ruby")]
-pub(crate) mod ruby_mysql2;
-#[cfg(feature = "lang-ruby")]
-pub(crate) mod ruby_oci8;
-#[cfg(feature = "lang-ruby")]
-pub(crate) mod ruby_pg;
-#[cfg(feature = "lang-ruby")]
-pub(crate) mod ruby_rbs;
-#[cfg(feature = "lang-ruby")]
-pub(crate) mod ruby_sqlite3;
-#[cfg(feature = "lang-ruby")]
-pub(crate) mod ruby_tiny_tds;
-#[cfg(feature = "lang-ruby")]
-pub(crate) mod ruby_trilogy;
-#[cfg(feature = "lang-rust")]
-pub(crate) mod rust_sibyl;
-#[cfg(feature = "lang-rust")]
-pub(crate) mod rust_tiberius;
 #[cfg(feature = "lang-rust")]
 pub(crate) mod sqlx;
 #[cfg(feature = "lang-rust")]
 pub(crate) mod tokio_postgres;
 #[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_better_sqlite3;
-#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_common;
 #[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_duckdb;
-#[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_kysely;
-#[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_mssql;
-#[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_mysql2;
-#[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_node_sqlite;
-#[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_oracledb;
-#[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_pg;
-#[cfg(feature = "lang-typescript")]
 pub(crate) mod typescript_postgres;
-#[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_snowflake;
-#[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_wasm_sqlite;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::NamingConfig;
 use scythe_core::SqlDialect;
 use scythe_core::analyzer::AnalyzedParam;
 use scythe_core::errors::{ErrorCode, ScytheError};
 
-use crate::backend_trait::{CodegenBackend, ResolvedParam};
+use crate::backend_trait::CodegenBackend;
 
 /// Parse a backend's compiled-in manifest.
 ///
@@ -144,39 +33,6 @@ pub(crate) fn query_doc_text<'a>(analyzed: &'a scythe_core::analyzer::AnalyzedQu
 
 pub(crate) fn parse_manifest(manifest_toml: &str) -> Result<BackendManifest, ScytheError> {
     toml::from_str(manifest_toml).map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
-}
-
-/// Validate and apply the `field_case` backend option, writing it into a
-/// backend's `NamingConfig`.
-///
-/// Shared by the five driver-level Java and Kotlin backends (`java-jdbc`,
-/// `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `kotlin-exposed`). Unlike the
-/// TypeScript backends' `field_case` (see `typescript_common::TsFieldCase`),
-/// none of these five need a companion runtime remap: every row they build
-/// comes from an explicit `ResultSet`/`Row` getter call keyed by the raw SQL
-/// column name (`ResolvedColumn::name`), with `ResolvedColumn::field_name`
-/// used only as the emitted record/data-class property name -- see e.g.
-/// `java_jdbc::col_rs_expr`, which reads `rs.getX(col.name)` and assigns it
-/// positionally into a constructor whose declared parameter is `col.field_name`.
-/// Renaming the property therefore never changes what key the driver is
-/// asked to look up. `resolve::resolve_columns` is what performs the actual
-/// rename (and rejects same-query collisions) once this sets
-/// `NamingConfig.field_case`.
-pub(crate) fn apply_field_case_option(
-    naming: &mut NamingConfig,
-    backend_name: &str,
-    value: &str,
-) -> Result<(), ScytheError> {
-    match value {
-        "snake_case" | "camelCase" => {
-            naming.field_case = value.to_string();
-            Ok(())
-        }
-        other => Err(ScytheError::new(
-            ErrorCode::InvalidConfig,
-            format!("{backend_name}: invalid field_case '{other}' (expected 'snake_case' or 'camelCase')"),
-        )),
-    }
 }
 
 /// Whether a backend built for `engine` may emit nested-aggregate structs.
@@ -212,37 +68,6 @@ pub(crate) fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, 
 
 pub(crate) fn engine_supports_nested_aggregates(engine: &str) -> bool {
     matches!(engine, "postgresql" | "postgres" | "pg")
-}
-
-/// The ADO.NET accessor a `csharp-*` backend must use for a column whose
-/// neutral type its driver-specific accessor table does not name.
-///
-/// `DbDataReader.GetValue` is declared to return `object`, so a record field
-/// the manifest declared as anything else -- `List<{T}>` for an `array`,
-/// `byte[]` for `bytes`, a composite record, `{T}` for `json_typed` -- does
-/// not bind to it. The compiler rejects the constructor call outright:
-///
-/// ```text
-/// error CS1503: Argument 2: cannot convert from 'object' to
-/// 'System.Collections.Generic.List<string>'
-/// ```
-///
-/// `DbDataReader.GetFieldValue<T>` is the typed path every ADO.NET provider
-/// inherits, and it returns `T` by signature. Naming the manifest's own
-/// declared type as `T` therefore makes the reader agree with the declaration
-/// by construction, rather than by a second hand-maintained table that can
-/// drift away from the manifest -- which is precisely how this defect
-/// (issue #155) survived in five backends at once.
-///
-/// The typed path is not merely a compile-time trick: verified against a live
-/// PostgreSQL 17 server through Npgsql 8, `GetFieldValue<List<string>>` reads
-/// a `text[]`, `GetFieldValue<TimeSpan>` an `interval`,
-/// `GetFieldValue<System.Net.IPAddress>` an `inet` and
-/// `GetFieldValue<byte[]>` a `bytea`. Degrading the *manifest* to whatever
-/// `GetValue`/`GetString` happens to return would throw away types the driver
-/// can genuinely produce.
-pub(crate) fn csharp_typed_reader_method(lang_type: &str) -> String {
-    format!("GetFieldValue<{lang_type}>")
 }
 
 /// A classified span of SQL text produced by [`tokenize_sql`].
@@ -494,17 +319,6 @@ pub(crate) fn clean_sql(sql: &str) -> String {
         .to_string()
 }
 
-/// Like clean_sql but joins lines with spaces (for languages that embed SQL inline).
-/// Dialect-blind; see [`clean_sql`]'s doc comment.
-pub(crate) fn clean_sql_oneline(sql: &str) -> String {
-    clean_sql_lines(sql, SqlDialect::PostgreSQL)
-        .join(" ")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 /// Dialect-aware [`clean_sql`]: recognizes MySQL backtick identifiers/`#`
 /// comments and MSSQL `[bracketed]` identifiers per `dialect` (board #148).
 ///
@@ -523,16 +337,6 @@ pub(crate) fn clean_sql_oneline(sql: &str) -> String {
 pub(crate) fn clean_sql_dialect(sql: &str, dialect: SqlDialect) -> String {
     clean_sql_lines(sql, dialect)
         .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
-/// Dialect-aware [`clean_sql_oneline`]; see [`clean_sql_dialect`].
-pub(crate) fn clean_sql_oneline_dialect(sql: &str, dialect: SqlDialect) -> String {
-    clean_sql_lines(sql, dialect)
-        .join(" ")
         .trim()
         .trim_end_matches(';')
         .trim()
@@ -802,28 +606,6 @@ pub(crate) fn clean_sql_with_optional(sql: &str, optional_params: &[String], par
     rewrite_optional_params(&cleaned, optional_params, params)
 }
 
-/// Clean SQL (oneline) and apply optional parameter rewriting.
-/// Dialect-blind; see [`clean_sql`]'s doc comment.
-pub(crate) fn clean_sql_oneline_with_optional(
-    sql: &str,
-    optional_params: &[String],
-    params: &[AnalyzedParam],
-) -> String {
-    let cleaned = clean_sql_oneline(sql);
-    rewrite_optional_params(&cleaned, optional_params, params)
-}
-
-/// Dialect-aware [`clean_sql_oneline_with_optional`]; see [`clean_sql_dialect`].
-pub(crate) fn clean_sql_oneline_with_optional_dialect(
-    sql: &str,
-    dialect: SqlDialect,
-    optional_params: &[String],
-    params: &[AnalyzedParam],
-) -> String {
-    let cleaned = clean_sql_oneline_dialect(sql, dialect);
-    rewrite_optional_params(&cleaned, optional_params, params)
-}
-
 fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '.'
 }
@@ -871,126 +653,6 @@ pub(crate) fn rewrite_pg_placeholders(sql: &str, formatter: impl Fn(u32) -> Stri
         }
     }
     result
-}
-
-/// Whether a bare `?` can ever be a placeholder under `dialect`, decided from
-/// the dialect alone -- replacing the `$N`-occurrence heuristic in
-/// [`rewrite_pg_placeholders`] (board #148 item 1, #186).
-///
-/// Verified against sqlparser 0.62's own tokenizer (`src/tokenizer.rs`,
-/// the `'?' if self.dialect.supports_geometric_types()` arm, with the
-/// source comment "Postgres uses ? for jsonb operators, not prepared
-/// statements"): `PostgreSqlDialect` is the only builtin dialect that
-/// overrides `supports_geometric_types()` to `true` (`dialect/postgresql.rs`),
-/// so it is the only dialect whose tokenizer never emits `Token::Placeholder`
-/// for a lone `?` -- it always emits `Token::Question` or one of the
-/// JSONB/geometric operator tokens instead. A PostgreSQL query containing
-/// `data ? 'active'` therefore never held a placeholder in the first place,
-/// with or without another `$N` elsewhere in the query, and no
-/// parameter-count heuristic is needed to tell the two apart. Every other
-/// dialect this crate targets (MySQL, SQLite, MsSql, Oracle, Snowflake) uses
-/// bare `?` as its native positional placeholder syntax and has no
-/// JSONB-style operator that collides with it.
-fn dialect_allows_bare_question_mark_placeholder(dialect: SqlDialect) -> bool {
-    !matches!(dialect, SqlDialect::PostgreSQL)
-}
-
-/// Dialect-aware rewrite of SQL placeholders (`$N` or bare `?`), returning
-/// both the rewritten SQL and, for each placeholder occurrence rewritten (in
-/// textual order, including repeats), the `$N`/`?N` position number it
-/// resolved to.
-///
-/// Unlike [`rewrite_pg_placeholders`], whether a bare `?` is a placeholder is
-/// decided from `dialect` alone via
-/// [`dialect_allows_bare_question_mark_placeholder`], never from whether the
-/// query happens to also contain a `$N`.
-///
-/// The returned position list is what lets a caller bind per SQL-text
-/// occurrence instead of per declared parameter (GH #149): `$2 ... $1`
-/// binds out of declaration order, a repeated `$1` produces two occurrences
-/// of position `1`, and an `@optional` rewrite (`($1 IS NULL OR col = $1)`)
-/// likewise produces two occurrences of the same position -- all three need
-/// one bind per occurrence, not one bind per unique parameter, or the
-/// generated code either swaps arguments or throws a parameter-count
-/// mismatch at runtime.
-pub(crate) fn rewrite_placeholders_indexed(
-    sql: &str,
-    dialect: SqlDialect,
-    formatter: impl Fn(u32) -> String,
-) -> (String, Vec<u32>) {
-    let spans = tokenize_sql(sql, dialect);
-    let bare_question_is_placeholder = dialect_allows_bare_question_mark_placeholder(dialect);
-
-    let mut result = String::with_capacity(sql.len());
-    let mut positional_counter: u32 = 0;
-    let mut occurrences: Vec<u32> = Vec::new();
-    for (kind, text) in &spans {
-        if *kind == SqlSpanKind::Code {
-            rewrite_code_span_placeholders(
-                text,
-                bare_question_is_placeholder,
-                &formatter,
-                &mut positional_counter,
-                &mut result,
-                &mut occurrences,
-            );
-        } else {
-            result.push_str(text);
-        }
-    }
-    (result, occurrences)
-}
-
-/// Resolve the [`ResolvedParam`] that a [`rewrite_placeholders_indexed`]
-/// occurrence position refers to.
-///
-/// `resolve::resolve_params` builds `resolved` from `analyzed_params` in the
-/// same order (one output per input, positionally), so the index into one
-/// slice is the index into the other; `analyzed_params[i].position` is the
-/// actual `$N` the analyzer resolved parameter `i` to. This is what lets a
-/// backend bind an occurrence's own position back to a concrete parameter
-/// instead of assuming SQL-declaration order matches bind order (#149): a
-/// repeated `$1`, an out-of-order `$2 ... $1`, and an `@optional` rewrite all
-/// resolve correctly through this lookup because it is driven by the
-/// occurrence's own position, never by loop index.
-///
-/// Panics if `position` is not among `analyzed_params` -- every position
-/// [`rewrite_placeholders_indexed`] returns came from the same SQL text the
-/// analyzer walked to build `analyzed_params`, so a miss here means the two
-/// disagree about what that SQL contains, which is a scythe bug, not
-/// something a caller can recover from.
-pub(crate) fn resolved_param_for_position<'a>(
-    analyzed_params: &[AnalyzedParam],
-    resolved: &'a [ResolvedParam],
-    position: u32,
-) -> &'a ResolvedParam {
-    let idx = analyzed_params
-        .iter()
-        .position(|p| p.position == i64::from(position))
-        .unwrap_or_else(|| panic!("no analyzed parameter at position {position}; analyzed_params={analyzed_params:?}"));
-    &resolved[idx]
-}
-
-/// ~keep Rewrite live SQL placeholders and append PostgreSQL casts derived from their resolved types.
-pub(crate) fn rewrite_pg_typed_placeholders(
-    sql: &str,
-    analyzed_params: &[AnalyzedParam],
-    resolved_params: &[ResolvedParam],
-    cast_enums: bool,
-    formatter: impl Fn(u32) -> String,
-) -> (String, Vec<u32>) {
-    rewrite_placeholders_indexed(sql, SqlDialect::PostgreSQL, |position| {
-        let mut placeholder = formatter(position);
-        let param = resolved_param_for_position(analyzed_params, resolved_params, position);
-        if cast_enums && let Some(enum_type) = param.neutral_type.strip_prefix("enum::") {
-            placeholder.push_str("::");
-            placeholder.push_str(enum_type);
-        } else if let Some(composite_type) = param.neutral_type.strip_prefix("composite::") {
-            placeholder.push_str("::text::");
-            placeholder.push_str(composite_type);
-        }
-        placeholder
-    })
 }
 
 /// Whether `text` (a `Code`-span substring, guaranteed free of strings and
@@ -1106,23 +768,6 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "rust-tokio-postgres" | "tokio-postgres" => {
             backend!("lang-rust", tokio_postgres::TokioPostgresBackend::new(canonical_engine))
         }
-        "python-psycopg3" | "python" => backend!(
-            "lang-python",
-            python_psycopg3::PythonPsycopg3Backend::new(canonical_engine)
-        ),
-        "python-asyncpg" => backend!(
-            "lang-python",
-            python_asyncpg::PythonAsyncpgBackend::new(canonical_engine)
-        ),
-        "python-aiomysql" => backend!(
-            "lang-python",
-            python_aiomysql::PythonAiomysqlBackend::new(canonical_engine)
-        ),
-        "python-aiosqlite" => backend!(
-            "lang-python",
-            python_aiosqlite::PythonAiosqliteBackend::new(canonical_engine)
-        ),
-        "python-duckdb" => backend!("lang-python", python_duckdb::PythonDuckdbBackend::new(canonical_engine)),
         "typescript-postgres" | "ts" | "typescript" => backend!(
             "lang-typescript",
             typescript_postgres::TypescriptPostgresBackend::new(canonical_engine)
@@ -1138,157 +783,6 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "javascript-bun" => backend!(
             "lang-typescript",
             typescript_postgres::TypescriptPostgresBackend::new_bun_js(canonical_engine)
-        ),
-        "typescript-pg" => backend!(
-            "lang-typescript",
-            typescript_pg::TypescriptPgBackend::new(canonical_engine)
-        ),
-        "javascript-pg" => backend!(
-            "lang-typescript",
-            typescript_pg::TypescriptPgBackend::new_js(canonical_engine)
-        ),
-        "typescript-mysql2" => backend!(
-            "lang-typescript",
-            typescript_mysql2::TypescriptMysql2Backend::new(canonical_engine)
-        ),
-        "javascript-mysql2" => backend!(
-            "lang-typescript",
-            typescript_mysql2::TypescriptMysql2Backend::new_js(canonical_engine)
-        ),
-        "typescript-better-sqlite3" => backend!(
-            "lang-typescript",
-            typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new(canonical_engine)
-        ),
-        "javascript-better-sqlite3" => backend!(
-            "lang-typescript",
-            typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new_js(canonical_engine)
-        ),
-        "typescript-duckdb" => backend!(
-            "lang-typescript",
-            typescript_duckdb::TypescriptDuckdbBackend::new(canonical_engine)
-        ),
-        "javascript-duckdb" => backend!(
-            "lang-typescript",
-            typescript_duckdb::TypescriptDuckdbBackend::new_js(canonical_engine)
-        ),
-        "typescript-node-sqlite" => backend!(
-            "lang-typescript",
-            typescript_node_sqlite::TypescriptNodeSqliteBackend::new(canonical_engine)
-        ),
-        "javascript-node-sqlite" => backend!(
-            "lang-typescript",
-            typescript_node_sqlite::TypescriptNodeSqliteBackend::new_js(canonical_engine)
-        ),
-        "typescript-wasm-sqlite" => backend!(
-            "lang-typescript",
-            typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new(canonical_engine)
-        ),
-        "javascript-wasm-sqlite" => backend!(
-            "lang-typescript",
-            typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new_js(canonical_engine)
-        ),
-        "typescript-kysely" | "kysely" => backend!(
-            "lang-typescript",
-            typescript_kysely::TypescriptKyselyBackend::new(canonical_engine)
-        ),
-        "go-database-sql" => backend!("lang-go", go_database_sql::GoDatabaseSqlBackend::new(canonical_engine)),
-        "go-pgx" | "go" => backend!("lang-go", go_pgx::GoPgxBackend::new(canonical_engine)),
-        "java-jdbc" | "java" => backend!("lang-java", java_jdbc::JavaJdbcBackend::new(canonical_engine)),
-        "java-r2dbc" | "r2dbc-java" => backend!("lang-java", java_r2dbc::JavaR2dbcBackend::new(canonical_engine)),
-        "kotlin-exposed" | "exposed" => backend!(
-            "lang-kotlin",
-            kotlin_exposed::KotlinExposedBackend::new(canonical_engine)
-        ),
-        "kotlin-jdbc" | "kotlin" | "kt" => {
-            backend!("lang-kotlin", kotlin_jdbc::KotlinJdbcBackend::new(canonical_engine))
-        }
-        "kotlin-r2dbc" | "r2dbc-kotlin" => {
-            backend!("lang-kotlin", kotlin_r2dbc::KotlinR2dbcBackend::new(canonical_engine))
-        }
-        "csharp-npgsql" | "csharp" | "c#" | "dotnet" => {
-            backend!("lang-csharp", csharp_npgsql::CsharpNpgsqlBackend::new(canonical_engine))
-        }
-        "csharp-mysqlconnector" => backend!(
-            "lang-csharp",
-            csharp_mysqlconnector::CsharpMysqlConnectorBackend::new(canonical_engine)
-        ),
-        "csharp-microsoft-sqlite" => backend!(
-            "lang-csharp",
-            csharp_microsoft_sqlite::CsharpMicrosoftSqliteBackend::new(canonical_engine)
-        ),
-        "elixir-postgrex" | "elixir" | "ex" => backend!(
-            "lang-elixir",
-            elixir_postgrex::ElixirPostgrexBackend::new(canonical_engine)
-        ),
-        "elixir-ecto" | "ecto" => backend!("lang-elixir", elixir_ecto::ElixirEctoBackend::new(canonical_engine)),
-        "elixir-myxql" => backend!("lang-elixir", elixir_myxql::ElixirMyxqlBackend::new(canonical_engine)),
-        "elixir-exqlite" => backend!(
-            "lang-elixir",
-            elixir_exqlite::ElixirExqliteBackend::new(canonical_engine)
-        ),
-        "ruby-pg" | "ruby" | "rb" => backend!("lang-ruby", ruby_pg::RubyPgBackend::new(canonical_engine)),
-        "ruby-mysql2" => backend!("lang-ruby", ruby_mysql2::RubyMysql2Backend::new(canonical_engine)),
-        "ruby-sqlite3" => backend!("lang-ruby", ruby_sqlite3::RubySqlite3Backend::new(canonical_engine)),
-        "ruby-trilogy" | "trilogy" => backend!("lang-ruby", ruby_trilogy::RubyTrilogyBackend::new(canonical_engine)),
-        "php-pdo" | "php" => backend!("lang-php", php_pdo::PhpPdoBackend::new(canonical_engine)),
-        "php-amphp" | "amphp" => backend!("lang-php", php_amphp::PhpAmphpBackend::new(canonical_engine)),
-        "rust-tiberius" | "tiberius" => {
-            backend!("lang-rust", rust_tiberius::RustTiberiusBackend::new(canonical_engine))
-        }
-        "python-pyodbc" | "pyodbc" => {
-            backend!("lang-python", python_pyodbc::PythonPyodbcBackend::new(canonical_engine))
-        }
-        "typescript-mssql" | "tedious" => backend!(
-            "lang-typescript",
-            typescript_mssql::TypescriptMssqlBackend::new(canonical_engine)
-        ),
-        "javascript-mssql" => backend!(
-            "lang-typescript",
-            typescript_mssql::TypescriptMssqlBackend::new_js(canonical_engine)
-        ),
-        "csharp-sqlclient" => backend!(
-            "lang-csharp",
-            csharp_sqlclient::CsharpSqlClientBackend::new(canonical_engine)
-        ),
-        "ruby-tiny-tds" | "tiny-tds" | "tiny_tds" => {
-            backend!("lang-ruby", ruby_tiny_tds::RubyTinyTdsBackend::new(canonical_engine))
-        }
-        "elixir-tds" | "tds" => backend!("lang-elixir", elixir_tds::ElixirTdsBackend::new(canonical_engine)),
-        "rust-sibyl" | "sibyl" => backend!("lang-rust", rust_sibyl::RustSibylBackend::new(canonical_engine)),
-        "python-oracledb" | "oracledb" => backend!(
-            "lang-python",
-            python_oracledb::PythonOracledbBackend::new(canonical_engine)
-        ),
-        "typescript-oracledb" => backend!(
-            "lang-typescript",
-            typescript_oracledb::TypescriptOracledbBackend::new(canonical_engine)
-        ),
-        "javascript-oracledb" => backend!(
-            "lang-typescript",
-            typescript_oracledb::TypescriptOracledbBackend::new_js(canonical_engine)
-        ),
-        "go-godror" | "godror" => backend!("lang-go", go_godror::GoGodrorBackend::new(canonical_engine)),
-        "csharp-oracle" => backend!("lang-csharp", csharp_oracle::CsharpOracleBackend::new(canonical_engine)),
-        "ruby-oci8" | "oci8" => backend!("lang-ruby", ruby_oci8::RubyOci8Backend::new(canonical_engine)),
-        "elixir-jamdb" | "jamdb" => backend!("lang-elixir", elixir_jamdb::ElixirJamdbBackend::new(canonical_engine)),
-        "python-snowflake" => backend!(
-            "lang-python",
-            python_snowflake::PythonSnowflakeBackend::new(canonical_engine)
-        ),
-        "typescript-snowflake" => backend!(
-            "lang-typescript",
-            typescript_snowflake::TypescriptSnowflakeBackend::new(canonical_engine)
-        ),
-        "javascript-snowflake" => backend!(
-            "lang-typescript",
-            typescript_snowflake::TypescriptSnowflakeBackend::new_js(canonical_engine)
-        ),
-        "go-gosnowflake" | "gosnowflake" => {
-            backend!("lang-go", go_gosnowflake::GoGosnowflakeBackend::new(canonical_engine))
-        }
-        "csharp-snowflake" => backend!(
-            "lang-csharp",
-            csharp_snowflake::CsharpSnowflakeBackend::new(canonical_engine)
         ),
         _ => {
             return Err(ScytheError::new(
@@ -1405,46 +899,6 @@ mod tests {
         }
     }
 
-    fn resolved_param(name: &str, neutral_type: &str) -> ResolvedParam {
-        ResolvedParam {
-            constraints: None,
-            name: name.to_string(),
-            field_name: name.to_string(),
-            lang_type: "String".to_string(),
-            full_type: "String".to_string(),
-            borrowed_type: "&str".to_string(),
-            neutral_type: neutral_type.to_string(),
-            nullable: false,
-        }
-    }
-
-    #[test]
-    fn typed_placeholder_casts_only_rewrite_live_tokens_and_keep_number_boundaries() {
-        let analyzed: Vec<AnalyzedParam> = (1..=10)
-            .map(|position| param(&format!("p{position}"), position))
-            .collect();
-        let resolved: Vec<ResolvedParam> = (1..=10)
-            .map(|position| {
-                let neutral_type = match position {
-                    1 => "composite::address",
-                    10 => "enum::status",
-                    _ => "string",
-                };
-                resolved_param(&format!("p{position}"), neutral_type)
-            })
-            .collect();
-        let sql = "SELECT $1, $10, '$1', \"$10\", $$ $1 $10 $$ -- $1\n/* $10 */ WHERE x = $2";
-
-        let (rewritten, occurrences) =
-            rewrite_pg_typed_placeholders(sql, &analyzed, &resolved, true, |position| format!("@p{position}"));
-
-        assert_eq!(
-            rewritten,
-            "SELECT @p1::text::address, @p10::status, '$1', \"$10\", $$ $1 $10 $$ -- $1\n/* $10 */ WHERE x = @p2"
-        );
-        assert_eq!(occurrences, vec![1, 10, 2]);
-    }
-
     /// Structural guard for #82: no source file under `src/backends` may
     /// reference a manifest path relative to the process working directory,
     /// however that reference is spelled. This catches a reintroduction of
@@ -1516,57 +970,20 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "lang-java", feature = "sqlite"))]
-    #[test]
-    fn test_get_backend_java_jdbc_sqlite_has_no_postgresql_scalars() {
-        let backend = get_backend("java-jdbc", "sqlite").expect("java-jdbc should support sqlite");
-        let scalars = &backend.manifest().types.scalars;
-        assert_ne!(
-            scalars.get("uuid").map(String::as_str),
-            Some("java.util.UUID"),
-            "java-jdbc/sqlite manifest should not carry the PostgreSQL-specific 'uuid' mapping"
-        );
-        assert_ne!(
-            scalars.get("decimal").map(String::as_str),
-            Some("java.math.BigDecimal"),
-            "java-jdbc/sqlite manifest should not carry the PostgreSQL-specific 'decimal' mapping"
-        );
-    }
-
     #[test]
     fn test_normalize_engine_cockroachdb() {
         assert_eq!(normalize_engine("cockroachdb"), "postgresql");
         assert_eq!(normalize_engine("crdb"), "postgresql");
     }
 
-    #[cfg(all(
-        feature = "lang-csharp",
-        feature = "lang-elixir",
-        feature = "lang-go",
-        feature = "lang-php",
-        feature = "lang-python",
-        feature = "lang-ruby",
-        feature = "lang-rust",
-        feature = "lang-typescript",
-        feature = "postgres"
-    ))]
+    #[cfg(all(feature = "lang-rust", feature = "lang-typescript"))]
     #[test]
     fn test_get_backend_cockroachdb_with_pg_backends() {
         let pg_backends = [
             "rust-sqlx",
             "rust-tokio-postgres",
-            "python-psycopg3",
-            "python-asyncpg",
             "typescript-postgres",
             "typescript-bun",
-            "typescript-pg",
-            "typescript-kysely",
-            "go-pgx",
-            "ruby-pg",
-            "elixir-postgrex",
-            "csharp-npgsql",
-            "php-pdo",
-            "php-amphp",
         ];
         for backend_name in &pg_backends {
             let result = get_backend(backend_name, "cockroachdb");
@@ -1589,17 +1006,17 @@ mod tests {
         assert_eq!(engine_feature("klingon"), None);
     }
 
-    #[cfg(not(feature = "lang-go"))]
+    #[cfg(not(feature = "lang-typescript"))]
     #[test]
     fn get_backend_names_the_language_feature_a_disabled_backend_needs() {
-        let error = get_backend("go", "postgresql")
+        let error = get_backend("typescript-bun", "postgresql")
             .err()
-            .expect("go-pgx is not compiled in");
+            .expect("typescript-bun is not compiled in");
         assert_eq!(error.code, ErrorCode::InvalidConfig);
         assert!(
-            error
-                .to_string()
-                .contains("backend 'go' is not available in this build: it was compiled without the `lang-go`"),
+            error.to_string().contains(
+                "backend 'typescript-bun' is not available in this build: it was compiled without the `lang-typescript`"
+            ),
             "{error}"
         );
     }
@@ -1629,34 +1046,6 @@ mod tests {
     #[test]
     fn test_normalize_engine_duckdb() {
         assert_eq!(normalize_engine("duckdb"), "duckdb");
-    }
-
-    #[cfg(all(
-        feature = "lang-go",
-        feature = "lang-java",
-        feature = "lang-kotlin",
-        feature = "lang-python",
-        feature = "lang-typescript",
-        feature = "duckdb"
-    ))]
-    #[test]
-    fn test_get_backend_duckdb_with_compatible_backends() {
-        let duckdb_backends = [
-            "python-duckdb",
-            "typescript-duckdb",
-            "go-database-sql",
-            "java-jdbc",
-            "kotlin-jdbc",
-        ];
-        for backend_name in &duckdb_backends {
-            let result = get_backend(backend_name, "duckdb");
-            assert!(
-                result.is_ok(),
-                "backend '{}' should accept duckdb engine, got: {:?}",
-                backend_name,
-                result.err()
-            );
-        }
     }
 
     #[test]
@@ -1764,48 +1153,6 @@ mod tests {
         assert_eq!(normalize_engine("mariadb"), "mariadb");
     }
 
-    #[cfg(all(
-        feature = "lang-csharp",
-        feature = "lang-elixir",
-        feature = "lang-go",
-        feature = "lang-java",
-        feature = "lang-kotlin",
-        feature = "lang-php",
-        feature = "lang-python",
-        feature = "lang-ruby",
-        feature = "lang-rust",
-        feature = "lang-typescript",
-        feature = "mysql"
-    ))]
-    #[test]
-    fn test_get_backend_mariadb_with_mysql_backends() {
-        let mariadb_backends = [
-            "rust-sqlx",
-            "python-aiomysql",
-            "typescript-mysql2",
-            "go-database-sql",
-            "java-jdbc",
-            "java-r2dbc",
-            "kotlin-jdbc",
-            "kotlin-r2dbc",
-            "csharp-mysqlconnector",
-            "elixir-myxql",
-            "ruby-mysql2",
-            "ruby-trilogy",
-            "php-pdo",
-            "php-amphp",
-        ];
-        for backend_name in &mariadb_backends {
-            let result = get_backend(backend_name, "mariadb");
-            assert!(
-                result.is_ok(),
-                "backend '{}' should accept mariadb engine, got: {:?}",
-                backend_name,
-                result.err()
-            );
-        }
-    }
-
     // -----------------------------------------------------------------
     // SQL lexer / rewriting tests (board #148, #186, #149-adjacent).
     //
@@ -1816,64 +1163,11 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[test]
-    fn test_clean_sql_oneline_strips_mid_line_comment_but_keeps_rest_of_query() {
-        let sql = "SELECT id, name\nFROM users\nWHERE id > $1 -- skip low ids\n  AND name IS NOT NULL;";
-        let result = clean_sql_oneline(sql);
-        assert!(
-            result.contains("AND name IS NOT NULL"),
-            "mid-line comment must not swallow the rest of the query, got: {result:?}"
-        );
-        assert!(
-            !result.contains("--"),
-            "comment marker must be stripped, got: {result:?}"
-        );
-    }
-
-    #[test]
     fn test_clean_sql_strips_mid_line_comment_but_keeps_rest_of_query() {
         let sql = "SELECT id\nFROM users\nWHERE id > $1 -- skip low ids\nAND active = true;";
         let result = clean_sql(sql);
         assert!(result.contains("AND active = true"), "got: {result:?}");
         assert!(!result.contains("--"), "got: {result:?}");
-    }
-
-    #[test]
-    fn test_clean_sql_preserves_double_dash_inside_single_quoted_string() {
-        let sql = "SELECT * FROM t WHERE label = 'a -- not a comment' AND id = $1;";
-        let result = clean_sql_oneline(sql);
-        assert!(result.contains("'a -- not a comment'"), "got: {result:?}");
-        assert!(result.contains("id = $1"), "got: {result:?}");
-    }
-
-    #[test]
-    fn test_clean_sql_preserves_double_dash_inside_double_quoted_identifier() {
-        let sql = "SELECT \"weird--col\" FROM t WHERE id = $1;";
-        let result = clean_sql_oneline(sql);
-        assert!(result.contains("\"weird--col\""), "got: {result:?}");
-    }
-
-    #[test]
-    fn test_clean_sql_preserves_double_dash_inside_dollar_quoted_string() {
-        let sql = "SELECT $$has -- inside$$ AS x FROM t WHERE id = $1;";
-        let result = clean_sql_oneline(sql);
-        assert!(result.contains("$$has -- inside$$"), "got: {result:?}");
-    }
-
-    #[test]
-    fn test_clean_sql_strips_nested_block_comments() {
-        let sql = "SELECT id /* outer /* inner */ still outer */ FROM t WHERE id = $1;";
-        let result = clean_sql_oneline(sql);
-        assert!(!result.contains("outer"), "got: {result:?}");
-        assert!(!result.contains("inner"), "got: {result:?}");
-        assert!(result.contains("SELECT id"), "got: {result:?}");
-        assert!(result.contains("FROM t WHERE id = $1"), "got: {result:?}");
-    }
-
-    #[test]
-    fn test_clean_sql_unterminated_block_comment_consumes_to_end_without_panicking() {
-        let sql = "SELECT id FROM t /* oops forgot to close";
-        let result = clean_sql_oneline(sql);
-        assert_eq!(result, "SELECT id FROM t");
     }
 
     #[test]
@@ -1967,15 +1261,6 @@ mod tests {
     }
 
     #[test]
-    fn test_clean_sql_handles_non_ascii_in_comment_and_string() {
-        let sql = "SELECT name -- 名前を取得 comment\nFROM t WHERE label = 'héllo wörld' AND id = $1;";
-        let result = clean_sql_oneline(sql);
-        assert!(!result.contains('名'), "got: {result:?}");
-        assert!(result.contains("'héllo wörld'"), "got: {result:?}");
-        assert!(result.contains("id = $1"), "got: {result:?}");
-    }
-
-    #[test]
     fn test_clean_sql_handles_crlf_line_endings() {
         let sql = "SELECT id\r\nFROM users\r\n-- a comment\r\nWHERE id = $1;";
         let result = clean_sql(sql);
@@ -2003,93 +1288,6 @@ mod tests {
     // inline, what the OLD (heuristic-based, dialect-blind) code produced for
     // the same input.
     // -----------------------------------------------------------------
-
-    /// The headline board #148 defect, reproduced against both the OLD heuristic
-    /// entry point and the NEW dialect-driven one on the exact same input.
-    /// `rewrite_pg_placeholders` (unchanged, kept for callers this change did
-    /// not reach) has no `$N` to anchor its heuristic on, so it guesses "no
-    /// dollar placeholders exist -> bare `?` is positional" and corrupts the
-    /// JSONB key-existence operator into a placeholder reference:
-    /// `WHERE data $1 'active'`. `rewrite_placeholders_indexed` under
-    /// `SqlDialect::PostgreSQL` is told the dialect directly and never
-    /// rewrites it, with zero occurrences recorded.
-    #[test]
-    fn test_bare_question_mark_is_never_a_placeholder_under_postgresql_even_with_zero_dollar_placeholders() {
-        let sql = "SELECT * FROM docs WHERE data ? 'active'";
-
-        let old_result = rewrite_pg_placeholders(sql, |n| format!("${n}"));
-        assert_eq!(
-            old_result, "SELECT * FROM docs WHERE data $1 'active'",
-            "pins the OLD heuristic's corruption of the JSONB operator"
-        );
-
-        let (new_result, occurrences) = rewrite_placeholders_indexed(sql, SqlDialect::PostgreSQL, |n| format!("${n}"));
-        assert_eq!(
-            new_result, sql,
-            "dialect-driven rewrite must leave the JSONB operator untouched"
-        );
-        assert!(
-            occurrences.is_empty(),
-            "no placeholder was ever present; got: {occurrences:?}"
-        );
-    }
-
-    /// Same bare `?`, but under a dialect that genuinely uses it as a
-    /// positional placeholder -- proving the decision is dialect-driven, not
-    /// "always leave `?` alone now".
-    #[test]
-    fn test_bare_question_mark_is_a_placeholder_under_mysql() {
-        let sql = "SELECT * FROM docs WHERE data ? 'active'";
-        let (result, occurrences) = rewrite_placeholders_indexed(sql, SqlDialect::MySQL, |n| format!("${n}"));
-        assert_eq!(result, "SELECT * FROM docs WHERE data $1 'active'");
-        assert_eq!(occurrences, vec![1]);
-    }
-
-    /// GH #149: `$2` declared before `$1` in the SQL text must report its
-    /// own position at each occurrence, in textual order -- this is what lets
-    /// a backend bind per SQL-text occurrence instead of assuming declaration
-    /// order.
-    #[test]
-    fn test_rewrite_placeholders_indexed_returns_positions_in_textual_order_out_of_order() {
-        let (result, occurrences) =
-            rewrite_placeholders_indexed("WHERE b = $2 AND a = $1", SqlDialect::PostgreSQL, |_| "?".to_string());
-        assert_eq!(result, "WHERE b = ? AND a = ?");
-        assert_eq!(occurrences, vec![2, 1]);
-    }
-
-    /// GH #149: a repeated `$1` must report position `1` twice, once per
-    /// occurrence -- not collapse to a single entry the way a per-declared-
-    /// parameter bind loop would.
-    #[test]
-    fn test_rewrite_placeholders_indexed_repeated_placeholder_reports_one_occurrence_per_use() {
-        let (result, occurrences) =
-            rewrite_placeholders_indexed("WHERE a = $1 OR b = $1", SqlDialect::PostgreSQL, |_| "?".to_string());
-        assert_eq!(result, "WHERE a = ? OR b = ?");
-        assert_eq!(occurrences, vec![1, 1]);
-    }
-
-    /// board #148 item 2/#186: a MySQL backtick-quoted identifier containing a bare
-    /// `?` must not have the `?` inside it rewritten, and the identifier's own
-    /// characters must not desynchronize the *later* placeholder's number.
-    /// Matches the `WRONG:`-documented expectation in
-    /// `sql_text_characterization_tests.rs`'s
-    /// `question_mark_inside_a_mysql_backtick_identifier_is_rewritten_as_a_placeholder`.
-    #[test]
-    fn test_mysql_backtick_identifier_is_not_corrupted_by_bare_question_mark() {
-        let sql = "SELECT `a?b` FROM t WHERE c = ?";
-        let (result, occurrences) = rewrite_placeholders_indexed(sql, SqlDialect::MySQL, |n| format!("[P{n}]"));
-        assert_eq!(result, "SELECT `a?b` FROM t WHERE c = [P1]");
-        assert_eq!(occurrences, vec![1]);
-    }
-
-    /// board #148 item 4: same as above for an MSSQL `[bracketed]` identifier.
-    #[test]
-    fn test_mssql_bracket_identifier_is_not_corrupted_by_bare_question_mark() {
-        let sql = "SELECT [a?b] FROM t WHERE c = ?";
-        let (result, occurrences) = rewrite_placeholders_indexed(sql, SqlDialect::MsSql, |n| format!("[P{n}]"));
-        assert_eq!(result, "SELECT [a?b] FROM t WHERE c = [P1]");
-        assert_eq!(occurrences, vec![1]);
-    }
 
     /// board #148 item 2: a MySQL backtick identifier containing `-- ` must not be
     /// read as opening a line comment. Matches the `clean_sql_dialect`
@@ -2137,15 +1335,6 @@ mod tests {
         // in sql_text_characterization_tests.rs): stripping a trailing
         // comment does not also strip the space that preceded it.
         assert_eq!(clean_sql_dialect(sql, SqlDialect::MySQL), "SELECT 1 \nFROM t");
-    }
-
-    /// The oneline variant of the `#` test above, since every owned backend
-    /// calls `clean_sql_oneline_dialect` (or its `_with_optional` wrapper),
-    /// never `clean_sql_dialect`, to flatten SQL into one embedded literal.
-    #[test]
-    fn test_clean_sql_oneline_dialect_mysql_hash_comment_is_stripped() {
-        let sql = "SELECT 1 # note\nFROM t";
-        assert_eq!(clean_sql_oneline_dialect(sql, SqlDialect::MySQL), "SELECT 1  FROM t");
     }
 
     /// PostgreSQL's `#>`/`#>>` JSON operators are exactly why `#` cannot be

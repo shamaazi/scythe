@@ -243,10 +243,7 @@ struct GenTarget {
 #[derive(Debug, Deserialize)]
 struct LegacyGenConfig {
     rust: Option<LegacyRustGenConfig>,
-    python: Option<LegacyLangGenConfig>,
     typescript: Option<LegacyLangGenConfig>,
-    go: Option<LegacyLangGenConfig>,
-    kotlin: Option<LegacyLangGenConfig>,
     /// Any other `[sql.gen.<lang>]` table -- a language this legacy format
     /// has no mapping for. Captured via flatten (rather than left to serde's
     /// default unknown-field handling, which would silently drop it) so
@@ -334,8 +331,8 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
                 let mut names: Vec<&str> = legacy.unsupported.keys().map(String::as_str).collect();
                 names.sort_unstable();
                 return Err(format!(
-                    "[sql.gen] has no backend for language(s): {} (supported: rust, python, typescript, go, \
-                     kotlin -- use the `[[sql.gen]]` array form with an explicit `backend` for anything else)",
+                    "[sql.gen] has no backend for language(s): {} (supported: rust, typescript -- \
+                     use the `[[sql.gen]]` array form with an explicit `backend` for anything else)",
                     names.join(", ")
                 ));
             }
@@ -345,12 +342,10 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
                 let backend = match rust.target.as_str() {
                     "sqlx" => "rust-sqlx",
                     "tokio-postgres" => "rust-tokio-postgres",
-                    "tiberius" => "rust-tiberius",
-                    "sibyl" => "rust-sibyl",
                     other => {
                         return Err(format!(
                             "[sql.gen.rust] target '{other}' is not a supported rust backend (expected one \
-                             of: sqlx, tokio-postgres, tiberius, sibyl)"
+                             of: sqlx, tokio-postgres)"
                         ));
                     }
                 };
@@ -368,14 +363,6 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
                     options,
                 });
             }
-            if let Some(ref py) = legacy.python {
-                targets.push(ResolvedGenTarget {
-                    backend: format!("python-{}", py.target),
-                    output: default_output.clone(),
-                    manifest_override: None,
-                    options: std::collections::HashMap::new(),
-                });
-            }
             if let Some(ref ts) = legacy.typescript {
                 targets.push(ResolvedGenTarget {
                     backend: format!("typescript-{}", ts.target),
@@ -384,23 +371,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
                     options: std::collections::HashMap::new(),
                 });
             }
-            if let Some(ref go) = legacy.go {
-                targets.push(ResolvedGenTarget {
-                    backend: format!("go-{}", go.target),
-                    output: default_output.clone(),
-                    manifest_override: None,
-                    options: std::collections::HashMap::new(),
-                });
-            }
-            if let Some(ref kotlin) = legacy.kotlin {
-                targets.push(ResolvedGenTarget {
-                    backend: format!("kotlin-{}", kotlin.target),
-                    output: default_output.clone(),
-                    manifest_override: None,
-                    options: std::collections::HashMap::new(),
-                });
-            }
-            // ~keep An explicit `[sql.gen]` table that names none of the five legacy language
+            // ~keep An explicit `[sql.gen]` table that names none of the legacy language
             // keys (and no unrecognized key either, or `unsupported` would already have
             // errored above) is not "no `gen` configured" -- that's the `None` arm below,
             // reached only when the `gen` key is absent entirely. A present-but-empty
@@ -411,7 +382,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
             if targets.is_empty() {
                 return Err(format!(
                     "[[sql]] block \"{}\": [sql.gen] is present but configures none of its supported \
-                     languages (rust, python, typescript, go, kotlin) -- add e.g. `[sql.gen.rust]`, or \
+                     languages (rust, typescript) -- add e.g. `[sql.gen.rust]`, or \
                      remove the `gen` key entirely to fall back to the default rust-sqlx backend",
                     sql_config.name
                 ));
@@ -3326,17 +3297,17 @@ mod tests {
     /// A real tool that finds a genuine problem must make
     /// `report_generated_code_validation` return `true` -- the signal
     /// `generate_for_backend`/`run_generate` use to move `generate`'s exit
-    /// code to 2 (board #231). Feeds syntactically invalid Python straight
+    /// code to 2 (board #231). Feeds syntactically invalid TypeScript straight
     /// in, rather than trying to coax `scythe generate` into emitting broken
-    /// code from valid SQL, so `poly`'s bundled `ruff` genuinely fails on
+    /// code from valid SQL, so `poly`'s bundled `oxc` genuinely fails on
     /// content this test controls directly.
     #[test]
     #[ignore = "needs poly on PATH; the devenv shell does not provide it"]
     fn report_generated_code_validation_returns_true_on_a_real_tool_failure() {
-        let broken_python = "def broken(:\n    pass\n";
+        let broken_typescript = "export function broken( {\n";
 
         let failed =
-            report_generated_code_validation("main", Path::new("queries.py"), "python-psycopg3", broken_python);
+            report_generated_code_validation("main", Path::new("queries.ts"), "typescript-bun", broken_typescript);
 
         assert!(
             failed,
@@ -3971,25 +3942,6 @@ backend = \"rust-sqlx\"
         }
     }
 
-    #[test]
-    fn assemble_body_places_python_composites_before_nested_structs() {
-        let backend = get_backend("python-psycopg3", "postgresql").expect("python-psycopg3 should load");
-        let mut result = query_result(Some("class UserAddress: pass"), Some("class ResultRow: pass"), None);
-        result.code.nested_struct_defs.push(scythe_codegen::NestedStructDef {
-            name: "payload".to_string(),
-            code: "class Payload:\n    address: UserAddress".to_string(),
-        });
-
-        let output = assemble_body(backend.as_ref(), &[result]);
-        let composite = output.find("class UserAddress").expect("composite definition");
-        let nested = output.find("class Payload").expect("nested definition");
-        let row = output.find("class ResultRow").expect("row definition");
-        assert!(
-            composite < nested && nested < row,
-            "unexpected declaration order:\n{output}"
-        );
-    }
-
     /// When `query_class_header()` is empty (e.g. `rust-sqlx`, which has no
     /// wrapping class), each query's model struct, row struct, and function
     /// must stay interleaved in per-query order rather than being grouped by
@@ -4027,86 +3979,6 @@ backend = \"rust-sqlx\"
         assert!(row_b < fn_b, "ROW_B must precede FN_B within the second query");
     }
 
-    /// When `query_class_header()` is non-empty (e.g. `php-pdo`, which wraps
-    /// query functions in `final class Queries { ... }`), all model/row
-    /// structs across every query must come first, then the class header,
-    /// then all query functions — never interleaved, since PHP methods must
-    /// live inside the class body while types are declared outside it.
-    #[test]
-    fn assemble_body_groups_types_then_class_header_then_fns_when_non_empty() {
-        let backend = get_backend("php-pdo", "postgresql").expect("php-pdo should support postgresql");
-        let class_header = backend.query_class_header();
-        assert!(
-            !class_header.is_empty(),
-            "test assumes php-pdo has a query class header"
-        );
-
-        let results = vec![
-            query_result(Some("MODEL_A"), Some("ROW_A"), Some("FN_A")),
-            query_result(None, Some("ROW_B"), Some("FN_B")),
-        ];
-
-        let output = assemble_body(backend.as_ref(), &results);
-
-        let pos = |needle: &str| {
-            output
-                .find(needle)
-                .unwrap_or_else(|| panic!("missing '{needle}' in:\n{output}"))
-        };
-        let (model_a, row_a, row_b, header, fn_a, fn_b) = (
-            pos("MODEL_A"),
-            pos("ROW_A"),
-            pos("ROW_B"),
-            pos(&class_header),
-            pos("FN_A"),
-            pos("FN_B"),
-        );
-
-        assert!(
-            model_a < header && row_a < header && row_b < header,
-            "all types must precede the class header"
-        );
-        assert!(
-            header < fn_a && header < fn_b,
-            "the class header must precede every query function"
-        );
-    }
-
-    /// board #166: two queries whose `model_struct` renders the identical text --
-    /// exactly the shape two queries selecting the same composite column
-    /// produce, since `generate_composite_def` is a pure function of the
-    /// composite's shape, not of which query asked for it -- must not be
-    /// emitted twice. `enum_def` and `nested_struct_defs` above are already
-    /// deduped by name; before this fix `model_struct` was not deduped at
-    /// all.
-    ///
-    /// Before the fix, `assemble_body` pushed every result's `model_struct`
-    /// unconditionally, so this printed the declaration **twice**, back to
-    /// back -- the literal cause of javac's `record Address is already
-    /// defined` and kotlinc's `redeclaration:`. See
-    /// `assemble_body_dedupes_composite_declared_by_two_queries_across_all_ten_languages`
-    /// below for the same reproduction driven through real composite
-    /// generation, across every shipped language, rather than a hand-typed
-    /// stand-in for just one of them.
-    #[test]
-    fn assemble_body_dedupes_identical_model_struct_declared_by_two_queries() {
-        let backend = get_backend("java-jdbc", "postgresql").expect("java-jdbc should support postgresql");
-        let composite_decl = "public record Address(String street) {}";
-
-        let results = vec![
-            query_result(Some(composite_decl), Some("ROW_A"), Some("FN_A")),
-            query_result(Some(composite_decl), Some("ROW_B"), Some("FN_B")),
-        ];
-
-        let output = assemble_body(backend.as_ref(), &results);
-
-        let occurrences = output.matches(composite_decl).count();
-        assert_eq!(
-            occurrences, 1,
-            "the composite declaration must appear exactly once, got {occurrences}. Output:\n{output}"
-        );
-    }
-
     /// board #166, established rather than assumed, and not scoped to the JVM:
     /// the defect lives entirely in this CLI's `assemble_body` -- no
     /// backend-specific branch decides whether `model_struct` gets deduped
@@ -4140,7 +4012,7 @@ backend = \"rust-sqlx\"
     /// All ten still emit dead, duplicated code before this fix; only six of
     /// them would have refused to build because of it.
     #[test]
-    fn assemble_body_dedupes_composite_declared_by_two_queries_across_all_ten_languages() {
+    fn assemble_body_dedupes_composite_declared_by_two_queries_across_languages() {
         use scythe_core::analyzer::{AnalyzedColumn, CompositeFieldInfo, CompositeInfo};
         use scythe_core::parser::QueryCommand;
 
@@ -4170,19 +4042,11 @@ backend = \"rust-sqlx\"
         // (backend, the substring that opens the composite's declaration)
         let cases: &[(&str, &str)] = &[
             ("rust-sqlx", "pub struct Address {"),
-            ("python-psycopg3", "class Address:"),
-            ("typescript-pg", "export interface Address {"),
-            ("go-pgx", "type Address struct {"),
+            ("typescript-postgres", "export interface Address {"),
             // ~keep Opening brace only, like every other entry here. This used to match the
             // whole `{}` because a java-jdbc composite record had an empty body; it now carries
             // the `fromText` parser board #196 added, so a closed-body marker would pin the
             // record to having no members.
-            ("java-jdbc", "public record Address(String street) {"),
-            ("kotlin-exposed", "data class Address("),
-            ("ruby-pg", "Address = Data.define("),
-            ("php-pdo", "readonly class Address {"),
-            ("csharp-npgsql", "public record Address("),
-            ("elixir-postgrex", "defmodule Address do"),
         ];
 
         for &(backend_name, marker) in cases {
@@ -4557,19 +4421,6 @@ backend = \"rust-sqlx\"
         assert!(line.ends_with('\n'));
     }
 
-    #[test]
-    fn provenance_header_line_uses_hash_comment_for_ruby() {
-        let backend = get_backend("ruby-pg", "postgresql").expect("ruby-pg should support postgresql");
-        let line = provenance_header_line(
-            backend.as_ref(),
-            "postgresql",
-            "sch1:aaaa",
-            "q1:fedcba9876543210",
-            "opt1:aaaa",
-        );
-        assert!(line.starts_with("# scythe:provenance "), "got: {line:?}");
-    }
-
     /// Regression test for the header-injection defect: a raw newline in an
     /// `engine` value must never reach the embedded header, or it would
     /// terminate the comment early and turn everything after it into live,
@@ -4765,125 +4616,6 @@ backend = \"rust-sqlx\"
         assert_eq!(header.options.as_deref(), Some("opt1:0123456789abcdef"));
     }
 
-    /// `<?php` must be the literal first five bytes of the assembled file --
-    /// not merely present somewhere in it. A provenance comment (or
-    /// anything else) landing above it would silently degrade the file to
-    /// HTML output in a PHP interpreter.
-    #[test]
-    fn assemble_output_keeps_php_open_tag_as_the_first_bytes() {
-        for backend_name in ["php-pdo", "php-amphp"] {
-            let backend = get_backend(backend_name, "postgresql").unwrap_or_else(|e| panic!("{backend_name}: {e}"));
-            let output = assemble_output(
-                backend.as_ref(),
-                &[],
-                "postgresql",
-                "sch1:aaaa",
-                "q1:fedcba9876543210",
-                "opt1:aaaa",
-            );
-            assert!(
-                output.starts_with("<?php\n"),
-                "{backend_name}: expected output to start with '<?php\\n', got:\n{}",
-                &output[..output.len().min(120)]
-            );
-            // The provenance line must still be present, just after the tag.
-            assert!(output.contains("scythe:provenance"));
-        }
-    }
-
-    /// `# frozen_string_literal: true` must be the literal first line of the
-    /// assembled file -- Ruby only recognizes the magic comment on line 1
-    /// (or line 2 after a shebang); anything preceding it makes Ruby
-    /// silently ignore the pragma rather than error, which is exactly the
-    /// failure `file_preamble` exists to prevent.
-    #[test]
-    fn assemble_output_keeps_frozen_string_literal_as_the_first_line() {
-        for backend_name in [
-            "ruby-pg",
-            "ruby-mysql2",
-            "ruby-sqlite3",
-            "ruby-tiny-tds",
-            "ruby-oci8",
-            "ruby-trilogy",
-        ] {
-            let backend = get_backend(backend_name, "postgresql")
-                .or_else(|_| get_backend(backend_name, "mysql"))
-                .or_else(|_| get_backend(backend_name, "sqlite"))
-                .or_else(|_| get_backend(backend_name, "mssql"))
-                .or_else(|_| get_backend(backend_name, "oracle"))
-                .unwrap_or_else(|e| panic!("{backend_name}: {e}"));
-            let output = assemble_output(
-                backend.as_ref(),
-                &[],
-                "postgresql",
-                "sch1:bbbb",
-                "q1:fedcba9876543210",
-                "opt1:bbbb",
-            );
-            let first_line = output.lines().next().unwrap_or_default();
-            assert_eq!(
-                first_line,
-                "# frozen_string_literal: true",
-                "{backend_name}: expected the magic comment on line 1, got:\n{}",
-                &output[..output.len().min(120)]
-            );
-            assert!(output.contains("scythe:provenance"));
-        }
-    }
-
-    /// Python's header carries a `# noqa: E501` suppression (see
-    /// `scythe_codegen::provenance::header_suffix`), and that suffix must be
-    /// invisible to the verifier. `parse_provenance_header` tokenizes the
-    /// text after the sentinel on whitespace and skips tokens without an
-    /// `=`, so `#`, `noqa:` and `E501` are dropped -- but nothing else pins
-    /// that the two sides agree, and a parser change that started treating
-    /// unrecognized tokens as errors (or a suffix that grew a `key=value`
-    /// shape) would break every Python target's drift detection silently.
-    ///
-    /// Doubles as the regression test for the suffix itself: without it,
-    /// every generated `.py` file opens with a ~99-character line and
-    /// `ruff check --select E` reports E501 on line 1.
-    #[test]
-    fn assemble_output_python_header_carries_noqa_and_still_round_trips() {
-        let backend = get_backend("python-psycopg3", "postgresql").expect("python-psycopg3 should support postgresql");
-        assert!(
-            backend.file_preamble().is_empty(),
-            "test assumes python-psycopg3 has no preamble, so the header is line 1"
-        );
-
-        let output = assemble_output(
-            backend.as_ref(),
-            &[],
-            "postgresql",
-            "sch1:0123456789abcdef",
-            "q1:fedcba9876543210",
-            "opt1:0123456789abcdef",
-        );
-
-        let first_line = output.lines().next().expect("output must have a first line");
-        assert!(first_line.starts_with("# scythe:provenance "), "got: {first_line:?}");
-        assert!(
-            first_line.ends_with("  # noqa: E501"),
-            "a Python provenance header must suppress E501, or `ruff check --select E` \
-             fails on line 1 of every generated file: {first_line:?}"
-        );
-
-        let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
-        assert!(
-            header.is_complete(),
-            "the noqa suffix must not cost the header a field: {header:?}"
-        );
-        assert_eq!(header.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
-        assert_eq!(header.backend.as_deref(), Some("python-psycopg3"));
-        assert_eq!(header.engine.as_deref(), Some("postgresql"));
-        assert_eq!(header.schema.as_deref(), Some("sch1:0123456789abcdef"));
-        assert_eq!(
-            header.queries.as_deref(),
-            Some("q1:fedcba9876543210"),
-            "the last field before the suffix must not absorb any of it"
-        );
-    }
-
     /// A backend with no preamble (the overwhelming majority) must start
     /// directly with the provenance line -- no leading blank line, no
     /// leading anything else.
@@ -4958,47 +4690,6 @@ backend = \"rust-sqlx\"
         assert_eq!(
             next_line, expected_first_body_line,
             "the line after the provenance line must be file_header()'s first line, not a blank separator"
-        );
-    }
-
-    /// The mirror of the test above: for a backend WITH a `file_preamble()`
-    /// override (PHP here), the line after the provenance line must be
-    /// empty -- the old `file_header()` text for these backends already
-    /// opened with its own blank line (`"<?php\n\ndeclare(...)"`), so the
-    /// separator must still be emitted for stripped output to reconstruct
-    /// the old bytes. Paired with the test above so neither branch of
-    /// `assemble_output`'s conditional separator can drift without one of
-    /// the two failing.
-    #[test]
-    fn assemble_output_blank_line_after_provenance_when_preamble_is_non_empty() {
-        let backend = get_backend("php-pdo", "postgresql").expect("php-pdo should support postgresql");
-        assert!(
-            !backend.file_preamble().is_empty(),
-            "test assumes php-pdo has a non-empty preamble"
-        );
-
-        let output = assemble_output(
-            backend.as_ref(),
-            &[],
-            "postgresql",
-            "sch1:eeee",
-            "q1:fedcba9876543210",
-            "opt1:eeee",
-        );
-        let mut lines = output.lines();
-        let preamble_line = lines.next().expect("output must have a first line");
-        assert_eq!(preamble_line, "<?php");
-
-        let provenance_line = lines.next().expect("output must have a second line");
-        assert!(
-            provenance_line.starts_with("// scythe:provenance "),
-            "got: {provenance_line:?}"
-        );
-
-        let blank_line = lines.next().expect("output must have a third line");
-        assert_eq!(
-            blank_line, "",
-            "a blank line must follow the provenance line when preamble is non-empty"
         );
     }
 
@@ -6095,89 +5786,6 @@ backend = \"rust-sqlx\"
     // -----------------------------------------------------------------------
     // Ruby's second artifact (`queries.rbs`)
     // -----------------------------------------------------------------------
-
-    /// Ruby targets write two tracked files, and both must be verified —
-    /// `queries.rbs` is what `steep` type-checks caller code against, so a
-    /// stale one reports type errors against a schema that no longer exists.
-    #[test]
-    fn artifact_paths_includes_the_rbs_file_for_ruby_backends_only() {
-        let output_dir = std::path::Path::new("/out");
-
-        let ruby = get_backend("ruby-pg", "postgresql").expect("ruby-pg should support postgresql");
-        assert!(backend_emits_rbs(ruby.as_ref()), "test premise: ruby-pg emits RBS");
-        assert_eq!(
-            artifact_paths(ruby.as_ref(), output_dir),
-            vec![output_dir.join("queries.rb"), output_dir.join("queries.rbs")]
-        );
-
-        let rust = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
-        assert!(
-            !backend_emits_rbs(rust.as_ref()),
-            "test premise: rust-sqlx emits no RBS"
-        );
-        assert_eq!(
-            artifact_paths(rust.as_ref(), output_dir),
-            vec![output_dir.join("queries.rs")]
-        );
-    }
-
-    /// A drifted `queries.rbs` must be reported even when `queries.rb` next
-    /// to it is perfectly current — the exact situation a schema change
-    /// produces when only the RBS signatures move.
-    #[test]
-    fn verify_provenance_detects_drift_in_the_rbs_artifact() {
-        let dir = tempfile::tempdir().unwrap();
-        let catalog = provenance_test_catalog();
-        let schema = catalog.fingerprint();
-        let version = env!("CARGO_PKG_VERSION");
-
-        let sql_config = SqlConfig {
-            name: "main".to_string(),
-            engine: "postgresql".to_string(),
-            schema_source: SchemaSource::Parse,
-            schema: Vec::new(),
-            queries: Vec::new(),
-            output: None,
-            gen_config: Some(GenTargets::Array(vec![GenTarget {
-                backend: "ruby-pg".to_string(),
-                output: dir.path().to_string_lossy().into_owned(),
-                manifest: None,
-                options: std::collections::HashMap::new(),
-            }])),
-            type_overrides: None,
-        };
-
-        std::fs::write(
-            dir.path().join("queries.rb"),
-            format!("# scythe:provenance v={version} backend=ruby-pg engine=postgresql schema={schema}\n"),
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("queries.rbs"),
-            format!("# scythe:provenance v={version} backend=ruby-pg engine=postgresql schema=sch1:0000000000000000\n"),
-        )
-        .unwrap();
-
-        let violations = verify_provenance(
-            &sql_config,
-            &catalog,
-            "q1:0000000000000000",
-            std::path::Path::new("."),
-            default_severities(),
-        );
-
-        assert_eq!(
-            violations.len(),
-            1,
-            "expected exactly one violation, got {violations:?}"
-        );
-        assert_eq!(violations[0].rule_id, "SC-PRV01");
-        assert!(
-            violations[0].message.contains("queries.rbs"),
-            "the finding must point at the RBS file, not the .rb next to it: {}",
-            violations[0].message
-        );
-    }
 
     // -----------------------------------------------------------------------
     // `check_exit_code`

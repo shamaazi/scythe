@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Code generation keeps three targets: `typescript-bun` (built on the shared
+  postgres.js TypeScript generator, so `typescript-postgres` and the
+  `javascript-postgres`/`javascript-bun` JSDoc modes remain), `rust-sqlx` (with
+  its SQLite support) and `rust-tokio-postgres`. Every other backend, its
+  manifests, integration project and tests are gone: C#, Elixir, Go, Java,
+  Kotlin, PHP, Python, Ruby, `rust-tiberius`, `rust-sibyl` and the TypeScript
+  `pg`, `kysely`, `mysql2`, `better-sqlite3`, `node-sqlite`, `wasm-sqlite`,
+  `duckdb`, `mssql`, `oracledb` and `snowflake` backends. The `lang-*` Cargo
+  features are now `lang-rust` and `lang-typescript`, and the legacy
+  `[sql.gen]` table form accepts only `rust` and `typescript`.
 - Development and CI run on devenv instead of mise: `devenv.nix` provides the
   Rust toolchain, Bun and a PostgreSQL service, and the `scythe:build`,
   `scythe:test`, `scythe:lint`, `scythe:generate`, `scythe:generated-fresh`,

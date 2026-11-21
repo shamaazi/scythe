@@ -43,18 +43,7 @@ path = "src/main.rs"
 # naming the feature to enable.
 default = ["all-engines", "all-languages"]
 all-engines = ["duckdb", "mssql", "mysql", "oracle", "postgres", "redshift", "snowflake", "sqlite"]
-all-languages = [
-    "lang-csharp",
-    "lang-elixir",
-    "lang-go",
-    "lang-java",
-    "lang-kotlin",
-    "lang-php",
-    "lang-python",
-    "lang-ruby",
-    "lang-rust",
-    "lang-typescript",
-]
+all-languages = ["lang-rust", "lang-typescript"]
 # Engines. Features that include a driver also enable `scythe inspect`,
 # `schema_source = "execute"` or `scythe check --database-url` for that engine.
 duckdb = ["scythe-codegen/duckdb", "scythe-inspect/duckdb"]
@@ -66,14 +55,6 @@ redshift = ["scythe-codegen/redshift"]
 snowflake = ["scythe-codegen/snowflake"]
 sqlite = ["scythe-codegen/sqlite", "scythe-inspect/sqlite"]
 # Target languages. `lang-typescript` includes the JavaScript variants.
-lang-csharp = ["scythe-codegen/lang-csharp"]
-lang-elixir = ["scythe-codegen/lang-elixir"]
-lang-go = ["scythe-codegen/lang-go"]
-lang-java = ["scythe-codegen/lang-java"]
-lang-kotlin = ["scythe-codegen/lang-kotlin"]
-lang-php = ["scythe-codegen/lang-php"]
-lang-python = ["scythe-codegen/lang-python"]
-lang-ruby = ["scythe-codegen/lang-ruby"]
 lang-rust = ["scythe-codegen/lang-rust"]
 lang-typescript = ["scythe-codegen/lang-typescript"]
 # Gates the live-PostgreSQL integration tests in `tests/lint_live.rs` and
