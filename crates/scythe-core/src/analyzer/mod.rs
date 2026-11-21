@@ -44,6 +44,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
     };
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;
+    register_unvisited_placeholders(&mut analyzer, &query.stmt);
 
     if let Some(err_msg) = analyzer.type_errors.first() {
         return Err(ScytheError::type_mismatch(err_msg.clone()));
@@ -338,6 +339,25 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         custom: query.annotations.custom.clone(),
         nested_structs,
     })
+}
+
+/// Register every `$N` the statement holds that inference never reached, so
+/// a parameter is never silently missing from the signature while the SQL
+/// still binds it. Such a parameter has no type until something gives it one;
+/// codegen then reports it rather than generating a call with too few values.
+fn register_unvisited_placeholders(analyzer: &mut Analyzer<'_>, stmt: &sqlparser::ast::Statement) {
+    let mut positions = Vec::new();
+    let _ = sqlparser::ast::visit_expressions(stmt, |expr| {
+        if let sqlparser::ast::Expr::Value(vws) = expr
+            && let Some(position) = helpers::value_is_placeholder(vws).and_then(helpers::parse_placeholder)
+        {
+            positions.push(position);
+        }
+        std::ops::ControlFlow::<()>::Continue(())
+    });
+    for position in positions {
+        analyzer.register_param(position, None, None, false, None);
+    }
 }
 
 /// Reject a parameter name that names no parameter, and -- once the query
@@ -2907,5 +2927,131 @@ SELECT id, moods FROM t WHERE id = $1;",
             .map(|p| (p.position, p.neutral_type.as_str()))
             .collect();
         assert_eq!(types, [(1, "bool"), (2, "bool"), (3, "bool")]);
+    }
+
+    fn param_types(result: &AnalyzedQuery) -> Vec<(i64, &str)> {
+        result
+            .params
+            .iter()
+            .map(|p| (p.position, p.neutral_type.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn should_collect_placeholders_inside_case_branches_and_their_subqueries() {
+        let result = analyze_sql(
+            "-- @name Search\n-- @returns :many\n\
+             SELECT u.id FROM users u WHERE CASE WHEN $1::boolean THEN u.id = $2 \
+             ELSE ($3::text IS NOT NULL AND EXISTS (SELECT 1 FROM posts p WHERE p.user_id = u.id AND p.title = $3)) \
+             END;",
+        )
+        .expect("every CASE branch is analyzed");
+        assert_eq!(param_types(&result), [(1, "bool"), (2, "int32"), (3, "string")]);
+    }
+
+    #[test]
+    fn should_collect_placeholders_in_order_by_group_by_and_join_conditions() {
+        let result = analyze_sql(
+            "-- @name Sorted\n-- @returns :many\n\
+             SELECT u.id, count(p.id) AS posts FROM users u \
+             JOIN posts p ON p.user_id = u.id AND p.published = $1 \
+             GROUP BY u.id, $2::text \
+             ORDER BY (CASE WHEN $3 THEN u.name END) ASC, CASE WHEN $4 = 'age' THEN u.age END;",
+        )
+        .expect("ON, GROUP BY and ORDER BY placeholders are parameters");
+        assert_eq!(
+            param_types(&result),
+            [(1, "bool"), (2, "string"), (3, "bool"), (4, "string")]
+        );
+    }
+
+    #[test]
+    fn should_type_unnest_and_ordinality_columns_in_from() {
+        let result = analyze_sql(
+            "-- @name Tags\n-- @returns :many\n\
+             SELECT tag, e.item, e.n FROM unnest($1::text[]) AS tag, \
+             jsonb_array_elements($2::jsonb) WITH ORDINALITY AS e(item, n);",
+        )
+        .expect("FROM-clause function arguments and columns resolve");
+        assert_eq!(param_types(&result), [(1, "array<string>"), (2, "json")]);
+        let columns: Vec<_> = result
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.neutral_type.as_str(), c.nullable))
+            .collect();
+        assert_eq!(
+            columns,
+            [("tag", "string", true), ("item", "json", true), ("n", "int64", false)]
+        );
+    }
+
+    #[test]
+    fn should_type_rows_of_a_multi_array_unnest_in_a_subquery() {
+        let result = analyze_sql(
+            "-- @name DeletePairs\n-- @returns :exec\n\
+             DELETE FROM posts WHERE (user_id, title) IN (SELECT * FROM unnest($1::integer[], $2::text[]));",
+        )
+        .expect("an IN subquery's FROM placeholders are parameters");
+        assert_eq!(param_types(&result), [(1, "array<int32>"), (2, "array<string>")]);
+    }
+
+    #[test]
+    fn should_collect_placeholders_of_data_modifying_ctes() {
+        let result = analyze_sql(
+            "-- @name DeleteUsers\n-- @returns :exec\n\
+             WITH removed AS (DELETE FROM posts WHERE user_id = ANY($1::integer[])), \
+             renamed AS (UPDATE comments SET body = $2 WHERE user_id = ANY($1)) \
+             DELETE FROM users WHERE id = ANY($1);",
+        )
+        .expect("data-modifying CTEs are analyzed");
+        assert_eq!(param_types(&result), [(1, "array<int32>"), (2, "string")]);
+    }
+
+    #[test]
+    fn should_type_insert_select_placeholders_by_their_target_columns() {
+        let result = analyze_sql(
+            "-- @name CopyTitles\n-- @returns :exec\n\
+             INSERT INTO posts (user_id, title) \
+             SELECT $1, t FROM unnest($2::text[]) WITH ORDINALITY AS x(t, n) ORDER BY x.n \
+             ON CONFLICT DO NOTHING;",
+        )
+        .expect("a select-list placeholder takes its target column's type");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "array<string>")]);
+        assert_eq!(result.params[0].name, "user_id");
+    }
+
+    #[test]
+    fn should_type_a_placeholder_compared_with_any_of_an_array_expression() {
+        let catalog =
+            Catalog::from_ddl(&["CREATE TABLE teams (id integer PRIMARY KEY, member_ids integer[] NOT NULL);"])
+                .expect("schema should parse");
+        let query = parse_query(
+            "-- @name Teams\n-- @returns :many\n\
+             SELECT id FROM teams WHERE $1 = ANY(member_ids) AND $2::bigint <> ALL(member_ids);",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the placeholder is an array element");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "int64")]);
+    }
+
+    #[test]
+    fn should_collect_placeholders_nested_in_update_assignments() {
+        let result = analyze_sql(
+            "-- @name Retitle\n-- @returns :exec\n\
+             UPDATE posts SET title = (SELECT u.name FROM users u WHERE u.id = $1) WHERE id = $2;",
+        )
+        .expect("a subquery in SET is analyzed");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "int32")]);
+    }
+
+    #[test]
+    fn should_register_placeholders_inference_never_reaches() {
+        let result = analyze_sql(
+            "-- @name Page\n-- @returns :many\n\
+             SELECT id FROM users ORDER BY id OFFSET $1 ROWS FETCH NEXT $2 ROWS ONLY;",
+        )
+        .expect("query should analyze");
+        let positions: Vec<_> = result.params.iter().map(|p| p.position).collect();
+        assert_eq!(positions, [1, 2], "no placeholder is dropped from the signature");
     }
 }

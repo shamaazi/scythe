@@ -227,7 +227,7 @@ impl<'a> Analyzer<'a> {
                 }
                 self.collect_params_from_where(inner, scope);
             }
-            Expr::AnyOp { left, right, .. } => {
+            Expr::AnyOp { left, right, .. } | Expr::AllOp { left, right, .. } => {
                 let left_ti = self.infer_expr_type(left, scope);
                 if let Expr::Value(vws) = right.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
@@ -238,9 +238,28 @@ impl<'a> Analyzer<'a> {
                     self.register_param(pos, Some(name), Some(array_type), false, None);
                 }
                 self.collect_param_from_any(right, &left_ti, &expr_to_name(left));
+                // `$1 = ANY(array_expr)`: the placeholder is an element.
+                let right_ti = self.infer_expr_type(right, scope);
+                if let Some(element) = right_ti
+                    .neutral_type
+                    .strip_prefix("array<")
+                    .and_then(|inner| inner.strip_suffix('>'))
+                {
+                    self.collect_param_from_expr(left, &expr_to_name(right), element);
+                }
+                self.collect_params_from_where(left, scope);
+                self.collect_params_from_where(right, scope);
             }
-            Expr::InSubquery { subquery, .. } => {
-                let _ = self.analyze_correlated_query(subquery, scope);
+            Expr::InSubquery {
+                expr: tested, subquery, ..
+            } => {
+                // `$1 IN (SELECT id ...)`: the placeholder takes the column's type.
+                if let Ok(columns) = self.analyze_correlated_query(subquery, scope)
+                    && let [column] = columns.as_slice()
+                {
+                    self.collect_param_from_expr(tested, &column.name, &column.neutral_type);
+                }
+                self.collect_params_from_where(tested, scope);
             }
             Expr::Exists { subquery, .. } => {
                 let _ = self.analyze_correlated_query(subquery, scope);
@@ -248,18 +267,34 @@ impl<'a> Analyzer<'a> {
             Expr::Subquery(subquery) => {
                 let _ = self.analyze_correlated_query(subquery, scope);
             }
+            // Every branch can hold parameters in any position, so each is
+            // walked like a condition of its own. A searched CASE's conditions
+            // are boolean; a simple CASE compares each to its operand.
             Expr::Case {
+                operand,
                 conditions,
                 else_result,
                 ..
             } => {
+                let operand_type = operand.as_ref().map(|operand| {
+                    self.collect_params_from_where(operand, scope);
+                    (self.infer_expr_type(operand, scope).neutral_type, expr_to_name(operand))
+                });
                 for case_when in conditions {
+                    match &operand_type {
+                        Some((neutral_type, name)) => {
+                            self.collect_param_from_expr(&case_when.condition, name, neutral_type);
+                        }
+                        None => self.bind_boolean_operand(&case_when.condition),
+                    }
                     self.collect_params_from_where(&case_when.condition, scope);
-                    let _ = self.infer_expr_type(&case_when.result, scope);
+                    self.collect_params_from_where(&case_when.result, scope);
                 }
                 if let Some(else_expr) = else_result {
-                    let _ = self.infer_expr_type(else_expr, scope);
+                    self.collect_params_from_where(else_expr, scope);
                 }
+                // The CASE as a whole types placeholders among its results.
+                let _ = self.infer_expr_type(expr, scope);
             }
             Expr::Function(func) => {
                 let _ = self.infer_function_type(func, scope);

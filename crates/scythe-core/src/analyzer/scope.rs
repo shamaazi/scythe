@@ -70,10 +70,38 @@ impl<'a> Analyzer<'a> {
                 };
 
                 self.add_table_factor_to_scope(&join.relation, &mut scope, nullable_from_join)?;
+                self.collect_join_condition_params(&join.join_operator, &scope);
             }
         }
 
         Ok(scope)
+    }
+
+    /// Bind the parameters of a join's `ON` condition, which sees every FROM
+    /// item joined so far.
+    fn collect_join_condition_params(&mut self, operator: &JoinOperator, scope: &Scope) {
+        let constraint = match operator {
+            JoinOperator::Join(constraint)
+            | JoinOperator::Inner(constraint)
+            | JoinOperator::Left(constraint)
+            | JoinOperator::LeftOuter(constraint)
+            | JoinOperator::Right(constraint)
+            | JoinOperator::RightOuter(constraint)
+            | JoinOperator::FullOuter(constraint)
+            | JoinOperator::CrossJoin(constraint)
+            | JoinOperator::Semi(constraint)
+            | JoinOperator::LeftSemi(constraint)
+            | JoinOperator::RightSemi(constraint)
+            | JoinOperator::Anti(constraint)
+            | JoinOperator::LeftAnti(constraint)
+            | JoinOperator::RightAnti(constraint)
+            | JoinOperator::StraightJoin(constraint)
+            | JoinOperator::AsOf { constraint, .. } => constraint,
+            _ => return,
+        };
+        if let ast::JoinConstraint::On(condition) = constraint {
+            self.collect_params_from_where(condition, scope);
+        }
     }
 
     fn add_table_factor_to_scope(
@@ -83,7 +111,13 @@ impl<'a> Analyzer<'a> {
         nullable_from_join: bool,
     ) -> Result<(), ScytheError> {
         match tf {
-            TableFactor::Table { name, alias, args, .. } => {
+            TableFactor::Table {
+                name,
+                alias,
+                args,
+                with_ordinality,
+                ..
+            } => {
                 let table_name = object_name_to_string(name).to_lowercase();
                 let alias_name = alias.as_ref().map(|a| a.name.value.to_lowercase()).unwrap_or_else(|| {
                     table_name
@@ -141,7 +175,9 @@ impl<'a> Analyzer<'a> {
                         "string_to_table",
                     ];
                     if known_functions.contains(&table_name.as_str()) {
-                        match table_name.as_str() {
+                        let arg_list: &[ast::FunctionArg] = args.as_ref().map(|a| a.args.as_slice()).unwrap_or(&[]);
+                        self.collect_set_function_arg_params(&table_name, arg_list, scope);
+                        let columns = match table_name.as_str() {
                             // Postgres/MSSQL table-valued function call
                             // syntax (`FROM generate_series(1, 10)`, no
                             // `LATERAL`) parses as `TableFactor::Table` with
@@ -169,7 +205,8 @@ impl<'a> Analyzer<'a> {
                                 vec![ScopeColumn::new("jsonb_object_keys", "string", false)]
                             }
                             _ => Vec::new(),
-                        }
+                        };
+                        with_function_alias_columns(columns, alias.as_ref(), *with_ordinality)
                     } else {
                         return Err(ScytheError::new(
                             crate::errors::ErrorCode::UnknownTable,
@@ -254,9 +291,28 @@ impl<'a> Analyzer<'a> {
                         _ => nullable_from_join,
                     };
                     self.add_table_factor_to_scope(&join.relation, scope, join_nullable)?;
+                    self.collect_join_condition_params(&join.join_operator, scope);
                 }
             }
-            TableFactor::TableFunction { alias, .. } | TableFactor::UNNEST { alias, .. } => {
+            TableFactor::UNNEST {
+                alias,
+                array_exprs,
+                with_ordinality,
+                ..
+            } => {
+                let alias_name = alias
+                    .as_ref()
+                    .map(|a| a.name.value.to_lowercase())
+                    .unwrap_or_else(|| "unnest".to_string());
+                let columns = self.unnest_columns(array_exprs, alias.as_ref(), scope);
+                scope.sources.push(ScopeSource {
+                    alias: alias_name.clone(),
+                    table_name: alias_name,
+                    columns: with_function_alias_columns(columns, alias.as_ref(), *with_ordinality),
+                    nullable_from_join,
+                });
+            }
+            TableFactor::TableFunction { alias, .. } => {
                 let alias_name = alias
                     .as_ref()
                     .map(|a| a.name.value.to_lowercase())
@@ -412,6 +468,44 @@ impl<'a> Analyzer<'a> {
         false
     }
 
+    /// Bind the parameters a FROM-clause call to a built-in set-returning
+    /// function takes. The JSON family's first argument is the document.
+    fn collect_set_function_arg_params(&mut self, function_name: &str, args: &[ast::FunctionArg], scope: &Scope) {
+        for (index, argument) in function_arg_exprs(args).iter().enumerate() {
+            if index == 0 && function_name.starts_with("json") {
+                self.collect_param_from_expr(argument, "json", "json");
+            }
+            let _ = self.infer_expr_type(argument, scope);
+        }
+    }
+
+    /// The columns of `FROM unnest(a, b, ...)`: one per array, typed by its
+    /// elements, which may be NULL. A single array's column takes the table
+    /// alias as its name, as PostgreSQL names a scalar function's column.
+    fn unnest_columns(
+        &mut self,
+        array_exprs: &[ast::Expr],
+        alias: Option<&ast::TableAlias>,
+        scope: &Scope,
+    ) -> Vec<ScopeColumn> {
+        let single_name = match (array_exprs, alias) {
+            ([_], Some(alias)) => Some(alias.name.value.to_lowercase()),
+            _ => None,
+        };
+        array_exprs
+            .iter()
+            .map(|array| {
+                let array_type = self.infer_expr_type(array, scope).neutral_type;
+                let element_type = array_type
+                    .strip_prefix("array<")
+                    .and_then(|inner| inner.strip_suffix('>'))
+                    .map_or_else(|| UNRESOLVED_EXPR_MARKER.to_string(), str::to_string);
+                let name = single_name.clone().unwrap_or_else(|| "unnest".to_string());
+                ScopeColumn::new(name, element_type, true)
+            })
+            .collect()
+    }
+
     /// The columns a column definition list declares (`AS x(id text, amount
     /// integer)`), which is how PostgreSQL types a function returning
     /// `record`, such as `jsonb_to_recordset`. `None` unless the alias gives
@@ -549,6 +643,25 @@ impl<'a> Analyzer<'a> {
         }
         Ok(columns)
     }
+}
+
+/// A set-returning function's columns as its FROM item exposes them: `WITH
+/// ORDINALITY` appends a non-null `bigint` counter, and a column alias list
+/// (`AS e(value, n)`) renames the columns in order, leaving any it omits.
+fn with_function_alias_columns(
+    mut columns: Vec<ScopeColumn>,
+    alias: Option<&ast::TableAlias>,
+    with_ordinality: bool,
+) -> Vec<ScopeColumn> {
+    if with_ordinality {
+        columns.push(ScopeColumn::new("ordinality", "int64", false));
+    }
+    if let Some(alias) = alias {
+        for (column, name) in columns.iter_mut().zip(&alias.columns) {
+            column.name = name.name.value.to_lowercase();
+        }
+    }
+    columns
 }
 
 #[cfg(test)]

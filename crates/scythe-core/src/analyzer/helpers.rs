@@ -350,6 +350,15 @@ pub(super) fn is_positional_placeholder(s: &str) -> bool {
     s == "?"
 }
 
+/// Whether `expr` is a placeholder, parenthesised or cast, and nothing more.
+pub(super) fn is_placeholder_operand(expr: &Expr) -> bool {
+    match expr {
+        Expr::Nested(inner) | Expr::Cast { expr: inner, .. } => is_placeholder_operand(inner),
+        Expr::Value(vws) => value_is_placeholder(vws).is_some(),
+        _ => false,
+    }
+}
+
 /// Derive a param name from a comparison context.
 /// For aggregate functions in HAVING (e.g., COUNT(*) > $1), adds a semantic prefix.
 pub(super) fn derive_param_name_from_comparison(
