@@ -17,8 +17,9 @@ use crate::backends::typescript_common::{
     generate_ts_interface_row_struct, generate_ts_json_composite_interface, generate_ts_many_row_remap,
     generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum,
     generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line,
-    js_type_cast, parse_bool_option, ts_constrained_type, ts_index_access, ts_inexpressible_rules, ts_member_access,
-    ts_property_key, ts_row_not_found_throw,
+    js_type_cast, parse_bool_option, ts_column_type, ts_column_types_import, ts_column_types_option,
+    ts_constrained_type, ts_index_access, ts_inexpressible_rules, ts_member_access, ts_own_type, ts_property_key,
+    ts_row_not_found_throw, ts_with_own_type,
 };
 use crate::constraints::ConstraintPolicy;
 use scythe_core::constraints::{Rules, ValueConstraints};
@@ -99,7 +100,7 @@ impl TemplateDriver {
 /// parameters keep the plain array type, which Bun binds as an array literal.
 /// A column whose type a user override replaced is left alone.
 fn bun_typed_array(column: &ResolvedColumn) -> Option<&'static str> {
-    if column.lang_type != "Array<number>" {
+    if ts_own_type(&column.lang_type) != "Array<number>" {
         return None;
     }
     match column.neutral_type.as_str() {
@@ -121,7 +122,7 @@ fn bun_columns(columns: &[ResolvedColumn]) -> std::borrow::Cow<'_, [ResolvedColu
             let Some(typed) = bun_typed_array(c) else {
                 return c.clone();
             };
-            let lang_type = format!("{typed} | {}", c.lang_type);
+            let lang_type = ts_with_own_type(&c.lang_type, &format!("{typed} | {}", ts_own_type(&c.lang_type)));
             let full_type = if c.nullable {
                 format!("{lang_type} | null")
             } else {
@@ -285,7 +286,10 @@ fn ts_composite_field_overrides(columns: &[ResolvedColumn], var: &str) -> Vec<(S
         .map(|c| {
             let key = ts_property_key(&c.field_name);
             let member = ts_index_access(var, &c.name);
-            (key, format!("parse{}({member}) as {}", c.lang_type, c.full_type))
+            (
+                key,
+                format!("parse{}({member}) as {}", ts_own_type(&c.lang_type), c.full_type),
+            )
         })
         .collect()
 }
@@ -300,7 +304,7 @@ fn ts_composite_aware_row_access(columns: &[ResolvedColumn]) -> impl Fn(&str, &s
         if let Some(col) = columns.iter().find(|c| c.name == name)
             && col.neutral_type.starts_with("composite::")
         {
-            return format!("parse{}({member}) as {ty}", col.lang_type);
+            return format!("parse{}({member}) as {ty}", ts_own_type(&col.lang_type));
         }
         format!("{member} as {ty}")
     }
@@ -480,6 +484,9 @@ pub struct TypescriptPostgresBackend {
     /// the `sql<StructName[]>` generic instead of being rebuilt field by field. `false`
     /// (`"remap"`, the default) rebuilds camelCase rows from raw snake_case keys.
     driver_keys: bool,
+    /// `column_types`: the module whose `Column<Name, Own>` declares each value read
+    /// from or written to a table column -- see [`ts_column_type`].
+    column_types: Option<String>,
     /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
     /// `javascript-postgres` registry name (#81). See
     /// `TypescriptPgBackend::js_mode` for the shared rationale, including why
@@ -521,6 +528,7 @@ impl TypescriptPostgresBackend {
             validation: TsValidation::default(),
             constraint_policy: ConstraintPolicy::default(),
             driver_keys: false,
+            column_types: None,
             js_mode: false,
             driver: TemplateDriver::PostgresJs,
         })
@@ -558,6 +566,7 @@ impl TypescriptPostgresBackend {
             validation: TsValidation::default(),
             constraint_policy: ConstraintPolicy::default(),
             driver_keys: false,
+            column_types: None,
             js_mode: false,
             driver: TemplateDriver::Bun,
         })
@@ -588,6 +597,29 @@ impl TypescriptPostgresBackend {
             header.push_str("import { z } from \"zod\";\n");
         }
         header
+    }
+
+    /// The Bun header for `generated`: see `file_header_for_results`.
+    fn bun_header_for_results(&self, generated: &[crate::GeneratedCode]) -> String {
+        let texts = || {
+            generated.iter().flat_map(|code| {
+                [
+                    code.query_fn.as_deref(),
+                    code.row_struct.as_deref(),
+                    code.model_struct.as_deref(),
+                    code.enum_def.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .chain(code.nested_struct_defs.iter().map(|def| def.code.as_str()))
+            })
+        };
+        let needs_json_value = texts().any(|body| body.contains("SqlJsonValue"));
+        let needs_transaction = generated
+            .iter()
+            .filter_map(|code| code.query_fn.as_deref())
+            .any(|body| body.contains("TransactionSQL"));
+        self.bun_ts_header(needs_json_value, needs_transaction)
     }
 
     /// The columns as this driver returns them -- see [`bun_columns`].
@@ -686,6 +718,11 @@ impl CodegenBackend for TypescriptPostgresBackend {
         ts_constrained_type(constraints, lang_type, nullable)
     }
 
+    fn column_type(&self, column: &str, lang_type: &str, nullable: bool) -> Option<(String, String)> {
+        self.column_types.as_ref()?;
+        Some(ts_column_type(column, lang_type, nullable))
+    }
+
     fn supported_engines(&self) -> &[&str] {
         match self.driver {
             TemplateDriver::PostgresJs => &["postgresql", "redshift"],
@@ -725,30 +762,16 @@ impl CodegenBackend for TypescriptPostgresBackend {
     /// Bun's TypeScript header declares `SqlJsonValue` and imports
     /// `TransactionSQL` only when some generated fragment names them, so a
     /// file without JSON columns or `:batch` queries carries no unused
-    /// binding. postgres.js keeps its unconditional header.
+    /// binding. postgres.js keeps its unconditional header. Either imports the
+    /// `column_types` module's `Column` when a declaration names it.
     fn file_header_for_results(&self, generated: &[crate::GeneratedCode]) -> String {
-        if self.driver != TemplateDriver::Bun || self.js_mode {
-            return self.file_header();
-        }
-        let texts = || {
-            generated.iter().flat_map(|code| {
-                [
-                    code.query_fn.as_deref(),
-                    code.row_struct.as_deref(),
-                    code.model_struct.as_deref(),
-                    code.enum_def.as_deref(),
-                ]
-                .into_iter()
-                .flatten()
-                .chain(code.nested_struct_defs.iter().map(|def| def.code.as_str()))
-            })
+        let mut header = if self.driver != TemplateDriver::Bun || self.js_mode {
+            self.file_header()
+        } else {
+            self.bun_header_for_results(generated)
         };
-        let needs_json_value = texts().any(|body| body.contains("SqlJsonValue"));
-        let needs_transaction = generated
-            .iter()
-            .filter_map(|code| code.query_fn.as_deref())
-            .any(|body| body.contains("TransactionSQL"));
-        self.bun_ts_header(needs_json_value, needs_transaction)
+        header.push_str(&ts_column_types_import(self.column_types.as_deref(), generated));
+        header
     }
 
     fn generate_struct_decl(
@@ -1299,6 +1322,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 "validation",
                 "constraints",
                 "row_keys",
+                "column_types",
             ],
             options,
         )?;
@@ -1340,6 +1364,9 @@ impl CodegenBackend for TypescriptPostgresBackend {
         if let Some(value) = options.get("constraints") {
             self.constraint_policy = ConstraintPolicy::from_option(value)?;
         }
+        if let Some(value) = options.get("column_types") {
+            self.column_types = Some(ts_column_types_option(value, self.row_type)?);
+        }
 
         // ~keep See `TypescriptPgBackend::apply_options` for why these are
         // rejected outright in JSDoc mode rather than silently ignored.
@@ -1359,6 +1386,16 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     ErrorCode::InvalidConfig,
                     format!(
                         "{} does not support validation -- use {}",
+                        self.driver.js_name(),
+                        self.driver.ts_name()
+                    ),
+                ));
+            }
+            if self.column_types.is_some() {
+                return Err(ScytheError::new(
+                    ErrorCode::InvalidConfig,
+                    format!(
+                        "{} does not support column_types -- use {}",
                         self.driver.js_name(),
                         self.driver.ts_name()
                     ),

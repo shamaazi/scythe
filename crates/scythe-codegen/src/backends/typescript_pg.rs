@@ -17,8 +17,8 @@ use crate::backends::typescript_common::{
     generate_ts_interface_row_struct, generate_ts_json_composite_interface, generate_ts_many_row_remap,
     generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum,
     generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line,
-    parse_bool_option, ts_constrained_type, ts_inexpressible_rules, ts_member_access, ts_property_key,
-    ts_row_not_found_throw,
+    parse_bool_option, ts_column_type, ts_column_types_import, ts_column_types_option, ts_constrained_type,
+    ts_inexpressible_rules, ts_member_access, ts_own_type, ts_property_key, ts_row_not_found_throw,
 };
 use crate::constraints::ConstraintPolicy;
 use scythe_core::constraints::{Rules, ValueConstraints};
@@ -209,7 +209,10 @@ fn ts_composite_field_overrides(columns: &[ResolvedColumn], var: &str) -> Vec<(S
         .map(|c| {
             let key = ts_property_key(&c.field_name);
             let member = ts_member_access(var, &c.name);
-            (key, format!("parse{}({member}) as {}", c.lang_type, c.full_type))
+            (
+                key,
+                format!("parse{}({member}) as {}", ts_own_type(&c.lang_type), c.full_type),
+            )
         })
         .collect()
 }
@@ -225,7 +228,7 @@ fn ts_composite_aware_row_access(columns: &[ResolvedColumn]) -> impl Fn(&str, &s
         if let Some(col) = columns.iter().find(|c| c.name == name)
             && col.neutral_type.starts_with("composite::")
         {
-            return format!("parse{}({member}) as {ty}", col.lang_type);
+            return format!("parse{}({member}) as {ty}", ts_own_type(&col.lang_type));
         }
         format!("{member} as {ty}")
     }
@@ -255,6 +258,9 @@ pub struct TypescriptPgBackend {
     /// [`TsValidation`] -- and how one they cannot carry is reported.
     validation: TsValidation,
     constraint_policy: ConstraintPolicy,
+    /// `column_types`: the module whose `Column<Name, Own>` declares each value read
+    /// from or written to a table column -- see [`ts_column_type`].
+    column_types: Option<String>,
     /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
     /// `javascript-pg` registry name (#81). Selected once at construction by
     /// [`Self::new_js`]; not a backend option, since it changes the emitted
@@ -291,6 +297,7 @@ impl TypescriptPgBackend {
             params_style: TsParamStyle::default(),
             validation: TsValidation::default(),
             constraint_policy: ConstraintPolicy::default(),
+            column_types: None,
             js_mode: false,
         })
     }
@@ -343,6 +350,11 @@ impl CodegenBackend for TypescriptPgBackend {
         ts_constrained_type(constraints, lang_type, nullable)
     }
 
+    fn column_type(&self, column: &str, lang_type: &str, nullable: bool) -> Option<(String, String)> {
+        self.column_types.as_ref()?;
+        Some(ts_column_type(column, lang_type, nullable))
+    }
+
     fn supported_engines(&self) -> &[&str] {
         &["postgresql", "redshift"]
     }
@@ -368,6 +380,14 @@ impl CodegenBackend for TypescriptPgBackend {
         if self.row_type == TsRowType::Zod {
             header.push_str("import { z } from \"zod\";\n");
         }
+        header
+    }
+
+    /// [`Self::file_header`], plus the `column_types` module's `Column` when a
+    /// declaration names it.
+    fn file_header_for_results(&self, generated: &[crate::GeneratedCode]) -> String {
+        let mut header = self.file_header();
+        header.push_str(&ts_column_types_import(self.column_types.as_deref(), generated));
         header
     }
 
@@ -966,6 +986,7 @@ impl CodegenBackend for TypescriptPgBackend {
                 "params",
                 "validation",
                 "constraints",
+                "column_types",
             ],
             options,
         )?;
@@ -992,6 +1013,9 @@ impl CodegenBackend for TypescriptPgBackend {
         if let Some(value) = options.get("constraints") {
             self.constraint_policy = ConstraintPolicy::from_option(value)?;
         }
+        if let Some(value) = options.get("column_types") {
+            self.column_types = Some(ts_column_types_option(value, self.row_type)?);
+        }
 
         // Plain `.js` has no `type`/`interface` alias syntax and no `as T`
         // assertion, so none of these three TypeScript-shape options has
@@ -1011,6 +1035,12 @@ impl CodegenBackend for TypescriptPgBackend {
                 return Err(ScytheError::new(
                     ErrorCode::InvalidConfig,
                     "javascript-pg does not support validation -- use typescript-pg".to_string(),
+                ));
+            }
+            if self.column_types.is_some() {
+                return Err(ScytheError::new(
+                    ErrorCode::InvalidConfig,
+                    "javascript-pg does not support column_types -- use typescript-pg".to_string(),
                 ));
             }
             if self.row_type == TsRowType::Zod {

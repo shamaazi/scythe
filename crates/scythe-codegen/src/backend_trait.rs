@@ -180,6 +180,15 @@ pub trait CodegenBackend: Send + Sync {
         None
     }
 
+    /// The `(lang_type, full_type)` a value read from or written to the table
+    /// column `column` (`table.column`, see
+    /// [`scythe_core::analyzer::AnalyzedColumn::base_column`]) is declared as,
+    /// given its own -- already [`Self::constrained_type`]-narrowed -- type, or
+    /// `None` to keep that type.
+    fn column_type(&self, _column: &str, _lang_type: &str, _nullable: bool) -> Option<(String, String)> {
+        None
+    }
+
     /// Emit a row-shaped type declaration under an *already final* name.
     ///
     /// `struct_name` is the exact identifier to declare — this method must

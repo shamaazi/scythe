@@ -265,6 +265,13 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
         &mut params,
         &mut result.constraint_warnings,
     )?;
+    resolve::apply_column_types(
+        backend,
+        degraded_columns.as_deref().unwrap_or(&analyzed.columns),
+        &mut columns,
+        &analyzed.params,
+        &mut params,
+    );
 
     // Computed here, ahead of enum generation, so the collision check below
     // can compare an enum's generated name against the same row/model type
@@ -378,6 +385,20 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
         // Same constraints as the flat columns, already reported above.
         constraints::apply_constraint_policy(backend, &analyzed.name, &mut parent_cols, &mut [], &mut Vec::new())?;
         constraints::apply_constraint_policy(backend, &analyzed.name, &mut child_cols, &mut [], &mut Vec::new())?;
+        resolve::apply_column_types(
+            backend,
+            degraded_parent.as_deref().unwrap_or(&group_by.parent_columns),
+            &mut parent_cols,
+            &[],
+            &mut [],
+        );
+        resolve::apply_column_types(
+            backend,
+            degraded_child.as_deref().unwrap_or(&group_by.child_columns),
+            &mut child_cols,
+            &[],
+            &mut [],
+        );
 
         // Every `generate_grouped_structs` implementation injects one more
         // field into the parent struct beyond `parent_cols`: `children`

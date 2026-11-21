@@ -5,7 +5,7 @@ use scythe_backend::types::resolve_type_pair;
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam};
 use scythe_core::errors::{ErrorCode, ScytheError};
 
-use crate::backend_trait::{ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::overrides::{TypeOverride, find_override};
 
 /// Resolve analyzed columns into resolved columns using a backend manifest.
@@ -126,6 +126,45 @@ pub fn resolve_params(
     )?;
 
     Ok(resolved)
+}
+
+/// Declare each resolved column and parameter that reads or writes a table
+/// column unchanged at the type [`CodegenBackend::column_type`] gives that
+/// column. `analyzed` and `resolved` correspond by index, as
+/// [`resolve_columns`] and [`resolve_params`] produce them. Runs after
+/// [`crate::constraints::apply_constraint_policy`], so a narrowed type is the
+/// one passed on.
+pub fn apply_column_types(
+    backend: &dyn CodegenBackend,
+    analyzed_columns: &[AnalyzedColumn],
+    columns: &mut [ResolvedColumn],
+    analyzed_params: &[AnalyzedParam],
+    params: &mut [ResolvedParam],
+) {
+    let targets = analyzed_columns
+        .iter()
+        .map(|c| c.base_column.as_ref())
+        .zip(
+            columns
+                .iter_mut()
+                .map(|c| (&mut c.lang_type, &mut c.full_type, c.nullable)),
+        )
+        .chain(
+            analyzed_params.iter().map(|p| p.base_column.as_ref()).zip(
+                params
+                    .iter_mut()
+                    .map(|p| (&mut p.lang_type, &mut p.full_type, p.nullable)),
+            ),
+        );
+    for (base_column, (lang_type, full_type, nullable)) in targets {
+        let Some(base_column) = base_column else {
+            continue;
+        };
+        if let Some((lang, full)) = backend.column_type(&base_column.name(), lang_type, nullable) {
+            *lang_type = lang;
+            *full_type = full;
+        }
+    }
 }
 
 /// Every `"table.column"` reference actually present across a set of analyzed params, keyed

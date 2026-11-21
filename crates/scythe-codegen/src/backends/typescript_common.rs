@@ -1587,8 +1587,105 @@ fn write_ts_property(
     lang_type: &str,
     constraints: Option<&ValueConstraints>,
 ) {
-    out.push_str(&ts_property_doc(constraints, lang_type, "\t"));
+    out.push_str(&ts_property_doc(constraints, ts_own_type(lang_type), "\t"));
     let _ = writeln!(out, "\t{}: {};", ts_property_key(field_name), full_type);
+}
+
+/// The generic type a `column_types` module exports: `Column<Name, Own>`.
+const TS_COLUMN_TYPE: &str = "Column";
+
+/// Validate the `column_types` option: a module specifier for the import of
+/// its `Column` type. A Zod row schema is a runtime value the type-only
+/// `Column` cannot reach, so `row_type = "zod"` rejects it.
+pub fn ts_column_types_option(module: &str, row_type: TsRowType) -> Result<String, ScytheError> {
+    if module.is_empty() || module.chars().any(|c| matches!(c, '"' | '\\') || c.is_control()) {
+        return Err(ScytheError::new(
+            ErrorCode::InvalidConfig,
+            format!("invalid column_types '{module}': expected a module specifier"),
+        ));
+    }
+    if row_type == TsRowType::Zod {
+        return Err(ScytheError::new(
+            ErrorCode::InvalidConfig,
+            "column_types needs row_type = \"interface\": a Zod schema cannot carry a type-only Column",
+        ));
+    }
+    Ok(module.to_string())
+}
+
+/// The TypeScript backends' [`crate::backend_trait::CodegenBackend::column_type`]
+/// under `column_types`: `Column<'table.column', T>`, with `| null` outside.
+pub fn ts_column_type(column: &str, lang_type: &str, nullable: bool) -> (String, String) {
+    let mut lang = format!("{TS_COLUMN_TYPE}<'");
+    for c in column.chars() {
+        if matches!(c, '\'' | '\\') {
+            lang.push('\\');
+        }
+        lang.push(c);
+    }
+    let _ = write!(lang, "', {lang_type}>");
+    let full = if nullable {
+        format!("{lang} | null")
+    } else {
+        lang.clone()
+    };
+    (lang, full)
+}
+
+/// A [`ts_column_type`] split into everything before its own type and that
+/// own type, or `None` for any other type.
+fn ts_column_type_parts(lang_type: &str) -> Option<(&str, &str)> {
+    let name = lang_type.strip_prefix(TS_COLUMN_TYPE)?.strip_prefix("<'")?;
+    let mut escaped = false;
+    for (index, c) in name.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '\'' => {
+                let own = name[index + 1..].strip_prefix(", ")?.strip_suffix('>')?;
+                let prefix_len = lang_type.len() - own.len() - 1;
+                return Some((&lang_type[..prefix_len], own));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The type a column or parameter has of its own, before [`ts_column_type`]
+/// declared it `Column<'table.column', T>`: `T`. Code that decides by the
+/// value's type -- validation tags, a composite's parser, a driver's typed
+/// arrays -- reads this.
+pub fn ts_own_type(lang_type: &str) -> &str {
+    ts_column_type_parts(lang_type).map_or(lang_type, |(_, own)| own)
+}
+
+/// `lang_type` with its own type (see [`ts_own_type`]) replaced by `own`.
+pub fn ts_with_own_type(lang_type: &str, own: &str) -> String {
+    match ts_column_type_parts(lang_type) {
+        Some((prefix, _)) => format!("{prefix}{own}>"),
+        None => own.to_string(),
+    }
+}
+
+/// `import type { Column } from "<module>";` when a `column_types` module is
+/// set and some generated declaration names a column type, else empty.
+pub fn ts_column_types_import(module: Option<&str>, generated: &[crate::GeneratedCode]) -> String {
+    let Some(module) = module else {
+        return String::new();
+    };
+    let marker = format!("{TS_COLUMN_TYPE}<'");
+    let used = generated.iter().any(|code| {
+        [&code.query_fn, &code.row_struct, &code.model_struct]
+            .into_iter()
+            .flatten()
+            .any(|body| body.contains(&marker))
+    });
+    if used {
+        format!("import type {{ {TS_COLUMN_TYPE} }} from \"{module}\";\n")
+    } else {
+        String::new()
+    }
 }
 
 #[cfg(test)]
@@ -2308,5 +2405,24 @@ mod tests {
                 .code,
             ErrorCode::InvalidConfig
         );
+    }
+
+    #[test]
+    fn test_ts_column_type_escapes_the_name_and_keeps_null_outside() {
+        let (lang, full) = ts_column_type("it's.a\\b", "\"x\" | \"y\"", true);
+        assert_eq!(lang, "Column<'it\\'s.a\\\\b', \"x\" | \"y\">");
+        assert_eq!(full, format!("{lang} | null"));
+    }
+
+    #[test]
+    fn test_ts_own_type_reads_through_a_column_type() {
+        let (lang, _) = ts_column_type("it's.a, b>", "Array<number>", false);
+        assert_eq!(ts_own_type(&lang), "Array<number>");
+        assert_eq!(
+            ts_with_own_type(&lang, "Int32Array | Array<number>"),
+            "Column<'it\\'s.a, b>', Int32Array | Array<number>>"
+        );
+        assert_eq!(ts_own_type("Array<number>"), "Array<number>");
+        assert_eq!(ts_with_own_type("number", "string"), "string");
     }
 }
