@@ -150,6 +150,7 @@ impl<'a> Analyzer<'a> {
                     self.collect_params_from_where(right, scope);
                 }
                 _ => {
+                    let _ = self.infer_expr_type(expr, scope);
                     self.collect_params_from_where(left, scope);
                     self.collect_params_from_where(right, scope);
                 }
@@ -313,6 +314,42 @@ impl<'a> Analyzer<'a> {
             _ => {
                 let _ = self.infer_expr_type(expr, scope);
             }
+        }
+    }
+
+    /// Type a placeholder operand of a JSON or containment operator as
+    /// PostgreSQL resolves it: a key of `->`/`->>`/`?` is `text` (the string
+    /// candidate wins over `integer`), a path of `#>`/`#>>` and the keys of
+    /// `?|`/`?&` are `text[]`, and either side of `@>`/`<@` takes the other
+    /// side's type.
+    pub(super) fn bind_operator_placeholders(
+        &mut self,
+        left: &Expr,
+        op: &BinaryOperator,
+        right: &Expr,
+        left_ti: &TypeInfo,
+        right_ti: &TypeInfo,
+    ) {
+        let known = |ti: &TypeInfo| ti.neutral_type != "unknown" && !ti.neutral_type.starts_with("__");
+        match op {
+            BinaryOperator::Arrow | BinaryOperator::LongArrow | BinaryOperator::Question => {
+                self.collect_param_from_expr(right, "key", "string");
+            }
+            BinaryOperator::HashArrow
+            | BinaryOperator::HashLongArrow
+            | BinaryOperator::QuestionAnd
+            | BinaryOperator::QuestionPipe => {
+                self.collect_param_from_expr(right, "path", "array<string>");
+            }
+            BinaryOperator::AtArrow | BinaryOperator::ArrowAt => {
+                if known(left_ti) {
+                    self.collect_param_from_expr(right, &expr_to_name(left), &left_ti.neutral_type);
+                }
+                if known(right_ti) {
+                    self.collect_param_from_expr(left, &expr_to_name(right), &right_ti.neutral_type);
+                }
+            }
+            _ => {}
         }
     }
 

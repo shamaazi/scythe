@@ -3270,4 +3270,28 @@ SELECT id, moods FROM t WHERE id = $1;",
         let names: Vec<_> = result.params.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["field", "format", "prefix"]);
     }
+
+    #[test]
+    fn should_type_placeholder_operands_of_json_operators() {
+        let catalog = Catalog::from_ddl(&["CREATE TABLE audit_logs (id integer PRIMARY KEY, data jsonb NOT NULL);"])
+            .expect("schema should parse");
+        let query = parse_query(
+            "-- @name Recorded\n-- @returns :many\n\
+             SELECT id FROM audit_logs WHERE data->>$1 = $2 AND data #>> $3 IS NOT NULL \
+             AND data @> $4 AND data ? $5 AND data->$6 IS NOT NULL;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("JSON operator operands are typed");
+        assert_eq!(
+            param_types(&result),
+            [
+                (1, "string"),
+                (2, "string"),
+                (3, "array<string>"),
+                (4, "json"),
+                (5, "string"),
+                (6, "string")
+            ]
+        );
+    }
 }

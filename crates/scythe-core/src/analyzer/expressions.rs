@@ -100,6 +100,7 @@ impl<'a> Analyzer<'a> {
             Expr::BinaryOp { left, op, right } => {
                 let left_ti = self.infer_expr_type(left, scope);
                 let right_ti = self.infer_expr_type(right, scope);
+                self.bind_operator_placeholders(left, op, right, &left_ti, &right_ti);
 
                 match op {
                     BinaryOperator::StringConcat => TypeInfo::new("string", left_ti.nullable || right_ti.nullable),
