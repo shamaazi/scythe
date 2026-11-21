@@ -3146,4 +3146,57 @@ SELECT id, moods FROM t WHERE id = $1;",
             [(1, "int32"), (2, "int32"), (3, "string"), (4, "string")]
         );
     }
+
+    fn brand_catalog() -> Catalog {
+        Catalog::from_ddl(&[
+            "CREATE TYPE brand AS ENUM ('myfajr', 'myfridays');",
+            "CREATE DOMAIN code AS character varying(8);",
+            "CREATE FUNCTION record_type(brand brand) RETURNS character varying LANGUAGE sql IMMUTABLE STRICT \
+             RETURN brand::text;",
+            "CREATE FUNCTION described(value text) RETURNS text LANGUAGE sql RETURN value;",
+            "CREATE FUNCTION described(value brand) RETURNS integer LANGUAGE sql RETURN 1;",
+            "CREATE FUNCTION decoded(value code) RETURNS brand LANGUAGE sql RETURN 'myfajr';",
+            "CREATE TABLE schedules (id integer PRIMARY KEY, brand brand NOT NULL, \
+             record_type character varying(255) NOT NULL);",
+        ])
+        .expect("schema should parse")
+    }
+
+    #[test]
+    fn should_resolve_enum_function_arguments_from_literals_columns_and_casts() {
+        let catalog = brand_catalog();
+        let query = parse_query(
+            "-- @name Friday\n-- @returns :many\n\
+             SELECT record_type(brand) AS code, decoded(record_type) AS decoded FROM schedules \
+             WHERE record_type = record_type('myfridays') AND record_type = record_type($1::brand) \
+             AND record_type <> record_type($2);",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("enum and domain arguments resolve");
+        let columns: Vec<_> = result.columns.iter().map(|c| c.neutral_type.as_str()).collect();
+        assert_eq!(columns, ["string", "enum::brand"]);
+        assert_eq!(param_types(&result), [(1, "enum::brand"), (2, "enum::brand")]);
+    }
+
+    #[test]
+    fn should_prefer_a_string_overload_for_an_untyped_literal() {
+        let catalog = brand_catalog();
+        let query = parse_query(
+            "-- @name Described\n-- @returns :one\nSELECT described('myfajr') AS text_overload, \
+             described('myfajr'::brand) AS enum_overload;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("a literal prefers the string overload");
+        let columns: Vec<_> = result.columns.iter().map(|c| c.neutral_type.as_str()).collect();
+        assert_eq!(columns, ["string", "int32"]);
+    }
+
+    #[test]
+    fn should_reject_a_literal_that_is_not_a_label_of_the_enum_argument() {
+        let catalog = brand_catalog();
+        let query = parse_query("-- @name Unknown\n-- @returns :one\nSELECT record_type('mytuesdays') AS code;")
+            .expect("query should parse");
+        let error = analyze(&catalog, &query).expect_err("mytuesdays is not a brand");
+        assert_eq!(error.code, crate::errors::ErrorCode::TypeMismatch);
+    }
 }

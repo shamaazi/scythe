@@ -1523,6 +1523,16 @@ pub(super) fn match_catalog_function<'a>(
         } else {
             declared.as_ref()
         };
+        // An undecorated string literal has PostgreSQL's `unknown` type and
+        // converts to whatever the argument declares (`record_type('x')` with
+        // an enum argument), though a string argument is preferred.
+        if let Some(literal) = untyped_string_literal(call_arguments[*call_index].1) {
+            if !literal_converts_to(literal, declared, catalog) {
+                return None;
+            }
+            score += u32::from(declared != "string");
+            continue;
+        }
         let neutral_score = numeric_promotion_distance(actual, declared)?;
         score += neutral_score;
         if neutral_score == 0
@@ -1543,6 +1553,40 @@ pub(super) fn match_catalog_function<'a>(
         score,
         bindings,
     })
+}
+
+fn untyped_string_literal(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Nested(inner) => untyped_string_literal(inner),
+        Expr::Value(vws) => match &vws.value {
+            ast::Value::SingleQuotedString(text) | ast::Value::EscapedStringLiteral(text) => Some(text),
+            ast::Value::DollarQuotedString(quoted) => Some(&quoted.value),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether PostgreSQL accepts `literal` as input to a `declared` argument.
+/// Only the types whose input is checked cheaply are checked: an enum takes
+/// one of its labels, a number a numeric literal and a boolean a boolean
+/// spelling; anything else is left to the database.
+fn literal_converts_to(literal: &str, declared: &str, catalog: &crate::catalog::Catalog) -> bool {
+    let literal = literal.trim();
+    if let Some(name) = declared.strip_prefix("enum::") {
+        return catalog
+            .get_enum(name)
+            .is_none_or(|enum_type| enum_type.values.iter().any(|value| value == literal));
+    }
+    match declared {
+        "int16" | "int32" | "int64" => literal.parse::<i64>().is_ok(),
+        "decimal" | "float32" | "float64" => literal.parse::<f64>().is_ok(),
+        "bool" => matches!(
+            literal.to_ascii_lowercase().as_str(),
+            "t" | "true" | "y" | "yes" | "on" | "1" | "f" | "false" | "n" | "no" | "off" | "0"
+        ),
+        _ => true,
+    }
 }
 
 fn array_element_type(neutral_type: &str) -> Option<&str> {
