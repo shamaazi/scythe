@@ -1,4 +1,4 @@
-//! End-to-end integration tests for `scythe lint`'s auto-inspect feature
+//! End-to-end integration tests for `sqlkit lint`'s auto-inspect feature
 //! introduced in sub-phase 1D, and for #210's fix to how it decides whether
 //! to run at all.
 //!
@@ -6,7 +6,7 @@
 //! this file runs in any environment with no gating:
 //! 1. No DB URL configured -- lint output is byte-identical to v0.10
 //!    behaviour (i.e. zero inspect findings appended).
-//! 2. A bare `$DATABASE_URL`/`$SCYTHE_DATABASE_URL` env var, with no
+//! 2. A bare `$DATABASE_URL`/`$SQLKIT_DATABASE_URL` env var, with no
 //!    `--database-url` flag and no `[inspect].database_url` in the config --
 //!    ignored entirely; `lint` must never even attempt a connection (#210).
 //!    Uses an unreachable `.invalid` host.
@@ -29,23 +29,23 @@ use std::fs;
 use assert_cmd::Command;
 use tempfile::TempDir;
 
-/// Spawn `scythe lint --config <path>` with a clean environment: both
-/// `DATABASE_URL` and `SCYTHE_DATABASE_URL` removed from the child's env.
+/// Spawn `sqlkit lint --config <path>` with a clean environment: both
+/// `DATABASE_URL` and `SQLKIT_DATABASE_URL` removed from the child's env.
 /// Returns the `assert_cmd::assert::Assert` for further assertions.
 fn scythe_lint_no_db(config_path: &str) -> assert_cmd::assert::Assert {
-    Command::cargo_bin("scythe")
+    Command::cargo_bin("sqlkit")
         .expect("scythe binary must exist")
         .args(["lint", "--config", config_path])
         .env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .assert()
 }
 
-/// Write a minimal `scythe.toml` with a `[[sql]]` block pointing at a
+/// Write a minimal `sqlkit.toml` with a `[[sql]]` block pointing at a
 /// benign SQL fixture that does NOT trigger any lint rules.
 ///
 /// The `-- @returns :one` line is load-bearing. Without it the query does not
-/// parse (`MISSING_ANNOTATION`), and `scythe lint` used to answer that by
+/// parse (`MISSING_ANNOTATION`), and `sqlkit lint` used to answer that by
 /// skipping the query and reporting "No lint violations found." -- so every
 /// test below was asserting a clean run over a project in which zero queries
 /// were ever linted. That skip is now an `SC-PARSE01` error finding (#158),
@@ -61,7 +61,7 @@ fn write_benign_fixture(dir: &TempDir) -> String {
     fs::write(&sql_path, sql_content).expect("write queries.sql");
     fs::write(&schema_path, schema_content).expect("write schema.sql");
 
-    let config_content = r#"[scythe]
+    let config_content = r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -71,8 +71,8 @@ schema = ["schema.sql"]
 queries = ["queries.sql"]
 "#
     .to_string();
-    let config_path = dir.path().join("scythe.toml");
-    fs::write(&config_path, config_content).expect("write scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
+    fs::write(&config_path, config_content).expect("write sqlkit.toml");
 
     config_path.to_string_lossy().into_owned()
 }
@@ -82,7 +82,7 @@ queries = ["queries.sql"]
 fn write_fixture_with_inspect_url(dir: &TempDir, database_url: &str) -> String {
     let config_path = write_benign_fixture(dir);
     let config_content = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -95,13 +95,13 @@ queries = ["queries.sql"]
 database_url = "{database_url}"
 "#
     );
-    fs::write(&config_path, config_content).expect("write scythe.toml");
+    fs::write(&config_path, config_content).expect("write sqlkit.toml");
 
     config_path
 }
 
-/// When neither `DATABASE_URL` nor `SCYTHE_DATABASE_URL` is set, and the
-/// `scythe.toml` has no `[inspect].database_url`, `scythe lint` must:
+/// When neither `DATABASE_URL` nor `SQLKIT_DATABASE_URL` is set, and the
+/// `sqlkit.toml` has no `[inspect].database_url`, `sqlkit lint` must:
 /// - Exit 0 (no violations in the benign fixture).
 /// - Emit "No lint violations found." on stderr.
 /// - Emit NO line containing `[inspect]` or `SC-INS` on stdout or stderr.
@@ -138,11 +138,11 @@ fn lint_without_db_url_emits_zero_inspect_findings() {
     }
 }
 
-/// #210: `scythe lint` must NOT auto-connect purely because `$DATABASE_URL`
+/// #210: `sqlkit lint` must NOT auto-connect purely because `$DATABASE_URL`
 /// happens to be set in the environment -- unlike the old behaviour (which
 /// this test used to verify the opposite of), a bare env var is no longer
 /// enough on its own. Only an explicit `--database-url` flag or
-/// `[inspect].database_url` in `scythe.toml` opts in.
+/// `[inspect].database_url` in `sqlkit.toml` opts in.
 ///
 /// Deliberately does not need a live database (or `SCYTHE_TEST_DATABASE_URL`):
 /// the point is that `lint` must never even attempt a connection here, so an
@@ -153,13 +153,13 @@ fn lint_ignores_bare_database_url_env_var_for_auto_inspect() {
     let dir = TempDir::new().expect("tempdir");
     let config_path = write_benign_fixture(&dir);
 
-    let output = Command::cargo_bin("scythe")
+    let output = Command::cargo_bin("sqlkit")
         .expect("scythe binary")
         .args(["lint", "--config", &config_path])
         .env("DATABASE_URL", "postgres://does-not-exist.invalid:1/x")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("spawn scythe lint");
+        .expect("spawn sqlkit lint");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -191,13 +191,13 @@ fn lint_with_explicit_database_url_flag_reports_failed_connection_and_does_not_f
     let config_path = write_benign_fixture(&dir);
     let bad_url = "postgres://does-not-exist.invalid:1/x";
 
-    let output = Command::cargo_bin("scythe")
+    let output = Command::cargo_bin("sqlkit")
         .expect("scythe binary")
         .args(["lint", "--config", &config_path, "--database-url", bad_url])
         .env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("spawn scythe lint");
+        .expect("spawn sqlkit lint");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let exit_code = output.status.code();
@@ -220,20 +220,20 @@ fn lint_with_explicit_database_url_flag_reports_failed_connection_and_does_not_f
 }
 
 /// Same as the explicit-flag case above, but the URL comes from
-/// `[inspect].database_url` in `scythe.toml` -- the other opt-in source
+/// `[inspect].database_url` in `sqlkit.toml` -- the other opt-in source
 /// `try_run_inspect` still honours. Also needs no live database.
 #[test]
 fn lint_with_configured_inspect_url_reports_failed_connection_and_does_not_fail() {
     let dir = TempDir::new().expect("tempdir");
     let config_path = write_fixture_with_inspect_url(&dir, "postgres://does-not-exist.invalid:1/x");
 
-    let output = Command::cargo_bin("scythe")
+    let output = Command::cargo_bin("sqlkit")
         .expect("scythe binary")
         .args(["lint", "--config", &config_path])
         .env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("spawn scythe lint");
+        .expect("spawn sqlkit lint");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let exit_code = output.status.code();
@@ -313,7 +313,7 @@ fn disabled_sqruff_ignores_an_otherwise_fatal_rules_table() {
     fs::write(dir.path().join("queries.sql"), sql_content).expect("write queries.sql");
     fs::write(dir.path().join("schema.sql"), schema_content).expect("write schema.sql");
 
-    let config_content = r#"[scythe]
+    let config_content = r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -328,8 +328,8 @@ enabled = false
 [lint.sqruff.rules]
 LT0 = "off"
 "#;
-    let config_path = dir.path().join("scythe.toml");
-    fs::write(&config_path, config_content).expect("write scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
+    fs::write(&config_path, config_content).expect("write sqlkit.toml");
 
     let assert = scythe_lint_no_db(&config_path.to_string_lossy());
     let output = assert.get_output();
@@ -345,7 +345,7 @@ LT0 = "off"
     );
 }
 
-/// Write a `scythe.toml` carrying a single `[lint.sqruff.rules]` entry, over a
+/// Write a `sqlkit.toml` carrying a single `[lint.sqruff.rules]` entry, over a
 /// query that trips a native rule so the test can tell "config rejected" apart
 /// from "nothing to report".
 fn write_fixture_with_sqruff_rule(dir: &TempDir, rule: &str, value: &str) -> String {
@@ -356,7 +356,7 @@ fn write_fixture_with_sqruff_rule(dir: &TempDir, rule: &str, value: &str) -> Str
     fs::write(dir.path().join("schema.sql"), schema_content).expect("write schema.sql");
 
     let config_content = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -369,8 +369,8 @@ queries = ["queries.sql"]
 {rule} = "{value}"
 "#
     );
-    let config_path = dir.path().join("scythe.toml");
-    fs::write(&config_path, config_content).expect("write scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
+    fs::write(&config_path, config_content).expect("write sqlkit.toml");
 
     config_path.to_string_lossy().into_owned()
 }

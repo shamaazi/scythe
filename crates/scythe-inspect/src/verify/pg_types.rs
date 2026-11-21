@@ -296,7 +296,7 @@ mod tests {
         assert!(!types_are_compatible("inet", "string"));
     }
 
-    /// `scythe check --verify` compares inferred types against what the
+    /// `sqlkit check --verify` compares inferred types against what the
     /// server reports for the same column. A `json_agg(o.*)` column is
     /// inferred as `json_nested<...>` but reported as plain `json`, and a
     /// user `@json` mapping as `json_typed<...>` for the same reason —

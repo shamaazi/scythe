@@ -118,7 +118,7 @@ pub(super) fn unresolved_type_error(neutral_type: &str, subject: &str, column_na
             ErrorCode::UnresolvedType,
             format!(
                 "{subject} \"{column_name}\": function {function}(...) returns PostgreSQL's anonymous `record` type; \
-                 declare a named composite return type or explicit RETURNS TABLE/OUT columns so scythe can resolve \
+                 declare a named composite return type or explicit RETURNS TABLE/OUT columns so sqlkit can resolve \
                  the result fields"
             ),
         ));

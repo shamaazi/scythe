@@ -3,7 +3,7 @@
 //!
 //! Every rule in this module deliberately leaves both [`LintRule::check_query`]
 //! and [`LintRule::check_catalog`] at their no-op defaults. There is nothing
-//! for them to inspect here: the findings are produced by `scythe check`'s
+//! for them to inspect here: the findings are produced by `sqlkit check`'s
 //! artifact-verification pass, which reads the provenance header line out of
 //! each already-generated file and compares it against the current catalog
 //! fingerprint, engine, backend, and scythe version. A `LintContext` carries
@@ -14,7 +14,7 @@
 //! both directions:
 //!
 //! - Out of the default registry, because everything that consumes it —
-//!   `scythe lint`, and `scythe audit --list-rules` via
+//!   `sqlkit lint`, and `sqlkit audit --list-rules` via
 //!   `load_registry_for_discovery` — evaluates rules through `check_query` /
 //!   `check_catalog`. Listing eleven rules there that neither command can
 //!   ever emit would advertise a capability that does not exist, and would
@@ -22,7 +22,7 @@
 //!   #152/#167) that appears across the README, the website, and the skills
 //!   bundle.
 //! - In a registry at all, rather than a bare list, because that is what
-//!   makes them configurable. `scythe check` applies the same `[lint]` table
+//!   makes them configurable. `sqlkit check` applies the same `[lint]` table
 //!   to this registry that it applies to the default one, then resolves each
 //!   severity through [`crate::registry::RuleRegistry::effective_severity`] —
 //!   the same call every SQL rule's severity goes through. So
@@ -41,7 +41,7 @@ use crate::types::{RuleCategory, Severity};
 /// `Error` by default: this is the rule the whole provenance feature exists
 /// for. A generated file compiled against a schema that no longer matches is
 /// the failure the header was added to catch, and it is always fixable by
-/// running `scythe generate`.
+/// running `sqlkit generate`.
 pub struct SchemaDrift;
 
 impl LintRule for SchemaDrift {
@@ -77,7 +77,7 @@ impl LintRule for ScytheVersionDrift {
         "SC-PRV02"
     }
     fn name(&self) -> &'static str {
-        "scythe-version-drift"
+        "sqlkit-version-drift"
     }
     fn category(&self) -> RuleCategory {
         RuleCategory::Provenance
@@ -86,7 +86,7 @@ impl LintRule for ScytheVersionDrift {
         Severity::Warn
     }
     fn description(&self) -> &'static str {
-        "Generated artifact was produced by a different scythe version than the one running"
+        "Generated artifact was produced by a different sqlkit version than the one running"
     }
 }
 
@@ -199,10 +199,10 @@ impl LintRule for MalformedProvenanceHeader {
 ///
 /// `Warn` by default. It reports the *absence* of a verification result, not
 /// a detected mismatch, and it exists so that absence is visible rather than
-/// silent — but it must never be able to sink a `scythe check` run on its
+/// silent — but it must never be able to sink a `sqlkit check` run on its
 /// own, because the underlying causes (a typo'd backend name, an engine a
 /// backend does not support, a permissions problem in the output directory)
-/// are already reported far more precisely by `scythe generate`.
+/// are already reported far more precisely by `sqlkit generate`.
 pub struct UnverifiableProvenance;
 
 impl LintRule for UnverifiableProvenance {
@@ -235,7 +235,7 @@ impl LintRule for UnverifiableProvenance {
 ///
 /// `Error` by default, matching `SchemaDrift`: this is the same class of
 /// failure (stale generated code, not merely stale metadata) and it is
-/// always fixable by running `scythe generate`.
+/// always fixable by running `sqlkit generate`.
 ///
 /// Only fires when the header actually carries a `queries=` field. A header
 /// written by scythe 0.14.0 or earlier has no such field -- that reads as
@@ -267,7 +267,7 @@ impl LintRule for QueryDrift {
 /// build, a manifest override or options that fail to apply, or an output
 /// path that would escape the project root.
 ///
-/// `Error` by default: a target `scythe generate` refuses to build cannot
+/// `Error` by default: a target `sqlkit generate` refuses to build cannot
 /// have produced the artifact on disk, so there is nothing here for
 /// provenance verification to compare against -- this rule reports the
 /// misconfiguration itself, not drift.
@@ -276,8 +276,8 @@ impl LintRule for QueryDrift {
 /// verification of an otherwise-valid target fails for a different reason
 /// (e.g. the artifact file cannot be read). `SC-PRV09` fires earlier, before
 /// there is a target to verify at all -- see `validate_gen_targets_constructible`
-/// in `scythe-cli`, which mirrors `scythe generate`'s own construction steps
-/// so `scythe check` reports precisely what `generate` would refuse.
+/// in `scythe-cli`, which mirrors `sqlkit generate`'s own construction steps
+/// so `sqlkit check` reports precisely what `generate` would refuse.
 pub struct GenTargetInvalid;
 
 impl LintRule for GenTargetInvalid {
@@ -425,7 +425,7 @@ mod tests {
         assert_eq!(
             ScytheVersionDrift.default_severity(),
             Severity::Warn,
-            "a scythe upgrade must never fail a consumer's CI by default"
+            "a sqlkit upgrade must never fail a consumer's CI by default"
         );
         assert_eq!(MissingProvenanceHeader.default_severity(), Severity::Warn);
         assert_eq!(MalformedProvenanceHeader.default_severity(), Severity::Warn);
@@ -434,7 +434,7 @@ mod tests {
 
     /// These rules are evaluated outside the `check_*` path; if one ever
     /// grows a real implementation, the artifact-verification pass in
-    /// `scythe check` would start double-reporting it.
+    /// `sqlkit check` would start double-reporting it.
     #[test]
     fn no_provenance_rule_participates_in_the_check_query_path() {
         let catalog = scythe_core::catalog::Catalog::from_ddl(&["CREATE TABLE t (id INTEGER);"]).unwrap();

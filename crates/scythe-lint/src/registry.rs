@@ -83,7 +83,7 @@ impl RuleRegistry {
     /// Ids of rules that would have run but cannot, because they do not
     /// apply to `dialect`.
     ///
-    /// This is the count `scythe audit` needs to stop reporting a clean bill
+    /// This is the count `sqlkit audit` needs to stop reporting a clean bill
     /// of health it did not earn (#167): 28 of the 35 canonical audit rules
     /// declare `dialects = ["postgres"]`, so an audit of a MySQL project runs
     /// 7 rules, finds nothing, and prints "No findings" — indistinguishable,
@@ -106,11 +106,11 @@ impl RuleRegistry {
     /// **including** rules whose effective severity is `Off`.
     ///
     /// [`active_rules`](Self::active_rules) answers "what will actually run"
-    /// and drops `Off` rules — correct for `scythe lint` / `scythe audit`'s
+    /// and drops `Off` rules — correct for `sqlkit lint` / `sqlkit audit`'s
     /// execution path, wrong for discovery commands. `SC-A02`
     /// (`ImplicitTypeCoercion`) and `SC-C01` (`MissingReturnsAnnotation`) are
     /// `Off` by default but are still real, registered rules a user can turn
-    /// on; `scythe audit --list-rules` and `--explain` used to build on
+    /// on; `sqlkit audit --list-rules` and `--explain` used to build on
     /// `active_rules` and silently omitted both, undercounting the
     /// documented "23 lint rules" figure by two. Use this method wherever the
     /// full catalog — not the active subset — is what's being reported.
@@ -184,17 +184,17 @@ pub fn default_registry() -> RuleRegistry {
 /// Deliberately **not** part of [`default_registry`]. Every consumer of that
 /// registry evaluates rules through `LintRule::check_query` /
 /// `check_catalog`, and these eleven implement neither — their findings come
-/// from `scythe check`'s generated-artifact verification pass and its
+/// from `sqlkit check`'s generated-artifact verification pass and its
 /// `[[sql.gen]]`/query-file validation, neither of which has a `LintContext`
 /// to offer. Putting them in the default registry would have
-/// `scythe audit --list-rules` (via `load_registry_for_discovery`) and
-/// `scythe lint` advertise eleven rules that neither command can ever emit,
+/// `sqlkit audit --list-rules` (via `load_registry_for_discovery`) and
+/// `sqlkit lint` advertise eleven rules that neither command can ever emit,
 /// and would move the documented "59 built-in rules" figure (58 before
 /// `SC-PARSE03`, #152/#167) that appears across the README, the website, and
 /// the skills bundle.
 ///
 /// A registry rather than a bare list because that is what makes them
-/// configurable: `scythe check` calls [`RuleRegistry::apply_config`] on this
+/// configurable: `sqlkit check` calls [`RuleRegistry::apply_config`] on this
 /// registry with the same `[lint]` table it applies to the default one, then
 /// resolves each severity through [`RuleRegistry::effective_severity`]. So
 /// `[lint.rules] "SC-PRV01" = "off"` and `[lint.categories] provenance =
@@ -224,11 +224,11 @@ pub fn provenance_registry() -> RuleRegistry {
 /// structural reason as [`provenance_registry`]: a query that fails to parse
 /// or fails semantic analysis never becomes the `LintContext` any
 /// `check_query` rule needs, so neither rule can run through the paths
-/// `scythe lint` / `scythe audit --list-rules` advertise.
+/// `sqlkit lint` / `sqlkit audit --list-rules` advertise.
 ///
 /// Unlike [`provenance_registry`] and [`drift_registry`], this registry is
-/// consulted from three different commands -- `scythe check`, `scythe lint`,
-/// and `scythe audit` all hit the same parse/analyze failure and used to
+/// consulted from three different commands -- `sqlkit check`, `sqlkit lint`,
+/// and `sqlkit audit` all hit the same parse/analyze failure and used to
 /// each hardcode their own `Severity::Error` at the point the finding was
 /// constructed. A registry is what lets one `[lint.rules] "SC-PARSE01" =
 /// "warn"` (or `[lint.categories] parse = "off"`) reach all three at once,
@@ -245,9 +245,9 @@ pub fn parse_registry() -> RuleRegistry {
 /// Registry holding only the schema-drift rules (`SC-DRF01`–`SC-DRF13`).
 ///
 /// Deliberately separate from [`default_registry`]. Drift rules can only fire
-/// when `scythe check` is given `--database-url`; folding them into the
-/// default registry would list seven rules in `scythe lint` and
-/// `scythe audit --list-rules` that those commands can never report, and would
+/// when `sqlkit check` is given `--database-url`; folding them into the
+/// default registry would list seven rules in `sqlkit lint` and
+/// `sqlkit audit --list-rules` that those commands can never report, and would
 /// silently restate scythe's documented built-in rule count as if drift
 /// checking were seven more static lint rules.
 ///
@@ -339,7 +339,7 @@ mod tests {
         assert_eq!(reg.rules.len(), 59);
     }
 
-    /// `all_rules` is the source `scythe audit --list-rules` and `--explain`
+    /// `all_rules` is the source `sqlkit audit --list-rules` and `--explain`
     /// build their catalog from. It must enumerate every rule `register`
     /// actually added — same count, same id set — with none dropped for
     /// defaulting to `Severity::Off`. This is the regression test for the
@@ -391,8 +391,8 @@ mod tests {
     /// The `SC-PRV*` rules live in [`provenance_registry`], not here. Every
     /// consumer of the default registry evaluates rules through
     /// `check_query` / `check_catalog`, which no provenance rule implements
-    /// — so listing them via `scythe audit --list-rules` or running them
-    /// through `scythe lint` would advertise rules that can never produce a
+    /// — so listing them via `sqlkit audit --list-rules` or running them
+    /// through `sqlkit lint` would advertise rules that can never produce a
     /// finding from those commands.
     #[test]
     fn default_registry_excludes_provenance_rules() {
@@ -487,8 +487,8 @@ mod tests {
         }
     }
 
-    /// Drift rules must stay out of the default registry: `scythe lint` and
-    /// `scythe audit` cannot observe a live database, so listing them there
+    /// Drift rules must stay out of the default registry: `sqlkit lint` and
+    /// `sqlkit audit` cannot observe a live database, so listing them there
     /// would advertise rules those commands can never report.
     #[test]
     fn default_registry_excludes_drift_rules() {
@@ -563,7 +563,7 @@ mod tests {
     /// `SC-PARSE03` is the one `SC-PARSE`-prefixed rule with a real
     /// `check_query`, so — unlike `SC-PARSE01`/`SC-PARSE02` — it must be
     /// reachable the same way every other `default_registry` rule is: via
-    /// `active_rules`, `[lint.rules]` overrides, and `scythe audit
+    /// `active_rules`, `[lint.rules]` overrides, and `sqlkit audit
     /// --list-rules`.
     #[test]
     fn default_registry_includes_sc_parse03() {
@@ -592,7 +592,7 @@ mod tests {
     }
 
     /// The whole reason `SC-PARSE01`/`SC-PARSE02` moved into a registry:
-    /// before this, `scythe check`, `scythe lint`, and `scythe audit` each
+    /// before this, `sqlkit check`, `sqlkit lint`, and `sqlkit audit` each
     /// hardcoded `Severity::Error` at the point their own ad hoc finding was
     /// constructed, so no `[lint.rules]` entry for either id could have any
     /// effect in any of the three commands.
@@ -713,7 +713,7 @@ mod tests {
         assert_eq!(active[0].1, Severity::Error);
     }
 
-    /// #167: `scythe audit` on a non-PostgreSQL engine runs a small fraction
+    /// #167: `sqlkit audit` on a non-PostgreSQL engine runs a small fraction
     /// of its rule set and reports "No findings" all the same. The count of
     /// rules that could not run has to be answerable from the registry, and
     /// it has to be derived from the same predicate the rules gate

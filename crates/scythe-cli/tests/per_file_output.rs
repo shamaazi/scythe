@@ -1,10 +1,10 @@
 //! `[[sql.gen]]` `output` containing `{dir}` generates one module per query
 //! file, into that file's directory relative to the config, holding only that
-//! file's queries -- and `scythe check` verifies each module's provenance
+//! file's queries -- and `sqlkit check` verifies each module's provenance
 //! against its own file.
 //!
 //! Every test drives the compiled binary via
-//! `Command::new(env!("CARGO_BIN_EXE_scythe"))`.
+//! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))`.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -12,7 +12,7 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 
 fn scythe(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
         .args(args)
         .output()
         .expect("run scythe")
@@ -36,7 +36,7 @@ const USERS_SQL: &str = "-- @name GetUser\n-- @returns :one\nSELECT id, name FRO
 const POSTS_SQL: &str = "-- @name ListPosts\n-- @returns :many\nSELECT id, title FROM posts WHERE user_id = $1;\n\n\
     -- @name CountRows\n-- @returns :one\nSELECT count(*) AS total FROM posts;\n";
 
-const CONFIG: &str = "[scythe]\nversion = \"1\"\n\n\
+const CONFIG: &str = "[sqlkit]\nversion = \"1\"\n\n\
     [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
     schema = [\"schema.sql\"]\nqueries = [\"src/**/queries.sql\"]\n\n\
     [[sql.gen]]\nbackend = \"typescript-postgres\"\noutput = \"{dir}\"\n";
@@ -51,12 +51,12 @@ fn project() -> TempDir {
         std::fs::create_dir_all(dir.join("src").join(module)).unwrap();
         std::fs::write(dir.join("src").join(module).join("queries.sql"), sql).unwrap();
     }
-    std::fs::write(dir.join("scythe.toml"), CONFIG).unwrap();
+    std::fs::write(dir.join("sqlkit.toml"), CONFIG).unwrap();
     root
 }
 
 fn config_arg(dir: &Path) -> String {
-    dir.join("scythe.toml").to_str().unwrap().to_string()
+    dir.join("sqlkit.toml").to_str().unwrap().to_string()
 }
 
 fn generate(dir: &Path) {
@@ -142,7 +142,7 @@ fn dir_output_rejects_two_query_files_in_one_directory() {
     )
     .unwrap();
     let config = CONFIG.replace("src/**/queries.sql", "src/**/*.sql");
-    std::fs::write(root.path().join("scythe.toml"), config).unwrap();
+    std::fs::write(root.path().join("sqlkit.toml"), config).unwrap();
 
     let output = scythe(&["generate", "--config", &config_arg(root.path())]);
     let err = combined(&output);

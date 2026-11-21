@@ -49,14 +49,14 @@ pub struct HelperSet {
 impl HelperSet {
     /// Resolve the helper directory.
     ///
-    /// Order: `SCYTHE_PG_PARSER_DIR`, then the directory holding the running
+    /// Order: `SQLKIT_PG_PARSER_DIR`, then the directory holding the running
     /// `scythe` executable (how release archives ship them). Missing helpers
     /// are an error, never a silent skip.
     pub fn discover() -> Result<Self, String> {
-        if let Some(dir) = std::env::var_os("SCYTHE_PG_PARSER_DIR") {
+        if let Some(dir) = std::env::var_os("SQLKIT_PG_PARSER_DIR") {
             let dir = PathBuf::from(dir);
             if dir.as_os_str().is_empty() {
-                return Err("SCYTHE_PG_PARSER_DIR is set but empty".to_string());
+                return Err("SQLKIT_PG_PARSER_DIR is set but empty".to_string());
             }
             return Ok(Self { dir });
         }
@@ -67,7 +67,7 @@ impl HelperSet {
                 dir: parent.to_path_buf(),
             });
         }
-        Err("cannot locate the PostgreSQL parser helpers: set SCYTHE_PG_PARSER_DIR".to_string())
+        Err("cannot locate the PostgreSQL parser helpers: set SQLKIT_PG_PARSER_DIR".to_string())
     }
 
     fn binary(&self, version: PgVersion) -> PathBuf {
@@ -85,7 +85,7 @@ impl HelperSet {
         if !is_executable(&binary) {
             return Err(format!(
                 "PostgreSQL {} parser helper not found or not executable at '{}'; \
-                 build it with build_pg_parser_helpers.sh or set SCYTHE_PG_PARSER_DIR",
+                 build it with build_pg_parser_helpers.sh or set SQLKIT_PG_PARSER_DIR",
                 version.major(),
                 binary.display()
             ));

@@ -1,5 +1,5 @@
 //! Regression tests for GH #136: three enum/query naming defects that made
-//! `scythe generate` emit syntactically invalid code while reporting success.
+//! `sqlkit generate` emit syntactically invalid code while reporting success.
 //!
 //! 1. A schema-qualified enum's `.` reached `enum_type_name` unsanitized:
 //!    `enum_type_name("public.status", ..)` returned `"Public.status"`,
@@ -19,12 +19,12 @@
 //! 3. Two enums colliding under `struct_case`, or an enum colliding with the
 //!    query's own row/model type, went undetected: `generate_enum_defs_via_backend`
 //!    only deduplicated by raw SQL name, never checked the *generated* name
-//!    against anything else, so `scythe generate` wrote two type
+//!    against anything else, so `sqlkit generate` wrote two type
 //!    declarations under one name and exited 0.
 //! 4. Two SQL values of the *same* enum colliding under `enum_variant_case`
 //!    went undetected the same way: `'gpt-3.5-turbo'` and `'gpt_3_5_turbo'`
 //!    both sanitize and case-convert to `Gpt35Turbo`, and nothing compared
-//!    the rendered variant names against each other before `scythe generate`
+//!    the rendered variant names against each other before `sqlkit generate`
 //!    wrote `pub enum Model { Gpt35Turbo, Gpt35Turbo, }` -- `E0428` in Rust,
 //!    a redeclaration in every other target -- and exited 0.
 
@@ -166,7 +166,7 @@ const VARIANT_COLLISION_QUERY: &str = "-- @name GetItem\n-- @returns :one\n\
 /// `Gpt35Turbo` under `enum_variant_case = "PascalCase"` (Rust, C#, Go,
 /// TypeScript). Before this fix, `generate_enum_defs_via_backend` handed
 /// `enum_info.values` straight to `backend.generate_enum_def` with no check,
-/// so `scythe generate` wrote `pub enum Model { Gpt35Turbo, Gpt35Turbo, }` --
+/// so `sqlkit generate` wrote `pub enum Model { Gpt35Turbo, Gpt35Turbo, }` --
 /// `error[E0428]: the name \`Gpt35Turbo\` is defined multiple times` under a
 /// real `rustc` -- and returned `Ok`.
 #[cfg(all(feature = "lang-rust", feature = "postgres"))]

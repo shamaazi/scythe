@@ -1,5 +1,5 @@
-//! Human-readable reporter — matches the existing `scythe lint` text format so
-//! `scythe audit` output diffs cleanly against current expectations.
+//! Human-readable reporter — matches the existing `sqlkit lint` text format so
+//! `sqlkit audit` output diffs cleanly against current expectations.
 
 use std::io::{self, Write};
 

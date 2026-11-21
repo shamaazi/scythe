@@ -14,7 +14,7 @@
 //! regression test for that specific property.
 //!
 //! Every test drives the compiled binary via
-//! `Command::new(env!("CARGO_BIN_EXE_scythe"))` with `.current_dir(...)` set
+//! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))` with `.current_dir(...)` set
 //! on the *child* process — never a process-wide CWD mutation — so tests stay
 //! parallel-safe, following the idiom in `config_relative_paths.rs` and
 //! `migrate_integration.rs`.
@@ -25,7 +25,7 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 fn stderr(output: &Output) -> String {
@@ -59,11 +59,11 @@ fn int64_overlay(rust_type: &str) -> String {
     format!("[types.scalars]\nint64 = \"{rust_type}\"\n")
 }
 
-/// A single-block `scythe.toml` with one `rust-sqlx` target, optionally
+/// A single-block `sqlkit.toml` with one `rust-sqlx` target, optionally
 /// carrying a `manifest = "..."` line.
 fn config_with_manifest(manifest_line: &str) -> String {
     format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -81,22 +81,22 @@ output = "out"
 }
 
 /// Build a self-contained project in a fresh temp dir and return it plus the
-/// path to its `scythe.toml`.
+/// path to its `sqlkit.toml`.
 fn project(config: &str) -> (TempDir, PathBuf) {
     let dir = TempDir::new().unwrap();
     write_sources(dir.path());
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
     (dir, config_path)
 }
 
-/// Run `scythe generate --config <config_path>` from `cwd`.
+/// Run `sqlkit generate --config <config_path>` from `cwd`.
 fn generate_from(config_path: &Path, cwd: &Path) -> Output {
     scythe_bin()
         .args(["generate", "--config", &config_path.display().to_string()])
         .current_dir(cwd)
         .output()
-        .expect("failed to run scythe generate")
+        .expect("failed to run sqlkit generate")
 }
 
 /// Requirement 1: an override changes a scalar type mapping and the generated
@@ -151,7 +151,7 @@ fn override_is_an_overlay_not_a_replacement() {
 }
 
 /// Requirement 2: `manifest` resolves relative to the directory containing
-/// `scythe.toml`, not the process's current working directory — the 0.13.0
+/// `sqlkit.toml`, not the process's current working directory — the 0.13.0
 /// (#84) convention every other path in the config follows. Resolving against
 /// the CWD would reintroduce exactly the bug #82 reported.
 #[test]
@@ -319,7 +319,7 @@ fn override_is_per_target_not_global_across_engines() {
     std::fs::write(dir.path().join("pg.toml"), int64_overlay("PostgresOnlySentinel")).unwrap();
     std::fs::write(dir.path().join("my.toml"), int64_overlay("SqliteOnlySentinel")).unwrap();
 
-    let config = r#"[scythe]
+    let config = r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -344,7 +344,7 @@ backend = "rust-sqlx"
 output = "out-my"
 manifest = "my.toml"
 "#;
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = generate_from(&config_path, dir.path());
@@ -380,7 +380,7 @@ fn override_does_not_leak_to_sibling_targets_without_one() {
     write_sources(dir.path());
     std::fs::write(dir.path().join("custom.toml"), int64_overlay(SENTINEL_TYPE)).unwrap();
 
-    let config = r#"[scythe]
+    let config = r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -398,7 +398,7 @@ manifest = "custom.toml"
 backend = "rust-sqlx"
 output = "out-plain"
 "#;
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = generate_from(&config_path, dir.path());

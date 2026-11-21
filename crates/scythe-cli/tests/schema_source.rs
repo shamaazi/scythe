@@ -6,7 +6,7 @@ use tempfile::TempDir;
 const QUERY: &str = "-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;\n";
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 fn stderr(output: &Output) -> String {
@@ -17,9 +17,9 @@ fn write_project(directory: &Path, schema: &str, source_line: &str) {
     std::fs::write(directory.join("schema.sql"), schema).unwrap();
     std::fs::write(directory.join("queries.sql"), QUERY).unwrap();
     std::fs::write(
-        directory.join("scythe.toml"),
+        directory.join("sqlkit.toml"),
         format!(
-            r#"[scythe]
+            r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -44,7 +44,7 @@ fn omitted_schema_source_matches_explicit_parse_output_byte_for_byte() {
 
     for project in [&omitted, &explicit] {
         let output = scythe_bin()
-            .args(["generate", "--config", "scythe.toml"])
+            .args(["generate", "--config", "sqlkit.toml"])
             .current_dir(project.path())
             .output()
             .unwrap();
@@ -67,10 +67,10 @@ fn all_configured_commands_use_execute_without_parse_fallback() {
 
     for command in ["generate", "check", "lint", "audit"] {
         let output = scythe_bin()
-            .args([command, "--config", "scythe.toml"])
+            .args([command, "--config", "sqlkit.toml"])
             .current_dir(project.path())
             .env_remove("DATABASE_URL")
-            .env_remove("SCYTHE_DATABASE_URL")
+            .env_remove("SQLKIT_DATABASE_URL")
             .output()
             .unwrap();
         let error = stderr(&output);
@@ -95,10 +95,10 @@ fn all_configured_commands_accept_the_same_execute_only_catalog() {
 
     for command in ["generate", "check", "lint", "audit"] {
         let output = scythe_bin()
-            .args([command, "--config", "scythe.toml"])
+            .args([command, "--config", "sqlkit.toml"])
             .current_dir(project.path())
             .env_remove("DATABASE_URL")
-            .env_remove("SCYTHE_DATABASE_URL")
+            .env_remove("SQLKIT_DATABASE_URL")
             .output()
             .unwrap();
         assert!(output.status.success(), "{command} failed: {}", stderr(&output));
@@ -109,8 +109,8 @@ fn all_configured_commands_accept_the_same_execute_only_catalog() {
 fn unsupported_execute_engine_fails_before_schema_glob_resolution() {
     let project = TempDir::new().unwrap();
     std::fs::write(
-        project.path().join("scythe.toml"),
-        r#"[scythe]
+        project.path().join("sqlkit.toml"),
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -125,10 +125,10 @@ queries = ["missing-queries.sql"]
 
     for command in ["generate", "check", "lint", "audit"] {
         let output = scythe_bin()
-            .args([command, "--config", "scythe.toml"])
+            .args([command, "--config", "sqlkit.toml"])
             .current_dir(project.path())
             .env_remove("DATABASE_URL")
-            .env_remove("SCYTHE_DATABASE_URL")
+            .env_remove("SQLKIT_DATABASE_URL")
             .output()
             .unwrap();
         let error = stderr(&output);

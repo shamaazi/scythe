@@ -528,7 +528,7 @@ impl ValidationOutcome {
 /// opposite case -- a tool that *is* installed. `javac` and `kotlinc` each
 /// pay JVM startup (commonly over a second) on top of a real compile;
 /// `tsc --checkJs --strict` runs a full TypeScript typecheck. A caller that
-/// invokes this unconditionally on every `scythe generate` would make every
+/// invokes this unconditionally on every `sqlkit generate` would make every
 /// run pay that cost for every backend the file targets, on any machine that
 /// happens to have the tool installed -- and would silently validate less on
 /// a machine that doesn't, with no way for the user to tell which happened
@@ -626,7 +626,7 @@ fn generated_code_poly_config() -> std::path::PathBuf {
 /// had never been tested: `check` also runs the formatter, whose only
 /// complaints about generated code are that scythe indents with spaces where
 /// biome would use tabs, and where it would break a line. Generated-code
-/// layout is the backends' contract and `scythe fmt` owns it, so running the
+/// layout is the backends' contract and `sqlkit fmt` owns it, so running the
 /// formatter here failed 8 TypeScript backends purely on indentation.
 ///
 /// `poly` lints with `oxc` and does not impose a formatter, so it keeps what

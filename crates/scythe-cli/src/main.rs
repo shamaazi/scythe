@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 mod commands;
 
 #[derive(Parser)]
-#[command(name = "scythe", version, about = "SQL-to-code generator")]
+#[command(name = "sqlkit", version, about = "SQL-to-code generator")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -14,7 +14,7 @@ enum Commands {
     /// Generate code from SQL schema and queries
     Generate {
         /// Path to config file
-        #[arg(short, long, default_value = "scythe.toml")]
+        #[arg(short, long, default_value = "sqlkit.toml")]
         config: String,
         /// Allow a `[[sql.gen]]` `output` directory to resolve outside the
         /// project root (via `../` traversal or an absolute path). Off by
@@ -38,12 +38,12 @@ enum Commands {
     /// Validate SQL without generating code. Exits 0 clean, 2 on
     /// error-severity findings (unless --exit-zero) -- including an
     /// unparseable query (SC-PARSE01/02) or a `[sql.gen]` target that
-    /// `scythe generate` would refuse to construct (SC-PRV09), both
+    /// `sqlkit generate` would refuse to construct (SC-PRV09), both
     /// reported without discarding findings collected from the rest of the
     /// config -- 1 on operational failure (unreadable config, or other I/O
     /// error).
     Check {
-        #[arg(short, long, default_value = "scythe.toml")]
+        #[arg(short, long, default_value = "sqlkit.toml")]
         config: String,
         /// Verify inferred query types and detect schema drift against a live
         /// database.
@@ -60,7 +60,7 @@ enum Commands {
         /// `NOT NULL` in your DDL is not true in the database.
         ///
         /// Opt-in by design: the URL is never picked up from the environment,
-        /// so `scythe check` cannot start requiring a database just because
+        /// so `sqlkit check` cannot start requiring a database just because
         /// `DATABASE_URL` happens to be set.
         #[arg(long)]
         database_url: Option<String>,
@@ -77,7 +77,7 @@ enum Commands {
     /// Format SQL files using sqruff
     Fmt {
         /// Path to config file
-        #[arg(short, long, default_value = "scythe.toml")]
+        #[arg(short, long, default_value = "sqlkit.toml")]
         config: String,
         /// Check formatting without modifying files
         #[arg(long)]
@@ -91,12 +91,12 @@ enum Commands {
         /// SQL files to format (if empty, uses config)
         files: Vec<String>,
     },
-    /// Lint SQL files (scythe rules + sqruff rules). Exits 2 on any
+    /// Lint SQL files (sqlkit rules + sqruff rules). Exits 2 on any
     /// error-severity finding (unless --exit-zero), 1 on operational
     /// failure (unreadable config, unparseable SQL, invalid [lint.sqruff]).
     Lint {
         /// Path to config file
-        #[arg(short, long, default_value = "scythe.toml")]
+        #[arg(short, long, default_value = "sqlkit.toml")]
         config: String,
         /// Auto-fix violations where possible
         #[arg(long)]
@@ -110,7 +110,7 @@ enum Commands {
         /// checks: missing FK indexes, disabled RLS, duplicate indexes).
         ///
         /// Opt-in by design, like `check`'s `--database-url`: without this
-        /// flag (or a `[inspect].database_url` in scythe.toml), `lint` never
+        /// flag (or a `[inspect].database_url` in sqlkit.toml), `lint` never
         /// connects to a database, even if `$DATABASE_URL` happens to be set.
         #[arg(long)]
         database_url: Option<String>,
@@ -129,7 +129,7 @@ enum Commands {
     /// Exits with code 2 on any error-severity finding (unless --exit-zero).
     Audit {
         /// Path to config file
-        #[arg(short, long, default_value = "scythe.toml")]
+        #[arg(short, long, default_value = "sqlkit.toml")]
         config: String,
         /// Output format: human (default), sarif, json
         #[arg(long, default_value = "human")]
@@ -149,7 +149,7 @@ enum Commands {
         /// Write reporter output to file instead of stdout
         #[arg(short, long, value_name = "PATH")]
         output: Option<String>,
-        /// Disable inline `-- scythe-audit: ignore[...]` annotations
+        /// Disable inline `-- sqlkit-audit: ignore[...]` annotations
         #[arg(long)]
         ignore_suppressions: bool,
         /// Fail closed on cluster-scoped PostgreSQL planned-schema statements
@@ -174,8 +174,8 @@ enum Commands {
     /// Exits 2 on error-severity findings unless --exit-zero.
     ///
     /// Connection URL is resolved in order: positional argument, then
-    /// $DATABASE_URL, then $SCYTHE_DATABASE_URL, then [inspect].database_url
-    /// in scythe.toml.
+    /// $DATABASE_URL, then $SQLKIT_DATABASE_URL, then [inspect].database_url
+    /// in sqlkit.toml.
     Inspect {
         /// Database URL (e.g. postgres://user:pass@host/db)
         database_url: Option<String>,
@@ -201,8 +201,8 @@ enum Commands {
         /// Default: parsed from URL scheme.
         #[arg(long)]
         dialect: Option<String>,
-        /// Path to config file (default: scythe.toml)
-        #[arg(short, long, default_value = "scythe.toml")]
+        /// Path to config file (default: sqlkit.toml)
+        #[arg(short, long, default_value = "sqlkit.toml")]
         config: String,
     },
 }

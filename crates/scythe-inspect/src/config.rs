@@ -1,7 +1,7 @@
-//! `[inspect]` section of `scythe.toml`.
+//! `[inspect]` section of `sqlkit.toml`.
 //!
 //! Provides [`InspectConfig`] (deserialized from TOML) and
-//! [`parse_inspect_section`] which reads `scythe.toml`, extracts and validates
+//! [`parse_inspect_section`] which reads `sqlkit.toml`, extracts and validates
 //! the `[inspect]` block, and returns it — or `None` when no such block exists.
 //!
 //! The shape mirrors the `[audit]` section; see `crates/scythe-lint/src/audit/`
@@ -73,14 +73,14 @@ pub struct SuppressionRule {
     pub object: Option<String>,
 }
 
-/// Deserialized representation of the `[inspect]` section in `scythe.toml`.
+/// Deserialized representation of the `[inspect]` section in `sqlkit.toml`.
 ///
 /// All fields default to `None` / empty collections so that a minimal
 /// `[inspect]` block (`[inspect]` with no keys) is accepted without error.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct InspectConfig {
     /// Optional database URL — lower precedence than CLI positional arg and
-    /// the `DATABASE_URL` / `SCYTHE_DATABASE_URL` environment variables.
+    /// the `DATABASE_URL` / `SQLKIT_DATABASE_URL` environment variables.
     #[serde(default)]
     pub database_url: Option<String>,
 
@@ -93,7 +93,7 @@ pub struct InspectConfig {
     #[serde(default)]
     pub api_schemas: Vec<String>,
 
-    /// Paths to additional check TOML files, resolved relative to `scythe.toml`.
+    /// Paths to additional check TOML files, resolved relative to `sqlkit.toml`.
     #[serde(default)]
     pub extra_rules: Vec<String>,
 
@@ -114,7 +114,7 @@ pub struct InspectConfig {
     pub check: Vec<CheckSpec>,
 }
 
-/// Read `scythe.toml` at `config_path`, extract the `[inspect]` block (if
+/// Read `sqlkit.toml` at `config_path`, extract the `[inspect]` block (if
 /// any), validate every user check in `inspect.check` and in `extra_rules`
 /// files, and resolve `extra_rules` paths relative to `config_path`'s parent
 /// directory.

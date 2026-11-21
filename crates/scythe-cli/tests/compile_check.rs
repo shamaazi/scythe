@@ -43,11 +43,11 @@ struct GenerationResult {
     pipeline_failures: Vec<String>,
 }
 
-/// Helper: given a schema dir with scythe.toml, parse schemas and queries
+/// Helper: given a schema dir with sqlkit.toml, parse schemas and queries
 /// through the library API and return individual code fragments.
 fn generate_for_schema(relative_path: &str) -> GenerationResult {
     let schema_dir = schema_dir(relative_path);
-    let config_path = schema_dir.join("scythe.toml");
+    let config_path = schema_dir.join("sqlkit.toml");
     let config_str =
         std::fs::read_to_string(&config_path).unwrap_or_else(|_| panic!("missing config: {}", config_path.display()));
 

@@ -1,19 +1,19 @@
 //! Regression tests for issue #206: passing a file path to `audit`/`fmt`
-//! instead of relying on `scythe.toml` used to silently change what ran --
+//! instead of relying on `sqlkit.toml` used to silently change what ran --
 //! `audit <file>` ignored `[lint]`/`[audit]` entirely (a rule turned "off"
 //! still fired, and user-defined rules never ran), `fmt` never read or
 //! validated `[lint.sqruff]`, and a malformed `--config` was silently
 //! swallowed rather than reported, degrading the dialect to `ansi`.
 //!
 //! Every test drives the compiled binary via
-//! `Command::new(env!("CARGO_BIN_EXE_scythe"))`.
+//! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))`.
 
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 fn stdout(output: &Output) -> String {
@@ -28,8 +28,8 @@ fn stderr(output: &Output) -> String {
 /// privileges) and SC-SEC03 (don't grant to PUBLIC).
 const GRANT_ALL_SQL: &str = "GRANT ALL ON users TO PUBLIC;\n";
 
-/// #206, item 2: `scythe audit <file>` must honour `[lint]` rule severity
-/// overrides from `scythe.toml` -- a rule turned `"off"` must not fire in
+/// #206, item 2: `sqlkit audit <file>` must honour `[lint]` rule severity
+/// overrides from `sqlkit.toml` -- a rule turned `"off"` must not fire in
 /// explicit-file mode just because it still fires in config mode.
 #[test]
 fn audit_explicit_file_honours_a_rule_turned_off_in_config() {
@@ -37,10 +37,10 @@ fn audit_explicit_file_honours_a_rule_turned_off_in_config() {
     let sql_path = dir.path().join("grant.sql");
     std::fs::write(&sql_path, GRANT_ALL_SQL).unwrap();
 
-    let config = "[scythe]\nversion = \"1\"\n\n\
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\nschema = []\nqueries = []\n\n\
         [lint.rules]\nSC-SEC02 = \"off\"\n";
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
@@ -51,7 +51,7 @@ fn audit_explicit_file_honours_a_rule_turned_off_in_config() {
             sql_path.to_str().unwrap(),
         ])
         .output()
-        .expect("run scythe audit");
+        .expect("run sqlkit audit");
 
     let out = stdout(&output);
     assert!(
@@ -64,7 +64,7 @@ fn audit_explicit_file_honours_a_rule_turned_off_in_config() {
     );
 }
 
-/// #206, item 2: `scythe audit <file>` must also register `[[audit.rule]]`
+/// #206, item 2: `sqlkit audit <file>` must also register `[[audit.rule]]`
 /// user-defined rules -- not just apply severity overrides to canonical ones.
 #[test]
 fn audit_explicit_file_registers_user_defined_rules_from_config() {
@@ -72,7 +72,7 @@ fn audit_explicit_file_registers_user_defined_rules_from_config() {
     let sql_path = dir.path().join("evil.sql");
     std::fs::write(&sql_path, "SELECT evil_function();\n").unwrap();
 
-    let config = "[scythe]\nversion = \"1\"\n\n\
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\nschema = []\nqueries = []\n\n\
         [[audit.rule]]\n\
         id = \"USER-001\"\n\
@@ -84,7 +84,7 @@ fn audit_explicit_file_registers_user_defined_rules_from_config() {
         matcher = \"function_name_in_set\"\n\n\
         [audit.rule.matcher_args]\n\
         functions = [\"evil_function\"]\n";
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
@@ -95,7 +95,7 @@ fn audit_explicit_file_registers_user_defined_rules_from_config() {
             sql_path.to_str().unwrap(),
         ])
         .output()
-        .expect("run scythe audit");
+        .expect("run sqlkit audit");
 
     let out = stdout(&output);
     let err = stderr(&output);
@@ -105,8 +105,8 @@ fn audit_explicit_file_registers_user_defined_rules_from_config() {
     );
 }
 
-/// #206, item 3: `scythe fmt` must validate `[lint.sqruff]` -- a
-/// configuration `scythe lint` rejects must not be silently accepted (and
+/// #206, item 3: `sqlkit fmt` must validate `[lint.sqruff]` -- a
+/// configuration `sqlkit lint` rejects must not be silently accepted (and
 /// ignored) by `fmt`.
 #[test]
 fn fmt_rejects_the_same_invalid_lint_sqruff_config_lint_does() {
@@ -114,17 +114,17 @@ fn fmt_rejects_the_same_invalid_lint_sqruff_config_lint_does() {
     let sql_path = dir.path().join("t.sql");
     std::fs::write(&sql_path, "SELECT 1;\n").unwrap();
 
-    let config = "[scythe]\nversion = \"1\"\n\n\
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\nschema = []\nqueries = [\"t.sql\"]\n\n\
         [lint.sqruff.rules]\nLT02 = \"warn\"\n";
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let lint_output = scythe_bin()
         .args(["lint", "--config", config_path.to_str().unwrap()])
         .current_dir(dir.path())
         .output()
-        .expect("run scythe lint");
+        .expect("run sqlkit lint");
     assert!(
         !lint_output.status.success(),
         "sanity check: lint must reject this config; stderr: {}",
@@ -135,7 +135,7 @@ fn fmt_rejects_the_same_invalid_lint_sqruff_config_lint_does() {
         .args(["fmt", "--config", config_path.to_str().unwrap(), "--check"])
         .current_dir(dir.path())
         .output()
-        .expect("run scythe fmt");
+        .expect("run sqlkit fmt");
 
     assert!(
         !fmt_output.status.success(),
@@ -145,11 +145,11 @@ fn fmt_rejects_the_same_invalid_lint_sqruff_config_lint_does() {
     );
 }
 
-/// Must fail before the fix: `scythe lint <file>` (explicit-file mode) built its sqruff
+/// Must fail before the fix: `sqlkit lint <file>` (explicit-file mode) built its sqruff
 /// linter with `None` in place of `[lint.sqruff]`, unconditionally -- the same gap #206
 /// fixed for `fmt` (`fmt_rejects_the_same_invalid_lint_sqruff_config_lint_does`, above),
 /// left open in `lint`. A `[lint.sqruff.rules]` table naming a rule code sqruff does not
-/// have must be rejected whether the files come from `scythe.toml`'s `queries` glob or
+/// have must be rejected whether the files come from `sqlkit.toml`'s `queries` glob or
 /// from an explicit argument.
 ///
 /// `LT0` is an unknown *code*, which reaches `SqruffLinter::new`'s probe lint -- a
@@ -165,10 +165,10 @@ fn lint_explicit_file_rejects_the_same_invalid_lint_sqruff_config_config_mode_do
     let sql_path = dir.path().join("t.sql");
     std::fs::write(&sql_path, "SELECT 1;\n").unwrap();
 
-    let config = "[scythe]\nversion = \"1\"\n\n\
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\nschema = []\nqueries = []\n\n\
         [lint.sqruff.rules]\nLT0 = \"off\"\n";
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
@@ -179,7 +179,7 @@ fn lint_explicit_file_rejects_the_same_invalid_lint_sqruff_config_config_mode_do
             sql_path.to_str().unwrap(),
         ])
         .output()
-        .expect("run scythe lint");
+        .expect("run sqlkit lint");
 
     assert!(
         !output.status.success(),
@@ -209,19 +209,19 @@ fn fmt_blames_an_unusable_rules_table_on_the_config_not_on_the_first_file() {
     std::fs::write(dir.path().join("first.sql"), "SELECT 1;\n").unwrap();
     std::fs::write(dir.path().join("second.sql"), "SELECT 2;\n").unwrap();
 
-    let config = "[scythe]\nversion = \"1\"\n\n\
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\nschema = []\n\
         queries = [\"first.sql\", \"second.sql\"]\n\n\
         [lint.sqruff]\nenabled = false\n\n\
         [lint.sqruff.rules]\nLT0 = \"off\"\n";
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
         .args(["fmt", "--config", config_path.to_str().unwrap(), "--check"])
         .current_dir(dir.path())
         .output()
-        .expect("run scythe fmt");
+        .expect("run sqlkit fmt");
     let err = stderr(&output);
 
     assert!(
@@ -261,7 +261,7 @@ fn lint_reports_a_malformed_explicit_config_instead_of_silently_ignoring_it() {
             sql_path.to_str().unwrap(),
         ])
         .output()
-        .expect("run scythe lint");
+        .expect("run sqlkit lint");
 
     let err = stderr(&output);
     assert!(
@@ -293,7 +293,7 @@ fn fmt_reports_a_malformed_explicit_config_instead_of_silently_ignoring_it() {
             sql_path.to_str().unwrap(),
         ])
         .output()
-        .expect("run scythe fmt");
+        .expect("run sqlkit fmt");
 
     let err = stderr(&output);
     assert!(

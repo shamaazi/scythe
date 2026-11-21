@@ -13,7 +13,7 @@
 //! So a rule that misspells the key (`function = [...]`), gives it the wrong
 //! TOML type (`functions = "pg_read_file"`), leaves it empty, or fills it
 //! with values the matcher does not recognise (`kinds = ["tables"]`) is
-//! accepted at load time, listed by `scythe audit --list-rules`, counted
+//! accepted at load time, listed by `sqlkit audit --list-rules`, counted
 //! among the active rules — and can never produce a finding. The audit
 //! reports "No findings" and the user reads it as a clean bill of health
 //! (#165).

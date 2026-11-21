@@ -12,7 +12,7 @@
 //! Where a real compiler is on `PATH`, the generated (or a minimal
 //! standalone) file is actually compiled or syntax-checked, mirroring
 //! `tool_validation.rs`'s `generate_full_file_from_backend` assembly so the
-//! bytes handed to the compiler are the same ones `scythe generate` would
+//! bytes handed to the compiler are the same ones `sqlkit generate` would
 //! write. A missing tool skips that one assertion rather than failing the
 //! test -- consistent with `validation::ToolOutcome::Missing` elsewhere in
 //! this crate -- since this suite must still pass on a machine that only has
@@ -41,7 +41,7 @@ const SCHEMA: &str = "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT N
 
 /// Assemble one query's generated output into a complete file, mirroring
 /// `tool_validation.rs`'s `generate_full_file_from_backend` -- real
-/// compilers must see the same bytes `scythe generate` would write, not a
+/// compilers must see the same bytes `sqlkit generate` would write, not a
 /// hand-trimmed fragment.
 fn generate_full_file(backend_name: &str, query_sql: &str) -> String {
     generate_full_file_for_engine(backend_name, "postgresql", &SqlDialect::PostgreSQL, SCHEMA, query_sql)

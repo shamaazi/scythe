@@ -1,15 +1,15 @@
-//! `scythe lint` regressions for the four ways it used to report success
+//! `sqlkit lint` regressions for the four ways it used to report success
 //! without having checked anything:
 //!
 //! 1. It never called `LintEngine::build_report`, so the engine's cross-query
 //!    checks -- duplicate `@name` (SC-C03) -- had no caller at all.
 //! 2. It scraped CWE ids out of the violation *message*, which no rule ever
 //!    puts them in, so `--format sarif` carried no CWE tags.
-//! 3. It built no `SuppressionSet`, so the `-- scythe-audit: ignore[ID]`
-//!    annotations `scythe audit` honours did nothing under `scythe lint`.
+//! 3. It built no `SuppressionSet`, so the `-- sqlkit-audit: ignore[ID]`
+//!    annotations `sqlkit audit` honours did nothing under `sqlkit lint`.
 //! 4. A query that failed to analyze was skipped -- every query-level rule
 //!    silently dropped -- while lint printed "No lint violations found." and
-//!    exited 0, disagreeing with `scythe check` on the same project (#158).
+//!    exited 0, disagreeing with `sqlkit check` on the same project (#158).
 //!
 //! Every test drives the compiled binary and asserts exact exit codes.
 
@@ -21,14 +21,14 @@ use tempfile::TempDir;
 
 const SCHEMA: &str = "CREATE TABLE users (id bigint PRIMARY KEY, email text NOT NULL);\n";
 
-/// Write `scythe.toml` + `schema.sql` + `queries.sql` into `dir` and return
+/// Write `sqlkit.toml` + `schema.sql` + `queries.sql` into `dir` and return
 /// the config path.
 fn write_project(dir: &TempDir, engine: &str, schema: &str, queries: &str) -> String {
     fs::write(dir.path().join("schema.sql"), schema).expect("write schema.sql");
     fs::write(dir.path().join("queries.sql"), queries).expect("write queries.sql");
 
     let config = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -38,19 +38,19 @@ schema = ["schema.sql"]
 queries = ["queries.sql"]
 "#
     );
-    let config_path = dir.path().join("scythe.toml");
-    fs::write(&config_path, config).expect("write scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
+    fs::write(&config_path, config).expect("write sqlkit.toml");
     config_path.to_string_lossy().into_owned()
 }
 
 fn run_lint(config_path: &str, extra: &[&str]) -> std::process::Output {
-    let mut cmd = Command::cargo_bin("scythe").expect("scythe binary must exist");
+    let mut cmd = Command::cargo_bin("sqlkit").expect("scythe binary must exist");
     cmd.args(["lint", "--config", config_path]);
     cmd.args(extra);
     cmd.env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("run scythe lint")
+        .expect("run sqlkit lint")
 }
 
 /// Every JSON finding's `rule_id`, in emission order.
@@ -98,7 +98,7 @@ fn lint_sarif_carries_the_cwe_the_rule_declares() {
     );
 }
 
-/// `-- scythe-audit: ignore[SC-SEC07]` inside a query block must drop exactly
+/// `-- sqlkit-audit: ignore[SC-SEC07]` inside a query block must drop exactly
 /// that rule's violation for exactly that query, leaving every other rule's
 /// findings intact. Lint built no `SuppressionSet` at all before this, so the
 /// annotation was inert.
@@ -123,7 +123,7 @@ fn lint_honours_an_inline_suppression_for_one_rule_only() {
         &dir2,
         "postgresql",
         SCHEMA,
-        "-- @name ListUsers\n-- @returns :many\n-- scythe-audit: ignore[SC-SEC07]\nSELECT * FROM users;\n",
+        "-- @name ListUsers\n-- @returns :many\n-- sqlkit-audit: ignore[SC-SEC07]\nSELECT * FROM users;\n",
     );
     let after = run_lint(&suppressed, &["--format", "json"]);
     let after_ids = rule_ids(&String::from_utf8_lossy(&after.stdout));
@@ -140,7 +140,7 @@ fn lint_honours_an_inline_suppression_for_one_rule_only() {
 
 /// Two queries sharing one `@name` is SC-C03, and only
 /// `LintEngine::build_report` detects it -- lint's own per-query loop had no
-/// cross-query step, so `scythe lint` reported nothing while `scythe check`
+/// cross-query step, so `sqlkit lint` reported nothing while `sqlkit check`
 /// failed the same project.
 #[test]
 fn lint_reports_duplicate_query_names_and_exits_two() {
@@ -185,10 +185,10 @@ fn lint_duplicate_query_name_honours_configured_severity() {
          -- @name GetUser\n-- @returns :one\nSELECT id FROM users WHERE id = $1;\n",
     )
     .expect("write queries.sql");
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     fs::write(
         &config_path,
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -201,7 +201,7 @@ queries = ["queries.sql"]
 "SC-C03" = "warn"
 "#,
     )
-    .expect("write scythe.toml");
+    .expect("write sqlkit.toml");
 
     let output = run_lint(&config_path.to_string_lossy(), &["--format", "json"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -225,7 +225,7 @@ queries = ["queries.sql"]
 /// Issue #158: a query the analyzer rejects used to be skipped, taking every
 /// query-level rule with it, while lint printed "No lint violations found."
 /// and exited 0. It is now an SC-PARSE02 error finding -- the same rule id
-/// `scythe check` already uses for an analysis failure.
+/// `sqlkit check` already uses for an analysis failure.
 #[test]
 fn lint_reports_an_unanalysable_query_as_an_error_and_exits_two() {
     let dir = TempDir::new().expect("tempdir");
@@ -296,10 +296,10 @@ fn lint_unparseable_query_honours_configured_severity() {
         "-- @name Broken\n-- @returns :one\nSELECT * FROM users WHERE ((;\n",
     )
     .expect("write queries.sql");
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     fs::write(
         &config_path,
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -312,7 +312,7 @@ queries = ["queries.sql"]
 "SC-PARSE01" = "warn"
 "#,
     )
-    .expect("write scythe.toml");
+    .expect("write sqlkit.toml");
 
     let output = run_lint(&config_path.to_string_lossy(), &["--format", "json"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -344,10 +344,10 @@ fn lint_unanalysable_query_honours_configured_severity() {
         "-- @name GetUsers\n-- @returns :many\nSELECT * FROM users WHERE email = 42;\n",
     )
     .expect("write queries.sql");
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     fs::write(
         &config_path,
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -360,7 +360,7 @@ queries = ["queries.sql"]
 "SC-PARSE02" = "warn"
 "#,
     )
-    .expect("write scythe.toml");
+    .expect("write sqlkit.toml");
 
     let output = run_lint(&config_path.to_string_lossy(), &["--format", "json"]);
     let stdout = String::from_utf8_lossy(&output.stdout);

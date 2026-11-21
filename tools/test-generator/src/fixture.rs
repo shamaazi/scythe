@@ -65,7 +65,7 @@ pub enum Engine {
 }
 
 impl Engine {
-    /// The `scythe.toml` engine string this variant corresponds to, which is
+    /// The `sqlkit.toml` engine string this variant corresponds to, which is
     /// what `SqlDialect::from_str` and `Catalog::with_engine` consume.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -602,7 +602,7 @@ mod tests {
     /// Regression for #156: `config.type_overrides` and `config.naming` were deserialised into
     /// `FixtureConfig` and never read by anything -- zero fixtures declared `naming`, and the
     /// lone fixture declaring `type_overrides` used field names (`lang_type`, `json`) that don't
-    /// even match the real `[[type_overrides]]` shape `scythe-cli` reads from `scythe.toml`
+    /// even match the real `[[type_overrides]]` shape `scythe-cli` reads from `sqlkit.toml`
     /// (`column`, `db_type`, `type`). Both keys were removed from `FixtureConfig` rather than
     /// wired up, since removing them changes nothing a fixture actually asserts. This must now be
     /// a load error under `deny_unknown_fields`, not a silently-dropped key -- the same failure

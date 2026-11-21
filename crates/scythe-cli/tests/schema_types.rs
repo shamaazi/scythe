@@ -11,8 +11,8 @@ const SCHEMA_SQL: &str = "CREATE TYPE currency AS ENUM ('gbp', 'usd');\n\
     CREATE TABLE donors (id text PRIMARY KEY, email email_address NOT NULL, currency currency NOT NULL);\n";
 
 fn scythe(project: &Path, command: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
-        .args([command, "--config", project.join("scythe.toml").to_str().unwrap()])
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
+        .args([command, "--config", project.join("sqlkit.toml").to_str().unwrap()])
         .output()
         .expect("run scythe")
 }
@@ -39,8 +39,8 @@ fn schema_types_module_is_written_once_and_imported_by_every_module() {
         std::fs::write(dir.path().join(module).join("queries.sql"), query).unwrap();
     }
     std::fs::write(
-        dir.path().join("scythe.toml"),
-        "[scythe]\nversion = \"1\"\n\n[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
+        dir.path().join("sqlkit.toml"),
+        "[sqlkit]\nversion = \"1\"\n\n[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
          schema = [\"schema.sql\"]\nqueries = [\"*/queries.sql\"]\n\n\
          [[sql.gen]]\nbackend = \"typescript-bun\"\noutput = \"{dir}\"\nvalidation = \"jsdoc\"\n\
          schema_types = \"types/schema.ts\"\nschema_types_import = \"../types/schema\"\n",
@@ -77,8 +77,8 @@ fn schema_types_path_may_not_escape_the_project() {
     )
     .unwrap();
     std::fs::write(
-        dir.path().join("scythe.toml"),
-        "[scythe]\nversion = \"1\"\n\n[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
+        dir.path().join("sqlkit.toml"),
+        "[sqlkit]\nversion = \"1\"\n\n[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
          schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
          [[sql.gen]]\nbackend = \"typescript-bun\"\noutput = \"gen\"\n\
          schema_types = \"../escaped.ts\"\nschema_types_import = \"./schema\"\n",

@@ -88,9 +88,9 @@ const RULE_CODE_PROBE_SQL: &str = "SELECT 1\n";
 /// Building one is expensive and building one is *all* that is expensive:
 /// `FluffConfig::from_source` constructs the dialect, which compiles the
 /// dialect's `fancy_regex` lexer. On a 2000-query project that construction
-/// measured at 61% of the whole `scythe lint` process — more than twice what
+/// measured at 61% of the whole `sqlkit lint` process — more than twice what
 /// the actual linting cost (#130). Every method here takes `&self`, so one
-/// linter serves an entire `[[sql]]` block (or, for `scythe fmt`, an entire
+/// linter serves an entire `[[sql]]` block (or, for `sqlkit fmt`, an entire
 /// run).
 ///
 /// Construction also *validates*: it probes the assembled configuration with
@@ -108,7 +108,7 @@ impl SqruffLinter {
     /// Build and validate a linter for `dialect`.
     ///
     /// `[lint.sqruff].enabled` is deliberately **not** consulted: this is the
-    /// constructor `scythe fmt` uses, and `fmt` formats regardless of whether
+    /// constructor `sqlkit fmt` uses, and `fmt` formats regardless of whether
     /// sqruff-based *linting* is switched off. Callers that must honour
     /// `enabled` want [`for_linting`](Self::for_linting) instead.
     pub fn new(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<Self, SqruffConfigError> {
@@ -199,7 +199,7 @@ fn rejoin_split_operators(sql: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Build the linter the `scythe lint` path builds, asserting the config
+    /// Build the linter the `sqlkit lint` path builds, asserting the config
     /// is one it accepts. `for_linting` returns `None` for `enabled = false`;
     /// every caller of this helper is testing the enabled case.
     fn enabled_linter(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> SqruffLinter {
@@ -250,7 +250,7 @@ mod tests {
     }
 
     /// #113: `enabled = false` must fully disable sqruff on the lint path.
-    /// `for_linting` builds nothing, and `scythe lint` reports nothing for
+    /// `for_linting` builds nothing, and `sqlkit lint` reports nothing for
     /// that `None` — even for SQL that would otherwise violate rules.
     #[test]
     fn disabled_config_produces_no_lint_findings() {
@@ -274,7 +274,7 @@ mod tests {
     }
 
     /// #113: `enabled = false` must fully disable sqruff on the fix path
-    /// too, leaving the SQL unmodified. Same `None`, and `scythe lint --fix`
+    /// too, leaving the SQL unmodified. Same `None`, and `sqlkit lint --fix`
     /// writes nothing for it.
     #[test]
     fn disabled_config_leaves_sql_unmodified_by_fix() {
@@ -435,7 +435,7 @@ mod tests {
         assert!(built.is_none(), "a disabled config must build no linter");
     }
 
-    /// `scythe fmt` formats even when `[lint.sqruff] enabled = false`, so the
+    /// `sqlkit fmt` formats even when `[lint.sqruff] enabled = false`, so the
     /// `fmt` constructor must ignore `enabled` where the lint constructor
     /// honours it. These two are the only difference between them.
     #[test]

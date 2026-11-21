@@ -134,7 +134,7 @@ impl CheckRegistry {
     }
 
     /// Add inline user-defined checks (from `[[inspect.check]]` in
-    /// `scythe.toml`).
+    /// `sqlkit.toml`).
     ///
     /// Each spec must already have been validated by the caller (use
     /// [`parse_inspect_section`](crate::config::parse_inspect_section) which

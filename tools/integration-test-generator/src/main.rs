@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// Integration test generator for scythe.
 ///
 /// Renders language-specific integration tests from minijinja templates.
-/// Each backend produces: scythe.toml, a test file, and a dependency file.
+/// Each backend produces: sqlkit.toml, a test file, and a dependency file.
 #[derive(Parser, Debug)]
 #[command(name = "integration-test-generator", version, about)]
 struct Cli {
@@ -51,7 +51,7 @@ struct BackendConfig {
     driver: String,
     /// Environment variable for the database connection string.
     connection_env: String,
-    /// The scythe backend identifier (used in scythe.toml gen section).
+    /// The scythe backend identifier (used in sqlkit.toml gen section).
     backend: String,
     /// Extra options passed to templates (e.g. row_type).
     options: HashMap<String, String>,
@@ -284,7 +284,7 @@ fn load_manifest_exemptions(exemptions_path: &Path) -> HashMap<String, String> {
 
 /// Integration projects kept by hand outside `backend_variants()` (their
 /// scaffolding is not rendered from the templates), as `(backend, engine)`.
-/// Their committed `scythe.toml` still exercises the manifest, which
+/// Their committed `sqlkit.toml` still exercises the manifest, which
 /// `tests/coverage_completeness.rs` counts, so the build-time check counts it
 /// too instead of demanding an exemption that test would call stale.
 const HAND_MAINTAINED_BACKENDS: &[(&str, &str)] = &[("typescript-bun", "postgresql")];
@@ -476,8 +476,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         fs::create_dir_all(&output_dir)?;
 
-        let scythe_toml = render_template(&env, "scythe.toml.jinja", &context)?;
-        fs::write(output_dir.join("scythe.toml"), scythe_toml)?;
+        let scythe_toml = render_template(&env, "sqlkit.toml.jinja", &context)?;
+        fs::write(output_dir.join("sqlkit.toml"), scythe_toml)?;
 
         let test_path = output_dir.join(outputs.test_filename);
         if let Some(parent) = test_path.parent() {

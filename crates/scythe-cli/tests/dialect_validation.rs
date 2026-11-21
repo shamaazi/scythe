@@ -1,19 +1,19 @@
 //! Regression tests for issue #205: `--dialect postgresql` (scythe's own
-//! canonical engine name, the value every `scythe.toml` in the repo puts in
+//! canonical engine name, the value every `sqlkit.toml` in the repo puts in
 //! `engine = "..."`) used to panic (exit 101) on `fmt`/`lint` because it was
 //! passed straight to sqruff-lib without translation, and any unrecognized
 //! `--dialect` value (a typo, or gibberish like `klingon`) panicked the same
 //! way instead of producing a diagnostic.
 //!
 //! Every test drives the compiled binary via
-//! `Command::new(env!("CARGO_BIN_EXE_scythe"))`.
+//! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))`.
 
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 fn stderr(output: &Output) -> String {
@@ -26,7 +26,7 @@ fn write_sql_file(dir: &std::path::Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// `scythe fmt --dialect postgresql` must not panic (exit 101) -- it must
+/// `sqlkit fmt --dialect postgresql` must not panic (exit 101) -- it must
 /// either succeed or fail with an ordinary diagnostic exit code.
 #[test]
 fn fmt_accepts_canonical_postgresql_dialect_alias() {
@@ -36,7 +36,7 @@ fn fmt_accepts_canonical_postgresql_dialect_alias() {
     let output = scythe_bin()
         .args(["fmt", "--dialect", "postgresql", "--check", &sql_path])
         .output()
-        .expect("run scythe fmt");
+        .expect("run sqlkit fmt");
 
     assert_ne!(
         output.status.code(),
@@ -46,7 +46,7 @@ fn fmt_accepts_canonical_postgresql_dialect_alias() {
     );
 }
 
-/// `scythe lint --dialect postgresql` must not panic either.
+/// `sqlkit lint --dialect postgresql` must not panic either.
 #[test]
 fn lint_accepts_canonical_postgresql_dialect_alias() {
     let dir = TempDir::new().unwrap();
@@ -55,7 +55,7 @@ fn lint_accepts_canonical_postgresql_dialect_alias() {
     let output = scythe_bin()
         .args(["lint", "--dialect", "postgresql", &sql_path])
         .output()
-        .expect("run scythe lint");
+        .expect("run sqlkit lint");
 
     assert_ne!(
         output.status.code(),
@@ -76,7 +76,7 @@ fn fmt_rejects_unknown_dialect_with_a_clear_error() {
     let output = scythe_bin()
         .args(["fmt", "--dialect", "klingon", "--check", &sql_path])
         .output()
-        .expect("run scythe fmt");
+        .expect("run sqlkit fmt");
 
     let err = stderr(&output);
     assert_ne!(
@@ -102,7 +102,7 @@ fn lint_rejects_unknown_dialect_with_a_clear_error() {
     let output = scythe_bin()
         .args(["lint", "--dialect", "klingon", &sql_path])
         .output()
-        .expect("run scythe lint");
+        .expect("run sqlkit lint");
 
     let err = stderr(&output);
     assert_ne!(
@@ -130,7 +130,7 @@ fn fmt_still_accepts_sqruff_native_dialect_name() {
     let output = scythe_bin()
         .args(["fmt", "--dialect", "postgres", "--check", &sql_path])
         .output()
-        .expect("run scythe fmt");
+        .expect("run sqlkit fmt");
 
     assert!(
         output.status.success(),

@@ -123,7 +123,7 @@ fn generate_all(backend: &dyn CodegenBackend, dialect: &SqlDialect) -> Vec<Gener
         .collect()
 }
 
-/// Assemble the generated pieces into the file `scythe generate` would
+/// Assemble the generated pieces into the file `sqlkit generate` would
 /// write, so the checkers below see the same bytes.
 fn assemble(backend: &dyn CodegenBackend, engine: &str, codes: &[GeneratedCode]) -> String {
     let mut body = backend.file_header_for_results(codes);

@@ -70,7 +70,7 @@ impl LintEngine {
     /// Rules registered here that cannot run against `dialect`, by id.
     ///
     /// A dialect-gated rule contributes nothing to a run and says nothing
-    /// about why. `scythe audit` on a MySQL project reports "No findings"
+    /// about why. `sqlkit audit` on a MySQL project reports "No findings"
     /// while 28 of its 35 canonical rules are gated to `postgres` and never
     /// executed (#167) — a caller that wants to say "N rule(s) skipped: not
     /// applicable to engine '<e>'" needs the gate to be answerable *before*
@@ -90,12 +90,12 @@ impl LintEngine {
     /// per-query question: `DuplicateQueryNames` implements no `check_query`
     /// and never can, since a `LintContext` describes one query and cannot
     /// see the others. That left `SC-C03` advertised at `error` severity by
-    /// `scythe audit --list-rules` while being unable to produce a finding
+    /// `sqlkit audit --list-rules` while being unable to produce a finding
     /// from any command (#137).
     ///
     /// This is the one implementation of the check; [`build_report`] calls
     /// it, and a caller that drives `check_query` itself must call it too, or
-    /// duplicate `@name`s go unreported and `scythe generate` emits two
+    /// duplicate `@name`s go unreported and `sqlkit generate` emits two
     /// functions with the same name.
     ///
     /// Returns nothing when `DuplicateQueryNames` is not registered or is
@@ -637,7 +637,7 @@ mod tests {
     }
 
     /// #137: the duplicate-name check must be reachable *without* going
-    /// through `build_report`. `scythe lint` drives `check_query` /
+    /// through `build_report`. `sqlkit lint` drives `check_query` /
     /// `check_catalog` directly and never calls `build_report`, which is
     /// exactly why SC-C03 could not fire from any command. A caller in that
     /// shape needs one call it can make with the names it already has.
@@ -768,7 +768,7 @@ mod tests {
             skipped_for_mysql.len(),
             28,
             "28 canonical audit rules declare dialects = [\"postgres\"]; \
-             if this number moves, `scythe audit`'s skipped-rule summary moves with it"
+             if this number moves, `sqlkit audit`'s skipped-rule summary moves with it"
         );
 
         assert!(

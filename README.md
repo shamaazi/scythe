@@ -1,8 +1,8 @@
-# scythe (shamaazi fork)
+# sqlkit
 
 **Write SQL. Get type-safe TypeScript for Bun, or Rust.**
 
-This is Shamaazi's fork of [Scythe](https://github.com/Goldziher/scythe), trimmed to what we use:
+sqlkit is Shamaazi's fork of [Scythe](https://github.com/Goldziher/scythe), trimmed to what we use:
 PostgreSQL (and SQLite), generating TypeScript for [Bun's built-in SQL client](https://bun.com/docs/runtime/sql)
 and Rust for [sqlx](https://github.com/launchbadge/sqlx) or
 [tokio-postgres](https://github.com/sfackler/rust-postgres). It compiles annotated `.sql` files into
@@ -11,28 +11,32 @@ schema. It reads SQL statically, so generation needs no database connection.
 
 Upstream supports ten languages and ten databases; this fork keeps three backends and two engines,
 and adds Bun support, per-file output, schema type modules and other PostgreSQL work. The internal
-crates keep upstream's names and layout so PostgreSQL fixes can still be sent upstream.
+crates keep upstream's names (`scythe-*`) and layout so PostgreSQL fixes can still be sent
+upstream; the binary, config file (`sqlkit.toml`, with a `[sqlkit]` table), provenance header
+(`sqlkit:provenance`) and audit suppression comments (`-- sqlkit-audit: ignore[...]`) are named
+`sqlkit`. Rule ids keep their `SC-` prefix.
 
 ## What you get
 
 | | What it does |
 |---|---|
 | **Type inference that reads the query** | Nullability propagated through `LEFT`/`RIGHT`/`FULL` joins, `COALESCE`, `CASE WHEN`, aggregates, window functions and SQL functions, not just column constraints. CTEs (including recursive), `RETURNING`, enums, domains, composites, arrays and JSON map to native types. |
-| **`scythe check`** | Verifies committed code still matches the SQL it was generated from, through the provenance header every generated file carries. Given `--database-url`, it also compares the schema with a live PostgreSQL catalog. |
-| **`scythe lint`** | Correctness and performance rules (`UPDATE` without `WHERE`, `NULL` compared with `=`, leading-wildcard `LIKE`, query naming), plus sqruff's style rules. |
-| **`scythe audit`** | Security and migration-safety rules: dangerous functions, `GRANT` to `PUBLIC`, literal passwords, `SECURITY DEFINER` misuse, locking `ALTER`s and destructive DDL. Human, SARIF or JSON output. |
-| **`scythe fmt`** | SQL formatting through sqruff. |
-| **`scythe inspect`** | Live PostgreSQL health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. |
+| **`sqlkit check`** | Verifies committed code still matches the SQL it was generated from, through the provenance header every generated file carries. Given `--database-url`, it also compares the schema with a live PostgreSQL catalog. |
+| **`sqlkit lint`** | Correctness and performance rules (`UPDATE` without `WHERE`, `NULL` compared with `=`, leading-wildcard `LIKE`, query naming), plus sqruff's style rules. |
+| **`sqlkit audit`** | Security and migration-safety rules: dangerous functions, `GRANT` to `PUBLIC`, literal passwords, `SECURITY DEFINER` misuse, locking `ALTER`s and destructive DDL. Human, SARIF or JSON output. |
+| **`sqlkit fmt`** | SQL formatting through sqruff. |
+| **`sqlkit inspect`** | Live PostgreSQL health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. |
 | **Annotations** | `@name` and `@returns` (`:one`, `:opt`, `:many`, `:exec`, `:batch`, `:grouped` with `@group_by`), `@param` names and nullability, `@optional` filters. |
 
 ## Installation
 
-Through Nix, building the `scythe-cli` package with only the features a project needs
+Through Nix, building the `scythe-cli` package (which installs the `sqlkit` binary) with only the
+features a project needs
 (PostgreSQL and TypeScript here):
 
 ```nix
-scythe = pkgs.rustPlatform.buildRustPackage (final: {
-  pname = "scythe";
+sqlkit = pkgs.rustPlatform.buildRustPackage (final: {
+  pname = "sqlkit";
   version = "0.20.3";
   src = pkgs.fetchFromGitHub {
     owner = "shamaazi";
@@ -45,7 +49,7 @@ scythe = pkgs.rustPlatform.buildRustPackage (final: {
   buildNoDefaultFeatures = true;
   buildFeatures = [ "postgres" "lang-typescript" ];
   doCheck = false;
-  meta.mainProgram = "scythe";
+  meta.mainProgram = "sqlkit";
 });
 ```
 
@@ -69,10 +73,10 @@ LEFT JOIN orders o ON u.id = o.user_id
 WHERE u.status = $1;
 ```
 
-**2. Point `scythe.toml` at it.**
+**2. Point `sqlkit.toml` at it.**
 
 ```toml
-[scythe]
+[sqlkit]
 version = "1"
 
 [[sql]]
@@ -88,7 +92,7 @@ field_case = "camelCase"
 params = "object"
 ```
 
-**3. Generate** with `scythe generate`.
+**3. Generate** with `sqlkit generate`.
 
 **4. Use it.** `total` and `notes` are nullable because the join can fail to match; `id` and `name`
 are not, and the enum parameter is typed with the generated union.
@@ -145,16 +149,16 @@ though only `typescript-bun` has an integration project here.
 ## Commands
 
 ```bash
-scythe generate                       # compile SQL to code
-scythe check                          # is the committed code still in sync?
-scythe lint sql/                      # lint rules
-scythe audit sql/ --format sarif      # security and migration-safety rules
-scythe fmt sql/                       # format via sqruff
-scythe inspect $DATABASE_URL          # live PostgreSQL health checks
+sqlkit generate                       # compile SQL to code
+sqlkit check                          # is the committed code still in sync?
+sqlkit lint sql/                      # lint rules
+sqlkit audit sql/ --format sarif      # security and migration-safety rules
+sqlkit fmt sql/                       # format via sqruff
+sqlkit inspect $DATABASE_URL          # live PostgreSQL health checks
 ```
 
 `check`, `lint` and `audit` exit `2` on error-severity findings and `1` on operational failure, so
-CI can tell the two apart. `scythe <command> --help` lists every flag.
+CI can tell the two apart. `sqlkit <command> --help` lists every flag.
 
 ## Development
 
@@ -163,13 +167,13 @@ then `devenv tasks run <task>`.
 
 | Task | What it runs |
 |------|--------------|
-| `scythe:build` | Debug build of the CLI |
-| `scythe:test` | Workspace tests, then the core and codegen tests on the `postgres,lang-typescript` build |
-| `scythe:lint` | `cargo fmt --check` and clippy on the full and minimal builds |
-| `scythe:generate` | Regenerate the fixture tests and the integration projects' generated code |
-| `scythe:generated-fresh` | Fail if regeneration changes anything |
-| `scythe:integration` | The rust-sqlx, rust-tokio-postgres, SQLite and Bun projects against devenv's PostgreSQL |
-| `scythe:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` controls |
+| `sqlkit:build` | Debug build of the CLI |
+| `sqlkit:test` | Workspace tests, then the core and codegen tests on the `postgres,lang-typescript` build |
+| `sqlkit:lint` | `cargo fmt --check` and clippy on the full and minimal builds |
+| `sqlkit:generate` | Regenerate the fixture tests and the integration projects' generated code |
+| `sqlkit:generated-fresh` | Fail if regeneration changes anything |
+| `sqlkit:integration` | The rust-sqlx, rust-tokio-postgres, SQLite and Bun projects against devenv's PostgreSQL |
+| `sqlkit:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` controls |
 
 CI runs the same tasks. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
 

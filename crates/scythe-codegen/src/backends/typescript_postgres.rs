@@ -820,7 +820,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
         }
         if self.js_mode {
             // Nothing left for this header to carry: the "do not edit"
-            // notice lives in the scythe:provenance line every backend emits.
+            // notice lives in the sqlkit:provenance line every backend emits.
             return "/** @typedef {null | string | number | boolean | Date | readonly PostgresJsonValue[] | {[key: string]: undefined | PostgresJsonValue}} PostgresJsonValue */\n".to_string();
         }
         if self.structs_only {
@@ -2006,7 +2006,7 @@ mod tests {
         );
         assert!(
             query_fn.contains("AND id = ${id}"),
-            "scythe's own param binding must stay a live interpolation; got:\n{query_fn}"
+            "sqlkit's own param binding must stay a live interpolation; got:\n{query_fn}"
         );
     }
 

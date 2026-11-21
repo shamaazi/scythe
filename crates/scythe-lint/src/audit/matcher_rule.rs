@@ -386,7 +386,7 @@ mod tests {
     /// Regression for #167: a rule scoped to Postgres must expose that
     /// through `is_applicable_to`, not only via a silent `check_query`
     /// early-return, so a caller can count and report skipped rules per
-    /// engine instead of `scythe audit` on a non-Postgres engine claiming
+    /// engine instead of `sqlkit audit` on a non-Postgres engine claiming
     /// "no findings" while most rules never ran.
     #[test]
     fn matcher_rule_is_applicable_to_honours_spec_dialects() {

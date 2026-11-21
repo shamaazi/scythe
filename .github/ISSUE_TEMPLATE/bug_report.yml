@@ -30,7 +30,7 @@ body:
         -- paste query
         ```
 
-        **scythe.toml:**
+        **sqlkit.toml:**
         ```toml
         -- paste config
         ```

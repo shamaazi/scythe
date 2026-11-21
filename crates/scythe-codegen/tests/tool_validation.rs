@@ -280,7 +280,7 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
 
     // ~keep The point of this harness is that `php -l`, `ruby -c`, `gofmt`,
     // `python -m py_compile`, `tsc`, and `kotlinc` below are handed the bytes
-    // a real `scythe generate` writes — provenance header included. Without
+    // a real `sqlkit generate` writes — provenance header included. Without
     // it, nothing anywhere proves that the header sits in a position each
     // language actually accepts: the structural checks in `validation.rs` are
     // substring matches (`code.contains("<?php")`) that pass regardless of

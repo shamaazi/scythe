@@ -104,7 +104,7 @@ pub struct JsonMapping {
 /// surface as a warning without duplicating scythe's keyword list or edit-distance
 /// logic. See #152 -- before this field existed, a misspelled `@nullable` /
 /// `@nonnull` / `@optional` was captured here and never inspected by anything,
-/// so `scythe generate`, `scythe check` and `scythe lint` all reported success
+/// so `sqlkit generate`, `sqlkit check` and `sqlkit lint` all reported success
 /// while the override it named was silently discarded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -1223,8 +1223,8 @@ SELECT 1";
     }
 
     /// Regression for #152: a misspelled `@nullable` / `@nonnull` / `@optional` used to be
-    /// captured as an opaque `CustomAnnotation` that nothing ever inspected -- `scythe generate`,
-    /// `scythe check` and `scythe lint` all reported success while the nullability override the
+    /// captured as an opaque `CustomAnnotation` that nothing ever inspected -- `sqlkit generate`,
+    /// `sqlkit check` and `sqlkit lint` all reported success while the nullability override the
     /// user wrote never took effect. `suggested_keyword` must name the intended keyword so a
     /// caller can turn this into a warning instead of silence.
     #[test]

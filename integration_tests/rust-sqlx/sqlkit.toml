@@ -1,4 +1,4 @@
-[scythe]
+[sqlkit]
 version = "1"
 
 [[sql]]

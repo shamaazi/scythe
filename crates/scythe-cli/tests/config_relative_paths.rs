@@ -1,13 +1,13 @@
 //! Regression tests for issue #84: `schema`/`queries` glob patterns and
-//! `[[sql.gen]]`/legacy `output` directories in `scythe.toml` must resolve
+//! `[[sql.gen]]`/legacy `output` directories in `sqlkit.toml` must resolve
 //! relative to the *config file's* directory, not the process's current
 //! working directory. Prior to the fix, `resolve_globs` (and `fmt`'s
 //! standalone glob loop) called `glob::glob(pattern)` directly, so
-//! `scythe generate --config /path/to/project/scythe.toml` run from anywhere
+//! `sqlkit generate --config /path/to/project/sqlkit.toml` run from anywhere
 //! else silently found nothing.
 //!
 //! Every test here drives the compiled binary via
-//! `Command::new(env!("CARGO_BIN_EXE_scythe"))` with `.current_dir(...)` set
+//! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))` with `.current_dir(...)` set
 //! on the *child* process — never a process-wide CWD mutation — so tests stay
 //! parallel-safe. Each test builds a self-contained temp project and (except
 //! where the scenario specifically requires otherwise) runs it from a second,
@@ -20,7 +20,7 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 /// Render a path as a string safe to embed in a TOML basic string (`"..."`)
@@ -49,7 +49,7 @@ const AUDIT_QUERY_SQL: &str = "GRANT ALL ON widgets TO someuser;\n";
 const UNFORMATTED_QUERY_SQL: &str =
     "-- @name GetWidget\n-- @returns :one\nSELECT\n  id,\n    name\nFROM widgets\nWHERE id = $1;\n";
 
-/// Write `schema.sql` + `queries.sql` + `scythe.toml` into `dir`. The config
+/// Write `schema.sql` + `queries.sql` + `sqlkit.toml` into `dir`. The config
 /// uses relative `schema`/`queries` patterns (`"schema.sql"`, `"queries.sql"`)
 /// and the given `output` string verbatim, so callers control whether output
 /// resolution is exercised as relative or absolute.
@@ -58,7 +58,7 @@ fn write_project(dir: &Path, queries_sql: &str, output: &str) -> PathBuf {
     std::fs::write(dir.join("queries.sql"), queries_sql).unwrap();
 
     let config = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -69,7 +69,7 @@ queries = ["queries.sql"]
 output = "{output}"
 "#
     );
-    let config_path = dir.join("scythe.toml");
+    let config_path = dir.join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
     config_path
 }
@@ -92,7 +92,7 @@ fn generate_resolves_globs_relative_to_config_not_cwd() {
         .args(["generate", "--config", config_path.to_str().unwrap()])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     assert!(
         output.status.success(),
@@ -127,7 +127,7 @@ fn check_resolves_globs_relative_to_config_not_cwd() {
         .args(["check", "--config", config_path.to_str().unwrap()])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe check");
+        .expect("run sqlkit check");
 
     let err = stderr(&output);
     assert!(
@@ -157,7 +157,7 @@ fn lint_resolves_globs_relative_to_config_not_cwd() {
         .args(["lint", "--config", config_path.to_str().unwrap()])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe lint");
+        .expect("run sqlkit lint");
 
     let err = stderr(&output);
 
@@ -187,7 +187,7 @@ fn audit_resolves_globs_relative_to_config_not_cwd() {
         .args(["audit", "--config", config_path.to_str().unwrap()])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe audit");
+        .expect("run sqlkit audit");
 
     // Before the fix, the query file was never found, so audit found nothing
     // to report and exited 0 despite the GRANT ALL.
@@ -214,7 +214,7 @@ fn fmt_check_resolves_globs_relative_to_config_not_cwd() {
         .args(["fmt", "--config", config_path.to_str().unwrap(), "--check"])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe fmt --check");
+        .expect("run sqlkit fmt --check");
 
     let err = stderr(&output);
 
@@ -260,7 +260,7 @@ fn output_is_relative_to_config_not_cwd() {
         .args(["generate", "--config", config_path.to_str().unwrap()])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     assert!(
         output.status.success(),
@@ -301,7 +301,7 @@ fn absolute_output_is_unchanged() {
         ])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     assert!(
         output.status.success(),
@@ -333,7 +333,7 @@ fn absolute_output_is_unchanged() {
         vec![
             "queries.sql".to_string(),
             "schema.sql".to_string(),
-            "scythe.toml".to_string()
+            "sqlkit.toml".to_string()
         ],
         "an absolute output must not leave any extra entries under the config dir"
     );
@@ -341,7 +341,7 @@ fn absolute_output_is_unchanged() {
 
 #[test]
 fn absolute_glob_patterns_bypass_config_dir() {
-    // `schema.sql`/`queries.sql` live under `sql_dir`; `scythe.toml` lives
+    // `schema.sql`/`queries.sql` live under `sql_dir`; `sqlkit.toml` lives
     // under an unrelated `config_dir`, referencing them by absolute path.
     let sql_dir = TempDir::new().unwrap();
     let config_dir = TempDir::new().unwrap();
@@ -352,7 +352,7 @@ fn absolute_glob_patterns_bypass_config_dir() {
 
     let output_dir = config_dir.path().join("generated");
     let config = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -366,7 +366,7 @@ output = "{output}"
         queries = toml_path(&sql_dir.path().join("queries.sql")),
         output = toml_path(&output_dir),
     );
-    let config_path = config_dir.path().join("scythe.toml");
+    let config_path = config_dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     // `output` here is also an absolute path (see `output_dir` above), so
@@ -380,7 +380,7 @@ output = "{output}"
         ])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     assert!(
         output.status.success(),
@@ -399,7 +399,7 @@ fn default_config_path_reports_unprefixed_paths() {
     let project = TempDir::new().unwrap();
     std::fs::write(project.path().join("schema.sql"), SCHEMA_SQL).unwrap();
     std::fs::write(project.path().join("queries.sql"), AUDIT_QUERY_SQL).unwrap();
-    let config = r#"[scythe]
+    let config = r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -409,17 +409,17 @@ schema = ["schema.sql"]
 queries = ["queries.sql"]
 output = "generated"
 "#;
-    std::fs::write(project.path().join("scythe.toml"), config).unwrap();
+    std::fs::write(project.path().join("sqlkit.toml"), config).unwrap();
 
-    // ~keep CWD == project dir, and `--config scythe.toml` is the bare default
-    // spelling (`config_dir("scythe.toml")` is the empty path). This pins
+    // ~keep CWD == project dir, and `--config sqlkit.toml` is the bare default
+    // spelling (`config_dir("sqlkit.toml")` is the empty path). This pins
     // the `rebase_pattern` identity branch: the reported path must be
     // `queries.sql`, not `./queries.sql`.
     let output = scythe_bin()
-        .args(["audit", "--config", "scythe.toml", "--format", "json", "--exit-zero"])
+        .args(["audit", "--config", "sqlkit.toml", "--format", "json", "--exit-zero"])
         .current_dir(project.path())
         .output()
-        .expect("run scythe audit");
+        .expect("run sqlkit audit");
 
     assert!(
         output.status.success(),
@@ -453,7 +453,7 @@ fn glob_metacharacters_in_config_dir_are_escaped() {
         .args(["generate", "--config", config_path.to_str().unwrap()])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     assert!(
         output.status.success(),
@@ -477,7 +477,7 @@ fn empty_glob_is_an_error_naming_pattern_and_config_dir() {
     // Only `schema.sql` exists; `queries` points at a pattern that matches
     // nothing.
     std::fs::write(project.path().join("schema.sql"), SCHEMA_SQL).unwrap();
-    let config = r#"[scythe]
+    let config = r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -487,14 +487,14 @@ schema = ["schema.sql"]
 queries = ["nonexistent/*.sql"]
 output = "generated"
 "#;
-    let config_path = project.path().join("scythe.toml");
+    let config_path = project.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
         .args(["generate", "--config", config_path.to_str().unwrap()])
         .current_dir(run_from.path())
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     assert!(
         !output.status.success(),

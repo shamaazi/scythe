@@ -1,10 +1,10 @@
-//! Regression tests for #165, item 3: `scythe lint` and `scythe audit` used
+//! Regression tests for #165, item 3: `sqlkit lint` and `sqlkit audit` used
 //! to accept an unrecognized `[[sql]] engine = "..."` value and silently
 //! analyze it as PostgreSQL (`SqlDialect::from_str(&engine).unwrap_or(PostgreSQL)`
 //! in `lint_cmd.rs` and `audit.rs`). A typo like `mysql8` produced no
 //! diagnostic at all -- the run parsed the schema and queries under the
 //! wrong dialect, matched them against the wrong dialect-gated rule set, and
-//! reported success regardless. `scythe generate` already rejected the same
+//! reported success regardless. `sqlkit generate` already rejected the same
 //! mistake loudly; `lint`/`audit` did not.
 //!
 //! Every test drives the compiled binary and checks that an unknown engine
@@ -22,30 +22,30 @@ const SCHEMA: &str = "CREATE TABLE widgets (id bigint PRIMARY KEY, name text NOT
 const QUERIES: &str = "-- @name ListWidgets\n-- @returns :many\nSELECT id, name FROM widgets;\n";
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-/// Write `scythe.toml` + `schema.sql` + `queries.sql` into `dir`, with the
+/// Write `sqlkit.toml` + `schema.sql` + `queries.sql` into `dir`, with the
 /// given (possibly bogus) `engine`, and return the config path.
 fn write_project(dir: &TempDir, engine: &str) -> String {
     fs::write(dir.path().join("schema.sql"), SCHEMA).expect("write schema.sql");
     fs::write(dir.path().join("queries.sql"), QUERIES).expect("write queries.sql");
 
     let config = format!(
-        "[scythe]\nversion = \"1\"\n\n\
+        "[sqlkit]\nversion = \"1\"\n\n\
          [[sql]]\nname = \"main\"\nengine = \"{engine}\"\n\
          schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n"
     );
-    let config_path = dir.path().join("scythe.toml");
-    fs::write(&config_path, config).expect("write scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
+    fs::write(&config_path, config).expect("write sqlkit.toml");
     config_path.to_string_lossy().into_owned()
 }
 
-/// `scythe lint --config scythe.toml` (config-resolved mode, `lint_from_config`)
+/// `sqlkit lint --config sqlkit.toml` (config-resolved mode, `lint_from_config`)
 /// must reject an unrecognized `engine`, not silently analyze it as
 /// PostgreSQL. `mysql8` is valid-looking SQL under `SCHEMA`/`QUERIES` above
 /// regardless of dialect, so on the old code this run parsed and linted
@@ -60,9 +60,9 @@ fn lint_from_config_rejects_unknown_engine() {
     let output = scythe_bin()
         .args(["lint", "--config", &config_path])
         .env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("run scythe lint");
+        .expect("run sqlkit lint");
 
     let err = stderr(&output);
     assert_eq!(
@@ -77,9 +77,9 @@ fn lint_from_config_rejects_unknown_engine() {
     );
 }
 
-/// `scythe lint <file>` (explicit-file mode, `load_native_lint_context`) must
+/// `sqlkit lint <file>` (explicit-file mode, `load_native_lint_context`) must
 /// reject the same unrecognized `engine` when it builds its native-rule
-/// catalog from `scythe.toml`'s first `[[sql]]` block -- a separate code path
+/// catalog from `sqlkit.toml`'s first `[[sql]]` block -- a separate code path
 /// from `lint_from_config`, with its own `SqlDialect::from_str(..).unwrap_or(..)`
 /// before the fix.
 #[test]
@@ -91,9 +91,9 @@ fn lint_explicit_file_mode_rejects_unknown_engine_from_config() {
     let output = scythe_bin()
         .args(["lint", "--config", &config_path, query_path.to_str().unwrap()])
         .env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("run scythe lint");
+        .expect("run sqlkit lint");
 
     let err = stderr(&output);
     assert_eq!(
@@ -108,7 +108,7 @@ fn lint_explicit_file_mode_rejects_unknown_engine_from_config() {
     );
 }
 
-/// `scythe audit --config scythe.toml` (`audit_from_config`) must reject an
+/// `sqlkit audit --config sqlkit.toml` (`audit_from_config`) must reject an
 /// unrecognized `engine` the same way `lint` does, instead of auditing the
 /// block as PostgreSQL and reporting whatever that finds as the whole truth.
 #[test]
@@ -119,7 +119,7 @@ fn audit_from_config_rejects_unknown_engine() {
     let output = scythe_bin()
         .args(["audit", "--config", &config_path])
         .output()
-        .expect("run scythe audit");
+        .expect("run sqlkit audit");
 
     let err = stderr(&output);
     assert_eq!(
@@ -147,9 +147,9 @@ fn lint_from_config_still_accepts_a_known_engine_alias() {
     let output = scythe_bin()
         .args(["lint", "--config", &config_path])
         .env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("run scythe lint");
+        .expect("run sqlkit lint");
 
     let err = stderr(&output);
     assert_ne!(

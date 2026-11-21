@@ -1,16 +1,16 @@
-//! Regression test for issue #208: `scythe audit` used to abandon a whole
+//! Regression test for issue #208: `sqlkit audit` used to abandon a whole
 //! file at the first statement it could not parse, discarding every
 //! finding from statements already parsed successfully (including real
 //! security findings) and printing "No findings." with exit 0.
 //!
-//! Drives the compiled binary via `Command::new(env!("CARGO_BIN_EXE_scythe"))`.
+//! Drives the compiled binary via `Command::new(env!("CARGO_BIN_EXE_sqlkit"))`.
 
 use std::process::Command;
 
 use tempfile::TempDir;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 /// A real `GRANT ALL ... TO PUBLIC` finding (SC-SEC02 + SC-SEC03) precedes a
@@ -18,7 +18,7 @@ fn scythe_bin() -> Command {
 const MIXED_SQL: &str =
     "GRANT ALL ON users TO PUBLIC;\nCREATE POLICY p ON t USING (true) NOT VALID GARBAGE SYNTAX HERE;\n";
 
-/// `scythe audit` must still report the GRANT ALL finding from the
+/// `sqlkit audit` must still report the GRANT ALL finding from the
 /// statement before the unparseable one, and must exit non-zero (not the
 /// silent "No findings." + exit 0 issue #208 reproduces).
 #[test]
@@ -30,7 +30,7 @@ fn audit_reports_findings_from_statements_before_an_unparseable_one() {
     let output = scythe_bin()
         .args(["audit", sql_path.to_str().unwrap()])
         .output()
-        .expect("run scythe audit");
+        .expect("run sqlkit audit");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -63,7 +63,7 @@ fn audit_reports_the_unparseable_statement_as_its_own_finding() {
     let output = scythe_bin()
         .args(["audit", sql_path.to_str().unwrap()])
         .output()
-        .expect("run scythe audit");
+        .expect("run sqlkit audit");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -75,14 +75,14 @@ fn audit_reports_the_unparseable_statement_as_its_own_finding() {
 /// `SC-PARSE01` joined `parse_registry` so `[lint.rules]` could reach it.
 /// Before that, `run_security_rules_over_sql` hardcoded `Severity::Error` at
 /// the point this finding was constructed, so a `"SC-PARSE01" = "warn"`
-/// entry in `scythe.toml` had no effect: the finding stayed an `error`-level
+/// entry in `sqlkit.toml` had no effect: the finding stayed an `error`-level
 /// SARIF/JSON result regardless of what `--config` pointed at.
 #[test]
 fn audit_unparseable_statement_honours_configured_severity() {
     let dir = TempDir::new().unwrap();
     let sql_path = dir.path().join("bad.sql");
     std::fs::write(&sql_path, MIXED_SQL).unwrap();
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, "[lint.rules]\n\"SC-PARSE01\" = \"warn\"\n").unwrap();
 
     let output = scythe_bin()
@@ -95,7 +95,7 @@ fn audit_unparseable_statement_honours_configured_severity() {
             "json",
         ])
         .output()
-        .expect("run scythe audit");
+        .expect("run sqlkit audit");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
@@ -122,7 +122,7 @@ fn audit_parse_failure_is_operational_even_when_finding_is_disabled() {
             "CREATE ROLE planted_role;\nDO $body$ BEGIN SELECT 1; END $body$;\n",
         )
         .unwrap();
-        let config_path = dir.path().join("scythe.toml");
+        let config_path = dir.path().join("sqlkit.toml");
         std::fs::write(
             &config_path,
             format!("[lint.rules]\n\"SC-PARSE01\" = \"{configured_severity}\"\n"),
@@ -142,7 +142,7 @@ fn audit_parse_failure_is_operational_even_when_finding_is_disabled() {
                 sql_path.to_str().unwrap(),
             ])
             .output()
-            .expect("run scythe audit");
+            .expect("run sqlkit audit");
 
         assert_eq!(output.status.code(), Some(1), "{configured_severity}");
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -167,7 +167,7 @@ fn audit_reports_findings_normally_when_everything_parses() {
     let output = scythe_bin()
         .args(["audit", sql_path.to_str().unwrap()])
         .output()
-        .expect("run scythe audit");
+        .expect("run sqlkit audit");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(

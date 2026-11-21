@@ -78,7 +78,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         if col.untyped_literal && col.neutral_type == "unknown" {
             return Err(ScytheError::type_mismatch(format!(
                 "query \"{}\": column \"{}\" is a bare parameter or NULL literal with no CAST, comparison, \
-                 COALESCE, or other typed context -- scythe cannot infer its type; add an explicit CAST, e.g. \
+                 COALESCE, or other typed context -- sqlkit cannot infer its type; add an explicit CAST, e.g. \
                  CAST(? AS <type>)",
                 query.name, col.name
             )));

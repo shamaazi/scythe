@@ -111,14 +111,14 @@ pub enum InspectError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
-    /// The requested engine has no `scythe inspect` implementation.
+    /// The requested engine has no `sqlkit inspect` implementation.
     ///
     /// Carries the engine the *user* asked for, not the engine of whichever
     /// driver happened to be constructed. Naming the wrong engine here reads
     /// as a scythe bug rather than an unsupported-engine notice, and sends the
     /// reader looking for a defect that is not there.
     #[error(
-        "engine `{engine}` is not supported by `scythe inspect` — live inspection, \
+        "engine `{engine}` is not supported by `sqlkit inspect` — live inspection, \
          schema drift and the SC-INS checks are implemented for PostgreSQL \
          (`postgres`, `postgresql`) and MySQL/MariaDB (`mysql`, `mariadb`) only"
     )]
@@ -197,7 +197,7 @@ pub enum InspectError {
     },
 
     /// No connection URL could be resolved from CLI, env, or config.
-    #[error("no database URL provided — pass a positional URL, set DATABASE_URL, or set SCYTHE_DATABASE_URL")]
+    #[error("no database URL provided — pass a positional URL, set DATABASE_URL, or set SQLKIT_DATABASE_URL")]
     UrlMissing,
 
     /// A driver method was called before [`DbDriver::connect`] succeeded.

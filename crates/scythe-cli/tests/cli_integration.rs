@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 /// Returns the workspace root (two levels up from crate manifest dir).
@@ -26,7 +26,7 @@ fn schema_dir(relative: &str) -> PathBuf {
 /// `Path::display()` uses the platform's native separator, which on Windows
 /// is `\` — an escape character in TOML basic strings. Glob patterns accept
 /// `/` as a separator on every platform, so forward-slashing the path here
-/// keeps the generated `scythe.toml` fixtures parseable as TOML on Windows
+/// keeps the generated `sqlkit.toml` fixtures parseable as TOML on Windows
 /// without changing what they match.
 fn toml_path(path: &Path) -> String {
     path.display().to_string().replace('\\', "/")
@@ -171,26 +171,26 @@ fn test_version_exits_zero() {
     let output = scythe_bin()
         .arg("--version")
         .output()
-        .expect("failed to run scythe --version");
+        .expect("failed to run sqlkit --version");
 
-    assert!(output.status.success(), "scythe --version should exit 0");
+    assert!(output.status.success(), "sqlkit --version should exit 0");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("scythe"), "version output should contain 'scythe'");
+    assert!(stdout.contains("sqlkit"), "version output should contain 'sqlkit'");
 }
 
 #[test]
 fn test_check_basemind_exits_zero() {
     let dir = schema_dir("simple/basemind");
     let output = scythe_bin()
-        .args(["check", "--config", "scythe.toml"])
+        .args(["check", "--config", "sqlkit.toml"])
         .current_dir(&dir)
         .output()
-        .expect("failed to run scythe check");
+        .expect("failed to run sqlkit check");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "scythe check on basemind should exit 0.\nstderr: {}",
+        "sqlkit check on basemind should exit 0.\nstderr: {}",
         stderr
     );
     // `run_check` reports per-`[[sql]]`-block success as "[<name>] All queries
@@ -218,18 +218,18 @@ fn test_check_with_database_url_attempts_live_verification() {
         .args([
             "check",
             "--config",
-            "scythe.toml",
+            "sqlkit.toml",
             "--database-url",
             "postgres://127.0.0.1:1/scythe_nonexistent_db",
         ])
         .current_dir(&dir)
         .output()
-        .expect("failed to run scythe check --database-url");
+        .expect("failed to run sqlkit check --database-url");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         !output.status.success(),
-        "scythe check against an unreachable database should exit non-zero.\nstderr: {}",
+        "sqlkit check against an unreachable database should exit non-zero.\nstderr: {}",
         stderr
     );
     assert!(
@@ -244,15 +244,15 @@ fn test_check_with_database_url_attempts_live_verification() {
 fn test_check_pagila_exits_zero() {
     let dir = schema_dir("medium/pagila");
     let output = scythe_bin()
-        .args(["check", "--config", "scythe.toml"])
+        .args(["check", "--config", "sqlkit.toml"])
         .current_dir(&dir)
         .output()
-        .expect("failed to run scythe check");
+        .expect("failed to run sqlkit check");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "scythe check on pagila should exit 0.\nstderr: {}",
+        "sqlkit check on pagila should exit 0.\nstderr: {}",
         stderr
     );
 }
@@ -269,7 +269,7 @@ fn test_generate_writes_file() {
     // process's current working directory. This also doubles as coverage for
     // absolute glob patterns passing through `rebase_pattern` unchanged.
     let config_content = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -284,7 +284,7 @@ output = "{output}"
         output = toml_path(&output_dir)
     );
 
-    let config_path = temp.path().join("scythe.toml");
+    let config_path = temp.path().join("sqlkit.toml");
     std::fs::write(&config_path, &config_content).unwrap();
 
     // `current_dir` is set to an unrelated temp dir (not `dir`, where the
@@ -301,12 +301,12 @@ output = "{output}"
         ])
         .current_dir(temp.path())
         .output()
-        .expect("failed to run scythe generate");
+        .expect("failed to run sqlkit generate");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "scythe generate should exit 0.\nstderr: {}",
+        "sqlkit generate should exit 0.\nstderr: {}",
         stderr
     );
 
@@ -319,7 +319,7 @@ output = "{output}"
 
     let content = std::fs::read_to_string(&generated_file).unwrap();
     assert!(
-        content.contains("scythe:provenance"),
+        content.contains("sqlkit:provenance"),
         "generated file should have a scythe provenance header"
     );
     assert_generated_query_fns(&content, BASEMIND_QUERY_FNS, "simple/basemind");
@@ -335,7 +335,7 @@ fn test_generate_pagila_writes_file() {
     // `tests/schemas/medium/pagila`), not relative to `dir`, since 0.13.0
     // resolves relative glob patterns against the config file's directory.
     let config_content = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -351,7 +351,7 @@ output = "{output}"
         output = toml_path(&output_dir)
     );
 
-    let config_path = temp.path().join("scythe.toml");
+    let config_path = temp.path().join("sqlkit.toml");
     std::fs::write(&config_path, &config_content).unwrap();
 
     // `output` above is an absolute path, which #207 rejects by default as
@@ -365,12 +365,12 @@ output = "{output}"
         ])
         .current_dir(temp.path())
         .output()
-        .expect("failed to run scythe generate");
+        .expect("failed to run sqlkit generate");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "scythe generate on pagila should exit 0.\nstderr: {}",
+        "sqlkit generate on pagila should exit 0.\nstderr: {}",
         stderr
     );
 
@@ -390,7 +390,7 @@ fn test_missing_config_exits_one() {
     let output = scythe_bin()
         .args(["check", "--config", "nonexistent.toml"])
         .output()
-        .expect("failed to run scythe check");
+        .expect("failed to run sqlkit check");
 
     // Exit 1 is the operational-failure code, distinct from exit 2 (which
     // means "the config was readable and error-severity findings were
@@ -399,7 +399,7 @@ fn test_missing_config_exits_one() {
     assert_eq!(
         output.status.code(),
         Some(1),
-        "scythe check with missing config should exit 1 (operational failure), not 2 (findings); stderr: {}",
+        "sqlkit check with missing config should exit 1 (operational failure), not 2 (findings); stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
@@ -418,11 +418,11 @@ fn write_check_error_project(temp: &tempfile::TempDir) -> PathBuf {
         "-- @name DisableAllUsers\n-- @returns :exec\nUPDATE users SET name = 'x';\n",
     )
     .unwrap();
-    let config_path = temp.path().join("scythe.toml");
+    let config_path = temp.path().join("sqlkit.toml");
     std::fs::write(
         &config_path,
         concat!(
-            "[scythe]\nversion = \"1\"\n\n",
+            "[sqlkit]\nversion = \"1\"\n\n",
             "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
             "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n",
         ),
@@ -439,7 +439,7 @@ fn test_check_error_finding_exits_two() {
     let output = scythe_bin()
         .args(["check", "--config", config_path.to_str().unwrap()])
         .output()
-        .expect("failed to run scythe check");
+        .expect("failed to run sqlkit check");
 
     assert_eq!(
         output.status.code(),
@@ -462,7 +462,7 @@ fn test_check_exit_zero_overrides_error_exit_code() {
     let output = scythe_bin()
         .args(["check", "--config", config_path.to_str().unwrap(), "--exit-zero"])
         .output()
-        .expect("failed to run scythe check --exit-zero");
+        .expect("failed to run sqlkit check --exit-zero");
 
     assert!(
         output.status.success(),
@@ -495,7 +495,7 @@ fn test_audit_list_rules_exits_zero_and_shows_sec01() {
     let output = scythe_bin()
         .args(["audit", "--list-rules"])
         .output()
-        .expect("failed to run scythe audit --list-rules");
+        .expect("failed to run sqlkit audit --list-rules");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -522,7 +522,7 @@ fn test_audit_list_rules_includes_off_by_default_rules() {
     let output = scythe_bin()
         .args(["audit", "--list-rules"])
         .output()
-        .expect("failed to run scythe audit --list-rules");
+        .expect("failed to run sqlkit audit --list-rules");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -548,7 +548,7 @@ fn test_audit_explain_off_by_default_rule_succeeds() {
         let output = scythe_bin()
             .args(["audit", "--explain", id])
             .output()
-            .unwrap_or_else(|e| panic!("failed to run scythe audit --explain {id}: {e}"));
+            .unwrap_or_else(|e| panic!("failed to run sqlkit audit --explain {id}: {e}"));
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -568,7 +568,7 @@ fn test_audit_explain_unknown_rule_returns_error() {
     let output = scythe_bin()
         .args(["audit", "--explain", "DOES-NOT-EXIST"])
         .output()
-        .expect("failed to run scythe audit --explain");
+        .expect("failed to run sqlkit audit --explain");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -649,7 +649,7 @@ fn test_audit_ignore_suppressions_resurfaces_finding() {
     let sql_path = temp.path().join("suppressed.sql");
     std::fs::write(
         &sql_path,
-        "-- scythe-audit: ignore[SC-SEC02]\nGRANT ALL ON users TO bob;\n",
+        "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON users TO bob;\n",
     )
     .unwrap();
 
@@ -757,7 +757,7 @@ fn test_javascript_backend_writes_a_js_file() {
     .unwrap();
 
     let config = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -774,7 +774,7 @@ output = "{output}"
         queries = queries_path.display().to_string().replace('\\', "/"),
         output = output_dir.display().to_string().replace('\\', "/"),
     );
-    let config_path = temp.path().join("scythe.toml");
+    let config_path = temp.path().join("sqlkit.toml");
     std::fs::write(&config_path, &config).unwrap();
 
     // `output` above is an absolute path, which #207 rejects by default as
@@ -810,7 +810,7 @@ output = "{output}"
     );
 
     // The provenance header has to name the js backend, not the ts one it
-    // shares a manifest with, or `scythe check` reports backend drift against
+    // shares a manifest with, or `sqlkit check` reports backend drift against
     // this project's own output forever.
     let code = std::fs::read_to_string(output_dir.join("queries.js")).expect("generated file");
     assert!(

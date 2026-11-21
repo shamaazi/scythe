@@ -1,7 +1,7 @@
 //! Regression tests for board #187: `validate_generated_code` /
 //! `validate_with_tools` (`crates/scythe-codegen/src/validation.rs`) had no
 //! production caller at all -- every call site outside `validation.rs` was a
-//! test, so `scythe generate` never checked its own output. `scythe generate
+//! test, so `sqlkit generate` never checked its own output. `sqlkit generate
 //! --validate-output` wires it in as an opt-in flag.
 //!
 //! `ValidationOutcome` is deliberately a three-state type (validated /
@@ -11,7 +11,7 @@
 //! "the flag exists".
 //!
 //! Every test drives the compiled binary via
-//! `Command::new(env!("CARGO_BIN_EXE_scythe"))`, following the idiom in
+//! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))`, following the idiom in
 //! `cli_honesty_defects.rs`.
 
 use std::process::{Command, Output};
@@ -19,7 +19,7 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 fn stderr(output: &Output) -> String {
@@ -30,17 +30,17 @@ const SCHEMA_SQL: &str = "CREATE TABLE widgets (id bigint PRIMARY KEY, name text
 const QUERY_SQL: &str = "-- @name GetWidget\n-- @returns :one\nSELECT id, name FROM widgets WHERE id = $1;\n";
 
 /// Writes a minimal project targeting `backend` and returns the
-/// `scythe.toml` path.
+/// `sqlkit.toml` path.
 fn write_project(dir: &std::path::Path, backend: &str) -> String {
     std::fs::write(dir.join("schema.sql"), SCHEMA_SQL).unwrap();
     std::fs::write(dir.join("queries.sql"), QUERY_SQL).unwrap();
     let config = format!(
-        "[scythe]\nversion = \"1\"\n\n\
+        "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
         schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
         [[sql.gen]]\nbackend = \"{backend}\"\noutput = \"out\"\n"
     );
-    let config_path = dir.join("scythe.toml");
+    let config_path = dir.join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
     config_path.to_string_lossy().into_owned()
 }
@@ -48,12 +48,12 @@ fn write_project(dir: &std::path::Path, backend: &str) -> String {
 /// Writes a minimal project targeting the `typescript-bun` backend (its
 /// only real-tool checker is `poly`, wired through
 /// `scythe_codegen::validation::validate_typescript_tools`) and returns the
-/// `scythe.toml` path.
+/// `sqlkit.toml` path.
 fn write_typescript_project(dir: &std::path::Path) -> String {
     write_project(dir, "typescript-bun")
 }
 
-/// `scythe generate` without `--validate-output` must never run the
+/// `sqlkit generate` without `--validate-output` must never run the
 /// generated-code validators at all -- opt-in, not default, because it shells
 /// out to external toolchains (`poly`, `tsc`, `javac`, ...) that may not be
 /// installed on every machine `generate` runs on.
@@ -65,7 +65,7 @@ fn generate_without_validate_output_never_reports_validation() {
     let output = scythe_bin()
         .args(["generate", "--config", &config_path])
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     let err = stderr(&output);
     assert!(
@@ -78,7 +78,7 @@ fn generate_without_validate_output_never_reports_validation() {
     );
 }
 
-/// `scythe generate --validate-output` with the real tool (`poly`) reachable
+/// `sqlkit generate --validate-output` with the real tool (`poly`) reachable
 /// on `PATH` must report the target as validated, distinctly from a skip.
 ///
 /// `poly` is this repository's own bundled linter and is required to be on
@@ -94,7 +94,7 @@ fn generate_validate_output_reports_validated_when_the_tool_is_present() {
     let output = scythe_bin()
         .args(["generate", "--config", &config_path, "--validate-output"])
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     let err = stderr(&output);
     assert!(
@@ -111,7 +111,7 @@ fn generate_validate_output_reports_validated_when_the_tool_is_present() {
     );
 }
 
-/// `scythe generate --validate-output` with the checker unreachable (`PATH`
+/// `sqlkit generate --validate-output` with the checker unreachable (`PATH`
 /// stripped of it) must report SKIPPED, not silently report success.
 ///
 /// `PATH` is overridden to a directory with nothing in it so `poly` -- the
@@ -132,7 +132,7 @@ fn generate_validate_output_reports_skipped_when_the_tool_is_absent() {
         .args(["generate", "--config", &config_path, "--validate-output"])
         .env("PATH", empty_path_dir.path())
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     let err = stderr(&output);
     assert!(
@@ -152,7 +152,7 @@ fn generate_validate_output_reports_skipped_when_the_tool_is_absent() {
     );
 }
 
-/// `scythe generate --validate-output` against `rust-sqlx` -- a backend
+/// `sqlkit generate --validate-output` against `rust-sqlx` -- a backend
 /// `validate_with_tools`'s trailing `_ => return ToolValidation::Unsupported`
 /// arm covers, i.e. one whose language was never wired to a real-tool
 /// checker at all -- must report SKIPPED and name the backend, regardless of
@@ -171,7 +171,7 @@ fn generate_validate_output_reports_skipped_for_a_backend_with_no_validator() {
     let output = scythe_bin()
         .args(["generate", "--config", &config_path, "--validate-output"])
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     let err = stderr(&output);
     assert!(

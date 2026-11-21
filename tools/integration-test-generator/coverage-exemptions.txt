@@ -27,6 +27,6 @@
 typescript-postgres|postgresql : the postgres.js driver mode of the backend typescript-bun is built on; this fork runs only the Bun project (typescript-bun), which exercises the shared code generator
 
 [devenv-integration]
-# Integration projects the `scythe:integration` devenv task does not run.
+# Integration projects the `sqlkit:integration` devenv task does not run.
 # Keep it empty: a project nothing runs is checked for freshness but never
 # executed.

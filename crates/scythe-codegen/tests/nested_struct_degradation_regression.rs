@@ -2,7 +2,7 @@
 //! `row_to_json` column's `json_nested<...>` type to a plain `json` (or,
 //! when the manifest declares it, `json_array`) scalar for any backend that
 //! does not implement `generate_nested_struct_def` -- measured on `main` as
-//! 98 of 102 manifests. Before this fix, `scythe generate` exited 0 with no
+//! 98 of 102 manifests. Before this fix, `sqlkit generate` exited 0 with no
 //! signal that the rewrite happened at all: a user asking for a structured
 //! row (e.g. `java-jdbc`, whose `json` scalar is `String`, read back via
 //! `rs.getString`) silently got an opaque string instead.

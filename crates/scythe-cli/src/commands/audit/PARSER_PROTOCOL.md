@@ -1,6 +1,6 @@
 # Pinned PostgreSQL parser helpers
 
-`scythe audit --cluster-scope` classifies statements with a real PostgreSQL
+`sqlkit audit --cluster-scope` classifies statements with a real PostgreSQL
 grammar, not sqlparser. Because the two pinned libpg_query releases expose
 identical C symbols, they cannot be linked into one process: they ship as two
 separate executables built at release time by
@@ -55,7 +55,7 @@ body with the PL/pgSQL grammar and walks the compiled tree for static SQL
 ## Packaging
 
 Release archives ship both helpers next to the `scythe` binary. The CLI resolves
-them from `SCYTHE_PG_PARSER_DIR`, then the directory holding the running
+them from `SQLKIT_PG_PARSER_DIR`, then the directory holding the running
 executable; a missing helper is an error, never a silent skip.
 
 Binary distribution of the helpers must reproduce the full copyright,

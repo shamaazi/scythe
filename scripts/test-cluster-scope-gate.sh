@@ -1,5 +1,5 @@
 #!/bin/sh
-# Acceptance controls for `scythe audit --cluster-scope` (issue #269).
+# Acceptance controls for `sqlkit audit --cluster-scope` (issue #269).
 #
 # Usage: test-cluster-scope-gate.sh SCYTHE_BINARY PARSER_DIRECTORY [PG_MAJOR]
 #
@@ -29,7 +29,7 @@ refused_count=0
 accepted_count=0
 
 run_gate() {
-  SCYTHE_PG_PARSER_DIR="$parser_dir" "$scythe" audit --cluster-scope --format json \
+  SQLKIT_PG_PARSER_DIR="$parser_dir" "$scythe" audit --cluster-scope --format json \
     --pg-version "$pg_major" "$1" 2>"$scratch/stderr"
 }
 

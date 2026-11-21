@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The user-facing name is now `sqlkit`: the binary (`sqlkit --version` prints
+  `sqlkit <version>`), the config file `sqlkit.toml` with its `[sqlkit]` table
+  (no `scythe.toml` or `[scythe]` fallback), the provenance header
+  `sqlkit:provenance`, audit suppression comments
+  `-- sqlkit-audit: ignore[...]`, the `SQLKIT_DATABASE_URL` and
+  `SQLKIT_PG_PARSER_DIR` environment variables, the SARIF tool names
+  (`sqlkit-lint`, `sqlkit-audit`, `sqlkit-inspect`, `sqlkit-check`), the
+  banner of a generated schema types module, CLI help and messages, and the
+  devenv tasks (`sqlkit:*`). Crate names, Rust module paths and rule ids
+  (`SC-...`) are unchanged. Generated files need regenerating for the new
+  header; their fingerprints are unchanged.
 - Two database engines: PostgreSQL (with its `postgres`, `pg`, `cockroachdb`
   and `crdb` aliases) and SQLite. The DuckDB, MySQL/MariaDB, SQL Server,
   Oracle, Snowflake and Redshift engines are gone from the Cargo features, the

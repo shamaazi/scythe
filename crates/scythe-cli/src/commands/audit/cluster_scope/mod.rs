@@ -1,6 +1,6 @@
 //! Fail-closed PostgreSQL cluster-scope gate for planned-schema inputs.
 //!
-//! See issue #269. `scythe audit --cluster-scope <file>...` parses each input
+//! See issue #269. `sqlkit audit --cluster-scope <file>...` parses each input
 //! with a version-pinned PostgreSQL grammar (15 or 18, never sqlparser) and
 //! refuses, by default, every statement that is not proven database-local:
 //! role/membership, database, tablespace, subscription, parameter-privilege,

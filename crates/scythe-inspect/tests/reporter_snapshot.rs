@@ -28,7 +28,7 @@ fn canonical_finding() -> Finding {
 
 fn emit_to_string(format: Format, findings: &[Finding]) -> String {
     let mut buf = Vec::new();
-    emit_findings(format, "scythe-inspect", "0.10.0", findings, &mut buf).expect("emit_findings must not fail");
+    emit_findings(format, "sqlkit-inspect", "0.10.0", findings, &mut buf).expect("emit_findings must not fail");
     String::from_utf8(buf).expect("output must be valid UTF-8")
 }
 
@@ -104,7 +104,7 @@ fn sarif_snapshot_tool_driver_name_matches_inspect() {
     let output = emit_to_string(Format::Sarif, &[finding]);
     let parsed: serde_json::Value = serde_json::from_str(&output).expect("SARIF must parse");
     assert_eq!(
-        parsed["runs"][0]["tool"]["driver"]["name"], "scythe-inspect",
+        parsed["runs"][0]["tool"]["driver"]["name"], "sqlkit-inspect",
         "tool driver name must be scythe-inspect"
     );
     assert_eq!(

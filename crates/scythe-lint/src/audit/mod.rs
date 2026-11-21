@@ -1,4 +1,4 @@
-//! Matcher-based rule framework for `scythe audit`.
+//! Matcher-based rule framework for `sqlkit audit`.
 //!
 //! Key types:
 //! - [`RuleSpec`] — TOML schema for a single rule (id, message, matcher name, args).

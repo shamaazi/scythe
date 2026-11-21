@@ -1,7 +1,7 @@
 //! Reduce scythe's DDL-derived [`Catalog`] to a [`SchemaDescription`].
 //!
 //! This is the half of the drift comparison that needs no database. It runs
-//! over exactly the catalog `scythe generate` compiles against, so a drift
+//! over exactly the catalog `sqlkit generate` compiles against, so a drift
 //! finding is a statement about the code scythe would emit, not about some
 //! parallel reading of the DDL.
 
@@ -268,7 +268,7 @@ mod tests {
     }
 
     /// A catalog built from no DDL at all describes an empty schema rather
-    /// than panicking, so `scythe check` on a config with an empty schema glob
+    /// than panicking, so `sqlkit check` on a config with an empty schema glob
     /// reports every live table as SC-DRF02 instead of failing.
     #[test]
     fn an_empty_catalog_describes_an_empty_schema() {

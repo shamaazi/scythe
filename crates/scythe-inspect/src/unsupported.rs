@@ -1,4 +1,4 @@
-//! The driver used for every engine `scythe inspect` does not implement.
+//! The driver used for every engine `sqlkit inspect` does not implement.
 //!
 //! Live inspection now covers PostgreSQL and MySQL/MariaDB (see
 //! [`crate::postgres::PostgresDriver`] and [`crate::mysql::MySqlDriver`]); every

@@ -1,9 +1,9 @@
-//! Inline suppression comments — `-- scythe-audit: ignore[ID1,ID2,...]`.
+//! Inline suppression comments — `-- sqlkit-audit: ignore[ID1,ID2,...]`.
 //!
 //! # Annotation syntax
 //!
 //! ```text
-//! -- scythe-audit: ignore[SC-SEC01,SC-SEC02] reason="vetted by security team"
+//! -- sqlkit-audit: ignore[SC-SEC01,SC-SEC02] reason="vetted by security team"
 //! ```
 //!
 //! - Leading whitespace is allowed.
@@ -41,7 +41,7 @@
 use ahash::{AHashMap, AHashSet};
 
 /// The literal prefix that introduces a suppression annotation.
-const ANNOTATION_PREFIX: &str = "-- scythe-audit: ignore[";
+const ANNOTATION_PREFIX: &str = "-- sqlkit-audit: ignore[";
 
 /// Set of per-statement rule-ID suppressions parsed from inline annotations.
 #[derive(Debug, Default)]
@@ -52,7 +52,7 @@ pub struct SuppressionSet {
 
 impl SuppressionSet {
     /// Parse a complete SQL string and build the suppression set from every
-    /// `-- scythe-audit: ignore[…]` annotation found in it.
+    /// `-- sqlkit-audit: ignore[…]` annotation found in it.
     pub fn parse(sql: &str) -> Self {
         let mut set = Self::default();
 
@@ -118,7 +118,7 @@ impl SuppressionSet {
     }
 }
 
-/// Attempt to parse a trimmed line as a `-- scythe-audit: ignore[ID,...]`
+/// Attempt to parse a trimmed line as a `-- sqlkit-audit: ignore[ID,...]`
 /// annotation.  Returns `Some(ids)` on success; `None` if the line is not a
 /// matching annotation or the annotation is malformed.
 fn try_parse_annotation(trimmed: &str) -> Option<Vec<String>> {
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn single_rule_ignore_suppresses_next_statement() {
-        let sql = "-- scythe-audit: ignore[SC-SEC02]\nGRANT ALL ON users TO bob;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON users TO bob;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC02", 0));
         assert!(!set.is_suppressed("SC-SEC01", 0));
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn multi_rule_ignore_suppresses_both_ids() {
-        let sql = "-- scythe-audit: ignore[SC-SEC01,SC-SEC02]\nSELECT 1;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC01,SC-SEC02]\nSELECT 1;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC01", 0));
         assert!(set.is_suppressed("SC-SEC02", 0));
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn reason_clause_is_parsed_and_discarded() {
-        let sql = r#"-- scythe-audit: ignore[SC-SEC01] reason="vetted"
+        let sql = r#"-- sqlkit-audit: ignore[SC-SEC01] reason="vetted"
 SELECT pg_read_file('foo');"#;
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC01", 0));
@@ -183,7 +183,7 @@ SELECT pg_read_file('foo');"#;
 
     #[test]
     fn stacked_annotations_union_ids() {
-        let sql = "-- scythe-audit: ignore[SC-SEC01]\n-- scythe-audit: ignore[SC-SEC02]\nSELECT 1;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC01]\n-- sqlkit-audit: ignore[SC-SEC02]\nSELECT 1;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC01", 0));
         assert!(set.is_suppressed("SC-SEC02", 0));
@@ -191,7 +191,7 @@ SELECT pg_read_file('foo');"#;
 
     #[test]
     fn multi_line_statement_suppressed_at_single_statement_index() {
-        let sql = "-- scythe-audit: ignore[SC-SEC08]\nSELECT *\nFROM a, b\nWHERE a.id = b.id;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC08]\nSELECT *\nFROM a, b\nWHERE a.id = b.id;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC08", 0));
         // There is only ever one statement here, so index 1 is meaningless,
@@ -201,7 +201,7 @@ SELECT pg_read_file('foo');"#;
 
     #[test]
     fn blank_line_terminates_suppression_scope() {
-        let sql = "-- scythe-audit: ignore[SC-SEC02]\nGRANT ALL ON a TO x;\n\nGRANT ALL ON b TO y;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON a TO x;\n\nGRANT ALL ON b TO y;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC02", 0));
         assert!(!set.is_suppressed("SC-SEC02", 1));
@@ -209,7 +209,7 @@ SELECT pg_read_file('foo');"#;
 
     #[test]
     fn semicolon_terminates_statement() {
-        let sql = "-- scythe-audit: ignore[SC-SEC02]\nGRANT ALL ON a TO x;\nGRANT ALL ON b TO y;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON a TO x;\nGRANT ALL ON b TO y;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC02", 0));
         assert!(!set.is_suppressed("SC-SEC02", 1));
@@ -220,7 +220,7 @@ SELECT pg_read_file('foo');"#;
     /// for the first does not silently cover the second.
     #[test]
     fn two_statements_on_one_line_only_first_is_suppressed() {
-        let sql = "-- scythe-audit: ignore[SC-MIG01]\nDROP TABLE a; DROP TABLE b;";
+        let sql = "-- sqlkit-audit: ignore[SC-MIG01]\nDROP TABLE a; DROP TABLE b;";
         let set = SuppressionSet::parse(sql);
         assert!(
             set.is_suppressed("SC-MIG01", 0),
@@ -240,7 +240,7 @@ SELECT pg_read_file('foo');"#;
     /// intentional contract: verify it holds.
     #[test]
     fn blank_line_between_annotation_and_statement_drops_the_suppression() {
-        let sql = "-- scythe-audit: ignore[SC-SEC02]\n\nGRANT ALL ON x TO y;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC02]\n\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
         assert!(
             !set.is_suppressed("SC-SEC02", 0),
@@ -250,7 +250,7 @@ SELECT pg_read_file('foo');"#;
 
     #[test]
     fn annotation_at_eof_with_no_following_statement_is_harmless() {
-        let sql = "SELECT 1;\n-- scythe-audit: ignore[SC-SEC02]";
+        let sql = "SELECT 1;\n-- sqlkit-audit: ignore[SC-SEC02]";
         let set = SuppressionSet::parse(sql);
         assert!(!set.is_suppressed("SC-SEC02", 0));
         assert!(!set.is_suppressed("SC-SEC02", 1));
@@ -258,35 +258,35 @@ SELECT pg_read_file('foo');"#;
 
     #[test]
     fn ordinary_comment_does_not_consume_pending_suppression() {
-        let sql = "-- scythe-audit: ignore[SC-SEC02]\n-- just a comment\nGRANT ALL ON x TO y;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC02]\n-- just a comment\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC02", 0));
     }
 
     #[test]
     fn malformed_annotation_empty_brackets_is_silently_ignored() {
-        let sql = "-- scythe-audit: ignore[]\nGRANT ALL ON x TO y;";
+        let sql = "-- sqlkit-audit: ignore[]\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_empty());
     }
 
     #[test]
     fn malformed_annotation_space_in_id_is_silently_ignored() {
-        let sql = "-- scythe-audit: ignore[SC SEC01]\nSELECT 1;";
+        let sql = "-- sqlkit-audit: ignore[SC SEC01]\nSELECT 1;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_empty());
     }
 
     #[test]
     fn is_suppressed_returns_false_for_unknown_id() {
-        let sql = "-- scythe-audit: ignore[SC-SEC02]\nGRANT ALL ON x TO y;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
         assert!(!set.is_suppressed("SC-SEC99", 0));
     }
 
     #[test]
     fn is_suppressed_returns_true_for_known_id_on_suppressed_statement() {
-        let sql = "-- scythe-audit: ignore[SC-SEC02]\nGRANT ALL ON x TO y;";
+        let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC02", 0));
     }

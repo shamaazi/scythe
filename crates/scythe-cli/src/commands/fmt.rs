@@ -32,7 +32,7 @@ pub fn run_fmt(
         // dropped a user's `[lint.sqruff]` table -- only the *dialect* half
         // of #206 was fixed. `sqruff_config_from_config` mirrors
         // `dialect_from_config`'s own tolerance for a missing config file
-        // (explicit-file mode with no `scythe.toml` at all remains valid
+        // (explicit-file mode with no `sqlkit.toml` at all remains valid
         // and unaffected), so the real config is threaded through exactly
         // as the config-file path already does via `resolve_files_from_config`.
         let sqruff_config = sqruff_config_from_config(config_path)?;
@@ -119,7 +119,7 @@ struct ResolvedConfig {
     files: Vec<String>,
     /// The sqruff dialect derived from the first sql block's engine.
     dialect: Option<String>,
-    /// `[lint.sqruff]`, shared with `scythe lint`'s own config struct.
+    /// `[lint.sqruff]`, shared with `sqlkit lint`'s own config struct.
     sqruff_config: Option<SqruffConfig>,
 }
 
@@ -189,12 +189,12 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
     })
 }
 
-/// Read `[lint.sqruff]` out of `scythe.toml` for explicit-file mode, when a
+/// Read `[lint.sqruff]` out of `sqlkit.toml` for explicit-file mode, when a
 /// config file is present.
 ///
 /// Returns `Ok(None)` -- not an error -- when `config_path` does not exist,
 /// mirroring `dialect_from_config`'s own tolerance for a missing config:
-/// `scythe fmt some/file.sql` with no `scythe.toml` at all is a valid,
+/// `sqlkit fmt some/file.sql` with no `sqlkit.toml` at all is a valid,
 /// unaffected mode, and must keep behaving exactly as it did before this
 /// function existed. When the config *does* exist, only its top-level
 /// `[lint]` table is required -- unlike `resolve_files_from_config`, this

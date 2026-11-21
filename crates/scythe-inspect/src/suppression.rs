@@ -1,7 +1,7 @@
 //! Suppression engine for live-DB inspection findings.
 //!
 //! A [`SuppressionEngine`] takes the `[[inspect.suppression]]` rules from
-//! `scythe.toml` and can filter a set of `(Finding, bindings)` pairs,
+//! `sqlkit.toml` and can filter a set of `(Finding, bindings)` pairs,
 //! dropping entries that match any suppression rule.
 //!
 //! ## Matching semantics
@@ -96,7 +96,7 @@ impl SuppressionEngine {
 
     /// Read each check's `object_binding` / `schema_binding` out of `registry`.
     ///
-    /// Separate from `new` because the rules come from `scythe.toml` while the
+    /// Separate from `new` because the rules come from `sqlkit.toml` while the
     /// registry is assembled later from the canonical TOML plus the user's
     /// inline and extra checks; the driver wires the two together once it holds
     /// both.

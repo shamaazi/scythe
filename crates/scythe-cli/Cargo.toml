@@ -31,7 +31,7 @@ pkg-url = "{ repo }/releases/download/v{ version }/scythe-{ target }{ archive-su
 bin-dir = "{ bin }{ binary-ext }"
 
 [[bin]]
-name = "scythe"
+name = "sqlkit"
 path = "src/main.rs"
 
 [features]

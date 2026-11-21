@@ -36,7 +36,7 @@ async fn client() -> Client {
     client
 }
 
-/// Analyze `query` against `ddl` exactly as `scythe check` does, then verify
+/// Analyze `query` against `ddl` exactly as `sqlkit check` does, then verify
 /// the result against the live database.
 async fn findings_for(client: &Client, ddl: &str, query: &str) -> Vec<scythe_lint::reporters::Finding> {
     let dialect = SqlDialect::PostgreSQL;

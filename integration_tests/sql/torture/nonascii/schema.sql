@@ -4,7 +4,7 @@
 -- backend -- fails to resolve a byte-identical quoted non-ASCII identifier
 -- between DDL and a query:
 --
---   $ scythe generate
+--   $ sqlkit generate
 --   error: UNKNOWN_COLUMN: column "café" does not exist
 --
 -- Both files are UTF-8 NFC ("café" = c-a-f-U+00E9) and byte-identical at the

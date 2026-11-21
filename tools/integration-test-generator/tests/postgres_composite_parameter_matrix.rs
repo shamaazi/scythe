@@ -50,12 +50,12 @@ fn postgres_projects() -> BTreeMap<String, String> {
     let mut projects = BTreeMap::new();
     for entry in fs::read_dir(&integration_dir).expect("read integration_tests") {
         let path = entry.expect("integration_tests entry").path();
-        let config_path = path.join("scythe.toml");
+        let config_path = path.join("sqlkit.toml");
         if !config_path.is_file() {
             continue;
         }
         let config: ScytheConfig =
-            toml::from_str(&fs::read_to_string(&config_path).expect("read scythe.toml")).expect("parse scythe.toml");
+            toml::from_str(&fs::read_to_string(&config_path).expect("read sqlkit.toml")).expect("parse sqlkit.toml");
         for block in config.sql.iter().filter(|block| block.engine == "postgresql") {
             for generator in &block.generators {
                 let project = path

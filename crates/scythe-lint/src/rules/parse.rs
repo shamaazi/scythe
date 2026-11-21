@@ -12,13 +12,13 @@
 //! They live in [`crate::registry::parse_registry`], **not** in
 //! [`crate::registry::default_registry`] — same reasoning as
 //! [`crate::rules::provenance`]: putting them in the default registry would
-//! have `scythe lint` and `scythe audit --list-rules` advertise two rules
+//! have `sqlkit lint` and `sqlkit audit --list-rules` advertise two rules
 //! neither can ever emit through `check_query`/`check_catalog`, and would
 //! move the documented "59 built-in rules" figure.
 //!
 //! Unlike the provenance and drift rules, these two are not scoped to a
-//! single check-time command: `scythe check`, `scythe lint`, and
-//! `scythe audit` each hit the same failure (a query that will not parse, or
+//! single check-time command: `sqlkit check`, `sqlkit lint`, and
+//! `sqlkit audit` each hit the same failure (a query that will not parse, or
 //! parses but fails semantic analysis) and each used to hardcode its own
 //! `Severity::Error` at the point the finding was constructed. Being a
 //! registry rather than three independent hardcoded severities is what lets
@@ -105,7 +105,7 @@ impl LintRule for UnanalyzableQuery {
 /// populates [`scythe_core::parser::CustomAnnotation::suggested_keyword`]
 /// when a known keyword is close enough to plausibly be what the user meant.
 /// Nothing consumed that signal until this rule: a typo'd `@nullible` parsed
-/// clean, analyzed clean, and `scythe generate`/`check`/`lint` all reported
+/// clean, analyzed clean, and `sqlkit generate`/`check`/`lint` all reported
 /// success while the nullability override it named silently never took
 /// effect.
 ///
@@ -123,9 +123,9 @@ impl LintRule for UnanalyzableQuery {
 /// Lives in [`crate::registry::default_registry`] rather than
 /// [`crate::registry::parse_registry`]: unlike `SC-PARSE01`/`SC-PARSE02`,
 /// this rule has a real, already-parsed-and-analyzed
-/// [`crate::types::LintContext`] to examine, so it reaches `scythe lint` and
-/// `scythe audit --list-rules` the same way every other `check_query` rule
-/// does. `scythe check` (`crates/scythe-cli/src/commands/generate.rs`,
+/// [`crate::types::LintContext`] to examine, so it reaches `sqlkit lint` and
+/// `sqlkit audit --list-rules` the same way every other `check_query` rule
+/// does. `sqlkit check` (`crates/scythe-cli/src/commands/generate.rs`,
 /// `run_check`) already builds a `LintContext` — including `annotations` —
 /// for every successfully analyzed query and runs it through
 /// `default_registry`'s `LintEngine::check_query`, so this rule needs no

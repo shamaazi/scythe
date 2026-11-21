@@ -40,7 +40,7 @@ pub struct RunLintOpts {
     pub files: Vec<String>,
     /// Explicit live-DB URL for the auto-run `inspect` pass. Opt-in only --
     /// see [`try_run_inspect`]'s doc comment for why this is no longer
-    /// resolved from `$DATABASE_URL`/`$SCYTHE_DATABASE_URL` on its own (#210).
+    /// resolved from `$DATABASE_URL`/`$SQLKIT_DATABASE_URL` on its own (#210).
     pub database_url: Option<String>,
     pub format: String,
     pub output: Option<String>,
@@ -110,7 +110,7 @@ pub fn run_lint(opts: RunLintOpts) -> Result<(), Box<dyn std::error::Error>> {
 /// Before this, both call sites below used
 /// `SqlDialect::from_str(engine).unwrap_or(SqlDialect::PostgreSQL)`: a typo'd
 /// engine (`mysql8`) was silently analyzed as PostgreSQL -- wrong catalog
-/// parsing, wrong dialect-gated rule set -- with `scythe lint` reporting
+/// parsing, wrong dialect-gated rule set -- with `sqlkit lint` reporting
 /// success regardless (#165, item 3).
 fn resolve_sql_dialect(engine: &str) -> Result<scythe_core::dialect::SqlDialect, String> {
     let engine = if engine.is_empty() { "postgresql" } else { engine };
@@ -118,7 +118,7 @@ fn resolve_sql_dialect(engine: &str) -> Result<scythe_core::dialect::SqlDialect,
 }
 
 /// Schema-aware context for running scythe-native lint rules against
-/// explicitly-listed files, built from `scythe.toml` when one is present and
+/// explicitly-listed files, built from `sqlkit.toml` when one is present and
 /// declares a resolvable schema. See [`load_native_lint_context`].
 struct NativeLintContext {
     engine: scythe_lint::LintEngine,
@@ -130,7 +130,7 @@ struct NativeLintContext {
     parse_severities: ParseSeverities,
 }
 
-/// Build a [`NativeLintContext`] from `scythe.toml` at `config_path`, when
+/// Build a [`NativeLintContext`] from `sqlkit.toml` at `config_path`, when
 /// one is present and its first `[[sql]]` block has a resolvable schema.
 ///
 /// Returns `Ok(None)` -- not an error -- when the config file does not
@@ -152,9 +152,9 @@ struct NativeLintContext {
 ///
 /// Before this function existed, explicit-file mode never attempted to
 /// build a catalog or a [`scythe_lint::LintEngine`] at all -- the call site
-/// below hardcoded a comment saying so -- so `scythe lint foo.sql` ran zero
-/// scythe-native rules even when `scythe.toml` (and its schema) sat right
-/// next to `foo.sql`: silently checking far less than a bare `scythe lint`
+/// below hardcoded a comment saying so -- so `sqlkit lint foo.sql` ran zero
+/// scythe-native rules even when `sqlkit.toml` (and its schema) sat right
+/// next to `foo.sql`: silently checking far less than a bare `sqlkit lint`
 /// run against the same project.
 fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContext>, Box<dyn std::error::Error>> {
     use scythe_lint::{LintEngine, default_registry};
@@ -234,12 +234,12 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
     }))
 }
 
-/// Read `[lint.sqruff]` out of `scythe.toml` for explicit-file lint mode, when a
+/// Read `[lint.sqruff]` out of `sqlkit.toml` for explicit-file lint mode, when a
 /// config file is present.
 ///
 /// Mirrors `fmt.rs`'s function of the same name and for the same reason (#206):
 /// returns `Ok(None)` -- not an error -- when `config_path` does not exist, since
-/// `scythe lint some/file.sql` with no `scythe.toml` at all is a valid, unaffected
+/// `sqlkit lint some/file.sql` with no `sqlkit.toml` at all is a valid, unaffected
 /// mode. Only the top-level `[lint]` table is required; unlike
 /// [`load_native_lint_context`], this has no need of `[[sql]]` or a schema, since
 /// `[lint.sqruff]` is not scoped to a block.
@@ -264,11 +264,11 @@ fn sqruff_config_from_config(config_path: &str) -> Result<Option<scythe_lint::ty
 }
 
 /// Lint specific files using sqruff, plus scythe-native rules when
-/// `scythe.toml` (and a resolvable schema) is present alongside them -- see
+/// `sqlkit.toml` (and a resolvable schema) is present alongside them -- see
 /// [`load_native_lint_context`].
 ///
 /// Also auto-runs inspect when a DB URL is configured via
-/// `[inspect].database_url` (if scythe.toml exists at `config_path`) or the
+/// `[inspect].database_url` (if sqlkit.toml exists at `config_path`) or the
 /// explicit `database_url` argument (`--database-url`). See
 /// [`try_run_inspect`]'s doc comment for why a bare environment variable is
 /// no longer enough on its own (#210).
@@ -291,7 +291,7 @@ fn lint_files(
     // `fmt.rs`'s own fix for the same gap: explicit-file mode used to always
     // pass `None` here, silently dropping a user's `[lint.sqruff]` rule
     // table whenever files were named directly on the command line instead
-    // of resolved from `scythe.toml`.
+    // of resolved from `sqlkit.toml`.
     let sqruff_config = sqruff_config_from_config(config_path)?;
     let linter = sqruff_adapter::SqruffLinter::new(dialect, sqruff_config.as_ref())
         .map_err(|e| format!("sqruff rejected dialect '{}': {}", dialect, e))?;
@@ -388,7 +388,7 @@ fn lint_files(
             // unlike `lint_from_config`, this is not treated as a hard
             // error: explicit-file mode's whole purpose is linting
             // arbitrary SQL (a bare schema file, a snippet), and it must
-            // keep doing that even when a `scythe.toml` happens to sit
+            // keep doing that even when a `sqlkit.toml` happens to sit
             // alongside it.
             for block in split_query_file(&sql) {
                 match parse_query_with_dialect(&block, &ctx.sql_dialect) {
@@ -467,8 +467,8 @@ fn lint_files(
                 .get(violation.query_name.as_str())
                 .map(|&i| &prepared[i]);
 
-            // Honour the same `-- scythe-audit: ignore[ID]` annotations
-            // `lint_from_config` and `scythe audit` honour -- see that
+            // Honour the same `-- sqlkit-audit: ignore[ID]` annotations
+            // `lint_from_config` and `sqlkit audit` honour -- see that
             // function's identical check for why the suppression index is
             // always 0.
             if let Some(origin) = origin
@@ -499,7 +499,7 @@ fn lint_files(
 
 /// Lint from config: run both scythe rules and sqruff rules, then auto-run
 /// inspect when a database URL is configured (via `[inspect].database_url`
-/// in `scythe.toml` or the explicit `database_url` argument). See
+/// in `sqlkit.toml` or the explicit `database_url` argument). See
 /// [`try_run_inspect`]'s doc comment for why a bare environment variable is
 /// no longer enough on its own (#210).
 fn lint_from_config(
@@ -803,9 +803,9 @@ fn lint_from_config(
                 // security, safety, performance, naming -- was silently
                 // dropped for that query while lint went on to print "No
                 // lint violations found." and exit 0, so a CI gate on
-                // `scythe lint` read an unanalysable project as clean even
-                // though `scythe check` on the same project exited 1 (#158).
-                // The rule ids match the ones `scythe check` already uses for
+                // `sqlkit lint` read an unanalysable project as clean even
+                // though `sqlkit check` on the same project exited 1 (#158).
+                // The rule ids match the ones `sqlkit check` already uses for
                 // the same two failures, so the two commands agree.
                 let parsed = match parse_query_with_dialect(block, &sql_dialect) {
                     Ok(p) => p,
@@ -857,8 +857,8 @@ fn lint_from_config(
         // place that also runs the cross-query checks -- duplicate `@name`
         // detection (SC-C03), routed through the registry's configured
         // severity. Deriving the same walk here left `build_report` with no
-        // caller at all and left `scythe lint` unable to report a duplicate
-        // query name that `scythe check` fails on.
+        // caller at all and left `sqlkit lint` unable to report a duplicate
+        // query name that `sqlkit check` fails on.
         let contexts: Vec<LintContext<'_>> = prepared
             .iter()
             .map(|p| LintContext {
@@ -896,8 +896,8 @@ fn lint_from_config(
                 .get(violation.query_name.as_str())
                 .map(|&i| &prepared[i]);
 
-            // Honour the same `-- scythe-audit: ignore[ID]` annotations
-            // `scythe audit` honours, keyed by statement index exactly as
+            // Honour the same `-- sqlkit-audit: ignore[ID]` annotations
+            // `sqlkit audit` honours, keyed by statement index exactly as
             // `SuppressionSet` documents: the set is parsed from the query's
             // own block, which is a single statement, so the index is 0.
             // Keying by source line instead over-suppresses -- two
@@ -947,15 +947,15 @@ fn lint_from_config(
 /// Try to run live-DB inspect checks and return them as `FileViolation`s.
 ///
 /// Connects only when a URL is explicitly configured: `explicit_url`
-/// (`--database-url`) or `[inspect].database_url` in `scythe.toml`. Unlike
-/// `scythe inspect`, this deliberately does **not** fall back to a bare
-/// `$DATABASE_URL`/`$SCYTHE_DATABASE_URL` environment variable -- before
-/// this, `scythe lint` opened an outbound database connection purely
+/// (`--database-url`) or `[inspect].database_url` in `sqlkit.toml`. Unlike
+/// `sqlkit inspect`, this deliberately does **not** fall back to a bare
+/// `$DATABASE_URL`/`$SQLKIT_DATABASE_URL` environment variable -- before
+/// this, `sqlkit lint` opened an outbound database connection purely
 /// because an environment variable happened to be set, with no flag to
 /// request it, no mention in `--help`, and (absent a `tracing-subscriber`,
 /// which `scythe-cli` never installs) no visible diagnostic if the
 /// connection failed. That combination -- ambient network I/O from a linter,
-/// invisible either way -- is what #210 closes. `scythe check`'s
+/// invisible either way -- is what #210 closes. `sqlkit check`'s
 /// `--database-url` already established this opt-in-only precedent; this
 /// brings `lint` in line with it.
 ///
@@ -971,12 +971,12 @@ fn lint_from_config(
 /// mixed output is distinguishable.
 fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_override: Option<&str>) -> Vec<FileViolation> {
     let inspect_config = parse_inspect_section(Path::new(config_path)).unwrap_or_else(|e| {
-        tracing::debug!("scythe lint: could not parse [inspect] config: {e}");
+        tracing::debug!("sqlkit lint: could not parse [inspect] config: {e}");
         None
     });
 
     // Explicit sources only: `--database-url`, then `[inspect].database_url`.
-    // No `$DATABASE_URL`/`$SCYTHE_DATABASE_URL` fallback -- see this
+    // No `$DATABASE_URL`/`$SQLKIT_DATABASE_URL` fallback -- see this
     // function's doc comment.
     let url = match explicit_url
         .map(str::to_string)
@@ -984,7 +984,7 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_overrid
     {
         Some(u) => u,
         None => {
-            tracing::debug!("scythe lint: no database URL configured — skipping live inspect");
+            tracing::debug!("sqlkit lint: no database URL configured — skipping live inspect");
             return Vec::new();
         }
     };
@@ -994,7 +994,7 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_overrid
     let registry = match build_registry(config_path, engine, &inspect_config) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("scythe lint: warning: failed to build inspect registry: {e}");
+            eprintln!("sqlkit lint: warning: failed to build inspect registry: {e}");
             return Vec::new();
         }
     };
@@ -1004,7 +1004,7 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_overrid
     let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("scythe lint: warning: failed to build tokio runtime for inspect: {e}");
+            eprintln!("sqlkit lint: warning: failed to build tokio runtime for inspect: {e}");
             return Vec::new();
         }
     };
@@ -1017,13 +1017,13 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_overrid
                 .and_then(|rest| rest.split('/').next())
                 .and_then(|authority| authority.split('@').next_back())
                 .unwrap_or("<unknown>");
-            eprintln!("scythe lint: warning: could not connect to inspect database (host: {host}): {e}");
+            eprintln!("sqlkit lint: warning: could not connect to inspect database (host: {host}): {e}");
             return Vec::new();
         }
         match driver.run_all().await {
             Ok(f) => f,
             Err(e) => {
-                eprintln!("scythe lint: warning: inspect checks failed: {e}");
+                eprintln!("sqlkit lint: warning: inspect checks failed: {e}");
                 Vec::new()
             }
         }
@@ -1050,8 +1050,8 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_overrid
 /// - The full finding set, converted to `scythe_lint::reporters::Finding`
 ///   and written via `emit_findings` (human/sarif/json) to stdout or
 ///   `--output` -- matching `audit`/`check`/`inspect`. Before this, every
-///   `scythe lint` finding went only to stderr with no `--format`/`--output`,
-///   so `scythe lint 2>/dev/null` produced empty stdout even with real
+///   `sqlkit lint` finding went only to stderr with no `--format`/`--output`,
+///   so `sqlkit lint 2>/dev/null` produced empty stdout even with real
 ///   findings, and there was no machine-readable output at all. See #212.
 /// - The same per-file, per-violation detail lint has always printed to
 ///   stderr, plus a final tally, unchanged in wording so existing tooling
@@ -1094,7 +1094,7 @@ fn report_violations(
     };
     emit_findings(
         format,
-        "scythe-lint",
+        "sqlkit-lint",
         env!("CARGO_PKG_VERSION"),
         &findings,
         out.as_mut(),

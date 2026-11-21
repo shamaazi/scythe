@@ -479,7 +479,7 @@ fn strip_leading_qualifier(key: &str) -> String {
 /// did not change. `Catalog::fingerprint`'s `sch2:` tag is compared as an
 /// opaque string by `verify_provenance`, with no migration path — so a
 /// scheme that isn't the identity function on delimiter-free input would
-/// hand every existing user a false `scythe check` drift failure. Escape-
+/// hand every existing user a false `sqlkit check` drift failure. Escape-
 /// only-when-needed is the identity function on exactly that input, which
 /// is why [`FINGERPRINT_ALGORITHM_TAG`] does not need to move for this fix.
 fn escape_component(value: &str) -> String {
@@ -963,7 +963,7 @@ mod tests {
     ///
     /// `verify_provenance` compares the algorithm tag as part of an opaque string. So a
     /// canonical-form edit that alters the emitted hash for a schema that did
-    /// not change hands every existing user a `scythe check` failure reporting
+    /// not change hands every existing user a `sqlkit check` failure reporting
     /// schema drift that is not real, until they regenerate. These values are
     /// the contract that says the emitted bytes did not move.
     ///

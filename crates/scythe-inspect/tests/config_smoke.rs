@@ -12,13 +12,13 @@ use std::path::Path;
 use scythe_inspect::{CheckRegistry, parse_inspect_section};
 use scythe_lint::Severity;
 
-/// Write `content` to a file named `scythe.toml` inside a freshly created
+/// Write `content` to a file named `sqlkit.toml` inside a freshly created
 /// `TempDir`.  Returns the guard (keep alive for the test) and the path to
 /// the config file.
 fn write_scythe_toml(content: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::TempDir::new().expect("create temp dir");
-    let config_path = dir.path().join("scythe.toml");
-    let mut f = std::fs::File::create(&config_path).expect("create scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
+    let mut f = std::fs::File::create(&config_path).expect("create sqlkit.toml");
     f.write_all(content.as_bytes()).expect("write");
     (dir, config_path)
 }
@@ -154,11 +154,11 @@ sql         = "SELECT 1 AS x"
 }
 
 /// `extra_rules = ["./extra.toml"]` — the path must be resolved relative to
-/// `scythe.toml`'s directory, NOT the current working directory.
+/// `sqlkit.toml`'s directory, NOT the current working directory.
 ///
-/// This test proves it by placing `scythe.toml` and `extra.toml` in a
+/// This test proves it by placing `sqlkit.toml` and `extra.toml` in a
 /// subdirectory (`cfg/`) under the temp root.  `parse_inspect_section` is
-/// called with the absolute path to `cfg/scythe.toml`, which should succeed
+/// called with the absolute path to `cfg/sqlkit.toml`, which should succeed
 /// because it resolves `./extra.toml` relative to `cfg/`.  If it wrongly
 /// resolved relative to CWD the test would fail because no `extra.toml`
 /// exists in the CWD.
@@ -186,8 +186,8 @@ sql         = "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_
 [inspect]
 extra_rules = ["./extra.toml"]
 "#;
-    let config_path = cfg_dir.join("scythe.toml");
-    std::fs::write(&config_path, scythe_toml).expect("write scythe.toml");
+    let config_path = cfg_dir.join("sqlkit.toml");
+    std::fs::write(&config_path, scythe_toml).expect("write sqlkit.toml");
 
     let cfg = parse_inspect_section(&config_path)
         .expect("parse must succeed")

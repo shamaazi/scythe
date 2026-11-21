@@ -1,11 +1,11 @@
 //! Schema-drift rules (`SC-DRF01`–`SC-DRF13`).
 //!
-//! These rules never fire from `scythe lint`: they describe disagreements
+//! These rules never fire from `sqlkit lint`: they describe disagreements
 //! between the committed DDL and a *live* database, which only
-//! `scythe check --database-url` can observe.  They are modelled as
+//! `sqlkit check --database-url` can observe.  They are modelled as
 //! [`LintRule`]s anyway, and live in a [`RuleRegistry`](crate::RuleRegistry)
 //! built by [`drift_registry`](crate::registry::drift_registry), so that their
-//! severities come from the same `[lint]` section of `scythe.toml` as every
+//! severities come from the same `[lint]` section of `sqlkit.toml` as every
 //! other `SC-*` rule.  Hard-coding a `Severity` where the drift finding is
 //! constructed would make the check un-tunable — and an untunable drift check
 //! that errors on a `schema_migrations` table nobody committed is a check
@@ -186,7 +186,7 @@ mod tests {
     use super::*;
     use crate::registry::drift_registry;
 
-    /// Rule IDs are a user-facing contract: they appear in `scythe.toml`
+    /// Rule IDs are a user-facing contract: they appear in `sqlkit.toml`
     /// severity overrides, in SARIF taxonomies, and in CI grep lines.
     /// Renaming one silently turns a user's override into a no-op.
     #[test]

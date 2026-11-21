@@ -1,4 +1,4 @@
-[scythe]
+[sqlkit]
 version = "1"
 
 [[sql]]
@@ -8,5 +8,5 @@ schema = ["../sql/pg/schema.sql"]
 queries = ["../sql/pg/queries/*.sql"]
 
 [[sql.gen]]
-backend = "typescript-bun"
-output = "generated"
+backend = "rust-tokio-postgres"
+output = "src"

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 /// Render a path for embedding in a TOML basic string. Forward slashes are
@@ -41,7 +41,7 @@ SELECT u.id, json_agg(o.*) AS orders FROM users u JOIN orders o ON o.user_id = u
 SELECT u.id, json_agg(o.*) AS orders FROM users u LEFT JOIN orders o ON o.user_id = u.id GROUP BY u.id;
 ";
 
-/// Run `scythe generate` for one backend over `schema`/`queries` and return
+/// Run `sqlkit generate` for one backend over `schema`/`queries` and return
 /// the single generated file's contents.
 fn generate(backend: &str, extension: &str, schema: &str, queries: &str) -> Result<String, String> {
     let temp = tempfile::TempDir::new().unwrap();
@@ -52,7 +52,7 @@ fn generate(backend: &str, extension: &str, schema: &str, queries: &str) -> Resu
     std::fs::write(&queries_path, queries).unwrap();
 
     let config = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -70,7 +70,7 @@ output = "{output}"
         backend = backend,
         output = toml_path(&output_dir),
     );
-    let config_path = temp.path().join("scythe.toml");
+    let config_path = temp.path().join("sqlkit.toml");
     std::fs::write(&config_path, &config).unwrap();
 
     // `output` above is an absolute path (the temp dir's own `out/`
@@ -86,7 +86,7 @@ output = "{output}"
         ])
         .current_dir(temp.path())
         .output()
-        .expect("failed to run scythe generate");
+        .expect("failed to run sqlkit generate");
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());

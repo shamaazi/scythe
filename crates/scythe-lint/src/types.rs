@@ -83,9 +83,9 @@ pub enum RuleCategory {
     /// Schema-migration safety: irreversible or lock-prone DDL operations.
     Migration,
     // ~keep The two categories below are the check-time ones: neither can be
-    // produced by `scythe lint` or `scythe audit`, and their rules live in
+    // produced by `sqlkit lint` or `sqlkit audit`, and their rules live in
     // their own registries rather than `default_registry()`. Both are
-    // appended after the existing variants on purpose — `scythe audit
+    // appended after the existing variants on purpose — `sqlkit audit
     // --list-rules` groups its output by `category as u8`, so inserting a
     // variant anywhere else would silently reorder the printed catalog.
     /// Provenance of *generated artifacts*: whether the committed output
@@ -95,12 +95,12 @@ pub enum RuleCategory {
     /// Schema drift: the committed DDL disagrees with a live database.
     ///
     /// Its own category rather than a reuse of `Safety` so that an existing
-    /// `[lint.categories] safety = "off"` in someone's `scythe.toml` cannot
+    /// `[lint.categories] safety = "off"` in someone's `sqlkit.toml` cannot
     /// silently disable drift reporting the first time they pass
     /// `--database-url`.
     Drift,
     // ~keep `Parse` differs from Provenance/Drift above in one way: its two
-    // rules fire from `scythe check`, `scythe lint`, *and* `scythe audit`,
+    // rules fire from `sqlkit check`, `sqlkit lint`, *and* `sqlkit audit`,
     // not from a single check-time command. It still belongs outside
     // `default_registry()` for the same reason those two do -- no command
     // reaches it through `check_query`/`check_catalog`, because a query that

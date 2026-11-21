@@ -1,4 +1,4 @@
-//! Live-PG integration tests for `scythe lint`'s auto-inspect feature —
+//! Live-PG integration tests for `sqlkit lint`'s auto-inspect feature —
 //! only run when the `live-tests` feature is enabled AND
 //! `$SCYTHE_TEST_DATABASE_URL` is set. Split out of `lint_integration.rs`
 //! (#162): those three tests used to be gated behind
@@ -32,7 +32,7 @@ fn url() -> String {
     )
 }
 
-/// Write a minimal `scythe.toml` with a `[[sql]]` block pointing at a
+/// Write a minimal `sqlkit.toml` with a `[[sql]]` block pointing at a
 /// benign SQL fixture that does NOT trigger any lint rules.
 ///
 /// Returns the `TempDir` that owns the files (must be kept alive).
@@ -45,7 +45,7 @@ fn write_benign_fixture(dir: &TempDir) -> String {
     fs::write(&sql_path, sql_content).expect("write queries.sql");
     fs::write(&schema_path, schema_content).expect("write schema.sql");
 
-    let config_content = r#"[scythe]
+    let config_content = r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -55,13 +55,13 @@ schema = ["schema.sql"]
 queries = ["queries.sql"]
 "#
     .to_string();
-    let config_path = dir.path().join("scythe.toml");
-    fs::write(&config_path, config_content).expect("write scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
+    fs::write(&config_path, config_content).expect("write sqlkit.toml");
 
     config_path.to_string_lossy().into_owned()
 }
 
-/// Write a `scythe.toml` that includes an `[inspect]` block with the given
+/// Write a `sqlkit.toml` that includes an `[inspect]` block with the given
 /// `database_url`.
 fn write_fixture_with_inspect_url(dir: &TempDir, database_url: &str) -> String {
     let sql_content = "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;\n";
@@ -73,7 +73,7 @@ fn write_fixture_with_inspect_url(dir: &TempDir, database_url: &str) -> String {
     fs::write(&schema_path, schema_content).expect("write schema.sql");
 
     let config_content = format!(
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -86,14 +86,14 @@ queries = ["queries.sql"]
 database_url = "{database_url}"
 "#
     );
-    let config_path = dir.path().join("scythe.toml");
-    fs::write(&config_path, config_content).expect("write scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
+    fs::write(&config_path, config_content).expect("write sqlkit.toml");
 
     config_path.to_string_lossy().into_owned()
 }
 
-/// When `scythe.toml` contains `[inspect].database_url` pointing at a live PG
-/// with a table missing a primary key (SC-INS04), `scythe lint` must emit a
+/// When `sqlkit.toml` contains `[inspect].database_url` pointing at a live PG
+/// with a table missing a primary key (SC-INS04), `sqlkit lint` must emit a
 /// finding tagged `[inspect]` containing `SC-INS04`.
 #[test]
 fn lint_with_db_url_emits_inspect_findings() {
@@ -126,13 +126,13 @@ fn lint_with_db_url_emits_inspect_findings() {
     let dir = TempDir::new().expect("tempdir");
     let config_path = write_fixture_with_inspect_url(&dir, &url);
 
-    let output = Command::cargo_bin("scythe")
+    let output = Command::cargo_bin("sqlkit")
         .expect("scythe binary")
         .args(["lint", "--config", &config_path])
         .env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("spawn scythe lint");
+        .expect("spawn sqlkit lint");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -164,7 +164,7 @@ fn lint_with_db_url_emits_inspect_findings() {
 }
 
 /// The inverse of the test above: a bare `DATABASE_URL` must NOT be enough to
-/// make `scythe lint` open a database connection.
+/// make `sqlkit lint` open a database connection.
 ///
 /// This is the #210 contract. Before it, `lint` connected purely because the
 /// variable happened to be set — ambient network I/O from a linter, with no
@@ -206,13 +206,13 @@ fn lint_does_not_connect_on_a_bare_database_url_env_var() {
     let dir = TempDir::new().expect("tempdir");
     let config_path = write_benign_fixture(&dir);
 
-    let output = Command::cargo_bin("scythe")
+    let output = Command::cargo_bin("sqlkit")
         .expect("scythe binary")
         .args(["lint", "--config", &config_path])
         .env("DATABASE_URL", &url)
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("spawn scythe lint");
+        .expect("spawn sqlkit lint");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -244,7 +244,7 @@ fn lint_does_not_connect_on_a_bare_database_url_env_var() {
     );
 }
 
-/// When `DATABASE_URL` points at a non-existent host, `scythe lint` must:
+/// When `DATABASE_URL` points at a non-existent host, `sqlkit lint` must:
 /// - Exit 0 (benign fixture, no lint/audit violations).
 /// - Emit NO `[inspect]` tag (connection was skipped silently after warn).
 /// - Never exit with code 2 due to the failed connection alone.
@@ -259,13 +259,13 @@ fn lint_with_misconfigured_db_url_does_not_fail() {
     let dir = TempDir::new().expect("tempdir");
     let config_path = write_benign_fixture(&dir);
 
-    let output = Command::cargo_bin("scythe")
+    let output = Command::cargo_bin("sqlkit")
         .expect("scythe binary")
         .args(["lint", "--config", &config_path])
         .env("DATABASE_URL", bad_url)
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
-        .expect("spawn scythe lint");
+        .expect("spawn sqlkit lint");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let exit_code = output.status.code();

@@ -296,7 +296,7 @@ impl BackendManifest {
     /// See [`ManifestOverlay`] for the merge granularity and for which
     /// sections accept new keys. On error the manifest may be partially
     /// merged, so callers must treat a failure as fatal rather than
-    /// continuing with the backend — which is what `scythe generate` does.
+    /// continuing with the backend — which is what `sqlkit generate` does.
     pub fn apply_overlay(&mut self, overlay: &ManifestOverlay) -> Result<(), BackendError> {
         if let Some(ref types) = overlay.types {
             merge_replace_only(&mut self.types.scalars, &types.scalars, "types.scalars")?;

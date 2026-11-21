@@ -38,11 +38,11 @@ in
   };
 
   tasks = {
-    "scythe:build" = {
+    "sqlkit:build" = {
       description = "Build the CLI (debug)";
       exec = "cargo build --locked -p scythe-cli";
     };
-    "scythe:test" = {
+    "sqlkit:test" = {
       description = "Run the workspace tests, then the core and codegen tests on mygiving's minimal feature set";
       exec = ''
         set -euo pipefail
@@ -50,7 +50,7 @@ in
         cargo test --locked -p scythe-core -p scythe-codegen ${minimalCodegenFeatures}
       '';
     };
-    "scythe:lint" = {
+    "sqlkit:lint" = {
       description = "rustfmt and clippy, on the full build and on mygiving's minimal feature set";
       exec = ''
         set -euo pipefail
@@ -62,49 +62,49 @@ in
     # The committed fixture tests (crates/scythe-codegen/tests/generated) and integration
     # projects (integration_tests/*/generated) are both generated; regenerate them after
     # changing testing_data/, a backend or the templates, and commit the result.
-    "scythe:generate" = {
+    "sqlkit:generate" = {
       description = "Regenerate the fixture tests and the integration projects' generated code";
       exec = ''
         set -euo pipefail
         cargo run --locked -p test-generator -- --fixtures testing_data --output crates/scythe-codegen/tests/generated
         cargo fmt --all
         cargo build --locked -p scythe-cli
-        scythe="$(cargo metadata --format-version 1 --no-deps | ${pkgs.jq}/bin/jq -r .target_directory)/debug/scythe"
+        sqlkit="$(cargo metadata --format-version 1 --no-deps | ${pkgs.jq}/bin/jq -r .target_directory)/debug/sqlkit"
         cargo run --locked --quiet -p integration-test-generator
-        # These keep their scythe.toml and scaffolding by hand, outside the templates.
+        # These keep their sqlkit.toml and scaffolding by hand, outside the templates.
         hand_maintained="rust-sqlx-nested-json typescript-bun"
         for backend in $(cargo run --locked --quiet -p integration-test-generator -- --list) $hand_maintained; do
-          (cd "integration_tests/$backend" && "$scythe" generate)
+          (cd "integration_tests/$backend" && "$sqlkit" generate)
         done
       '';
     };
-    "scythe:generated-fresh" = {
+    "sqlkit:generated-fresh" = {
       description = "Fail if regenerating the fixture tests or integration code changes anything";
-      after = [ "scythe:generate" ];
+      after = [ "sqlkit:generate" ];
       exec = ''
         paths="crates/scythe-codegen/tests/generated integration_tests"
         # Against the index, so staged but uncommitted work counts as the baseline.
         status=$(git diff --name-only -- $paths; git ls-files --others --exclude-standard -- $paths)
         if [ -n "$status" ]; then
           printf '%s\n' "$status"
-          echo "Generated code is stale: run 'devenv tasks run scythe:generate' and commit the result." >&2
+          echo "Generated code is stale: run 'devenv tasks run sqlkit:generate' and commit the result." >&2
           exit 1
         fi
       '';
     };
-    # `scythe audit --cluster-scope` parses with libpg_query helper programs; this builds them
+    # `sqlkit audit --cluster-scope` parses with libpg_query helper programs; this builds them
     # for the host (downloading the pinned libpg_query release) and runs the gate's acceptance
     # controls.
-    "scythe:cluster-scope" = {
+    "sqlkit:cluster-scope" = {
       description = "Build the PostgreSQL parser helpers and run the cluster-scope gate controls";
       exec = ''
         set -euo pipefail
         sh crates/scythe-cli/src/commands/audit/build_pg_parser_helpers.sh target/pg-parser-helpers
         cargo build --locked -p scythe-cli
-        sh scripts/test-cluster-scope-gate.sh target/debug/scythe target/pg-parser-helpers 18
+        sh scripts/test-cluster-scope-gate.sh target/debug/sqlkit target/pg-parser-helpers 18
       '';
     };
-    "scythe:integration" = {
+    "sqlkit:integration" = {
       description = "Run the PostgreSQL, SQLite and Bun integration projects";
       after = [ "devenv:processes:postgres@ready" ];
       env.DATABASE_URL = databaseUrl;

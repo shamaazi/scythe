@@ -27,6 +27,7 @@ use super::shared::{
 #[derive(Debug, Deserialize)]
 struct ScytheConfig {
     #[allow(dead_code)]
+    #[serde(rename = "sqlkit")]
     scythe: ScytheMeta,
     sql: Vec<SqlConfig>,
     #[serde(default)]
@@ -74,7 +75,7 @@ struct SqlConfig {
 /// `type_overrides`. It is deliberately *not* applied to `ScytheConfig` (the
 /// enclosing top-level struct) or to the separate, narrower `SqlConfig`
 /// copies in `audit.rs`, `lint_cmd.rs`, and `fmt.rs`: those are intentionally
-/// partial projections of the same `scythe.toml` (missing e.g.
+/// partial projections of the same `sqlkit.toml` (missing e.g.
 /// `output`/`gen`/`type_overrides`, or -- at the top level --
 /// `[inspect]`/`[audit]`), so denying unknown fields there would reject
 /// configs that are valid for other commands reading the same file.
@@ -645,7 +646,7 @@ fn run_generate_inner(
         // A plain target is one job over the whole block. A `{dir}` target is
         // one job per query file, each writing only that file's queries into
         // the file's own directory, and fingerprinting only those queries so
-        // `scythe check` can verify each module on its own.
+        // `sqlkit check` can verify each module on its own.
         let mut jobs: Vec<GenJob<'_>> = Vec::new();
         for (backend_index, (target, _, _)) in backends.iter().enumerate() {
             let per_file: Vec<(Option<&str>, String, Range<usize>)> = if is_per_file_output(&target.output) {
@@ -669,7 +670,7 @@ fn run_generate_inner(
                 //
                 // Rejected by default when the resolved directory escapes
                 // `base_dir` (`../` traversal, or an absolute path) -- `scythe
-                // generate` running in CI against a PR-modified `scythe.toml` is
+                // generate` running in CI against a PR-modified `sqlkit.toml` is
                 // otherwise an arbitrary directory-create-and-write primitive.
                 // See #207. Checked per job, after `{dir}` substitution.
                 let output_dir = resolve_contained_output(base_dir, &output, &target.backend, allow_output_escape)?
@@ -698,7 +699,7 @@ fn run_generate_inner(
         // otherwise silently clobber each other -- the second one to write
         // wins and the first job's generated code simply vanishes with
         // no error. Detected up front (before either is written) rather
-        // than left for `scythe check`'s SC-PRV03 to notice after the fact.
+        // than left for `sqlkit check`'s SC-PRV03 to notice after the fact.
         // See #207. With `{dir}`, two query files in one directory collide
         // the same way.
         let mut seen_paths: AHashMap<String, &str> = AHashMap::new();
@@ -815,10 +816,10 @@ struct GenJob<'a> {
 /// `manifest` in place.
 ///
 /// `manifest_path` comes from `manifest = "..."` on a `[[sql.gen]]` target and
-/// is resolved against `base_dir` — the directory containing `scythe.toml` —
+/// is resolved against `base_dir` — the directory containing `sqlkit.toml` —
 /// exactly like `output`, and for the same reason: as of 0.13.0 every path in
 /// the config resolves relative to the config file, not the process's current
-/// working directory, so `scythe generate --config /elsewhere/scythe.toml`
+/// working directory, so `sqlkit generate --config /elsewhere/sqlkit.toml`
 /// produces identical output from any directory. `Path::join` (not
 /// `rebase_pattern`) is correct here because this is a literal path, not a
 /// glob, and an already-absolute value passes through unchanged.
@@ -846,7 +847,7 @@ fn apply_manifest_override(
         format!(
             "backend '{backend_name}': failed to read manifest override '{display_path}': {e}\n  \
              note: `manifest` in [[sql.gen]] resolves relative to the directory containing \
-             scythe.toml,\n        not the current working directory"
+             sqlkit.toml,\n        not the current working directory"
         )
     })?;
 
@@ -872,7 +873,7 @@ fn apply_manifest_override(
 /// overlay's file *contents* (GH #155). Before this field existed,
 /// changing an option (a `derive` list, `serde = true`, `row_type`, a
 /// naming-case override) or swapping in a different `manifest = "..."`
-/// overlay left the header byte-identical, so `scythe check` reported the
+/// overlay left the header byte-identical, so `sqlkit check` reported the
 /// stale artifact as fresh.
 ///
 /// Deliberately independent of [`apply_manifest_override`] mutating a real
@@ -937,8 +938,8 @@ fn resolve_options_fingerprint(target: &ResolvedGenTarget, base_dir: &Path) -> R
 /// each one that would not as an `SC-PRV09` error finding.
 ///
 /// Mirrors exactly the fallible steps `run_generate_inner` performs before
-/// it writes a single byte, so `scythe check` reports precisely the configs
-/// `scythe generate` refuses (issue #209, item 1) -- previously the only
+/// it writes a single byte, so `sqlkit check` reports precisely the configs
+/// `sqlkit generate` refuses (issue #209, item 1) -- previously the only
 /// signal was `verify_provenance`'s SC-PRV07, and only once a stale
 /// artifact happened to already exist on disk to check provenance against;
 /// a config with no artifact yet generated produced no finding at all, and
@@ -976,7 +977,7 @@ fn validate_gen_targets_constructible(
                 rule_id: Cow::Borrowed("SC-PRV09"),
                 severity,
                 message: format!(
-                    "failed to resolve [sql.gen] targets: {e} (run `scythe generate` for the full diagnosis)"
+                    "failed to resolve [sql.gen] targets: {e} (run `sqlkit generate` for the full diagnosis)"
                 ),
             });
             return violations;
@@ -994,7 +995,7 @@ fn validate_gen_targets_constructible(
                     rule_id: Cow::Borrowed("SC-PRV09"),
                     severity,
                     message: format!(
-                        "backend '{}' with engine '{}' could not be constructed: {} (run `scythe generate` \
+                        "backend '{}' with engine '{}' could not be constructed: {} (run `sqlkit generate` \
                          for the full diagnosis)",
                         target.backend, sql_config.engine, e
                     ),
@@ -1011,7 +1012,7 @@ fn validate_gen_targets_constructible(
                 rule_id: Cow::Borrowed("SC-PRV09"),
                 severity,
                 message: format!(
-                    "manifest override could not be applied: {e} (run `scythe generate` for the full diagnosis)"
+                    "manifest override could not be applied: {e} (run `sqlkit generate` for the full diagnosis)"
                 ),
             });
             continue;
@@ -1025,12 +1026,12 @@ fn validate_gen_targets_constructible(
                 rule_id: Cow::Borrowed("SC-PRV09"),
                 severity,
                 message: format!(
-                    "backend options could not be applied: {e} (run `scythe generate` for the full diagnosis)"
+                    "backend options could not be applied: {e} (run `sqlkit generate` for the full diagnosis)"
                 ),
             });
         }
 
-        // `scythe generate` refuses (by default, i.e. without
+        // `sqlkit generate` refuses (by default, i.e. without
         // `--allow-output-escape`) to write outside the project root -- see
         // `resolve_contained_output` and #207. `check` has no equivalent
         // flag of its own, so it validates under that same strict default:
@@ -1038,7 +1039,7 @@ fn validate_gen_targets_constructible(
         // is reported here too. Before this, `check` never called
         // `resolve_contained_output` at all, so a config with a
         // path-traversing `output` (e.g. `output = "../../ESCAPED"`) passed
-        // `scythe check` cleanly and was only ever refused once `scythe
+        // `sqlkit check` cleanly and was only ever refused once `scythe
         // generate` actually ran against it -- a check that is green where
         // generate is red is worse than no check.
         if let Err(e) = resolve_contained_output(base_dir, &target.output, &target.backend, false) {
@@ -1046,7 +1047,7 @@ fn validate_gen_targets_constructible(
                 query_name: target_label,
                 rule_id: Cow::Borrowed("SC-PRV09"),
                 severity,
-                message: format!("{e} (run `scythe generate` for the full diagnosis)"),
+                message: format!("{e} (run `sqlkit generate` for the full diagnosis)"),
             });
         }
     }
@@ -1945,7 +1946,7 @@ fn generate_rbs_if_supported(
 
 /// Inputs to [`run_check`]. Mirrors the clap `Commands::Check` shape.
 pub struct RunCheckOpts {
-    /// Path to `scythe.toml` (default: `"scythe.toml"`).
+    /// Path to `sqlkit.toml` (default: `"sqlkit.toml"`).
     pub config_path: String,
     /// Optional database URL. When present, each query is additionally
     /// prepared server-side and the reported shape is diffed against static
@@ -1984,8 +1985,8 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     let engine = LintEngine::new(registry);
 
     // The `SC-PRV*` rules are kept out of `default_registry` (they implement
-    // neither `check_query` nor `check_catalog`, so `scythe lint` and
-    // `scythe audit --list-rules` would advertise rules they can never
+    // neither `check_query` nor `check_catalog`, so `sqlkit lint` and
+    // `sqlkit audit --list-rules` would advertise rules they can never
     // emit). They still need the user's `[lint]` table applied to them, and
     // it must be the *same* table, so that one `[lint.rules]` /
     // `[lint.categories]` block governs SQL rules and provenance rules
@@ -1999,7 +2000,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     // Same reasoning as `provenance_rules` just above, for `SC-PARSE01`/
     // `SC-PARSE02`: a query that fails to parse or analyze never becomes a
     // `LintContext`, so these two also cannot pick up severity through
-    // `default_registry`'s `active_rules`. `scythe lint` and `scythe audit`
+    // `default_registry`'s `active_rules`. `sqlkit lint` and `sqlkit audit`
     // each build this same registry from their own parsed `[lint]` table, so
     // all three commands agree on severity.
     let mut parse_rules = scythe_lint::parse_registry();
@@ -2016,7 +2017,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     let mut verifiable: Vec<VerifiableBlock> = Vec::new();
 
     // Maps a query's name back to the `.sql` file it came from, so findings
-    // can be attributed to the real source file instead of `scythe.toml`
+    // can be attributed to the real source file instead of `sqlkit.toml`
     // for every finding regardless of which query tripped it (#209, item 3).
     // Catalog-wide and config-level findings (empty `query_name`) have no
     // single file to attribute to and keep using `config_path`.
@@ -2053,7 +2054,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         // counts toward that decision.
         let block_violations_start = all_violations.len();
 
-        // Validated eagerly, exactly as `scythe generate` constructs every
+        // Validated eagerly, exactly as `sqlkit generate` constructs every
         // target before writing anything: `check` exists to validate what
         // `generate` would do without doing it, so a config `generate`
         // refuses (an unresolvable `[sql.gen]`, or a backend/engine pair
@@ -2173,7 +2174,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Unconditionally retained, unlike before #94: `verify_provenance`
-            // now needs the full analyzed query set for every `scythe check`
+            // now needs the full analyzed query set for every `sqlkit check`
             // run, not just ones with `--database-url`, to compute the
             // current `queries=` fingerprint for SC-PRV08. The
             // `--database-url`-gated cost this used to avoid was `queries`
@@ -2277,7 +2278,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         .filter(|qv| !matches!(qv.severity, Severity::Off))
         .map(|qv| Finding {
             // Attributed to the `.sql` file the query actually came from
-            // when one is known, instead of always naming `scythe.toml` --
+            // when one is known, instead of always naming `sqlkit.toml` --
             // SARIF/JSON consumers (e.g. GitHub code scanning) otherwise
             // annotate the config file for a violation that lives in the
             // query file, and the human reporter groups findings under the
@@ -2303,8 +2304,8 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     if let Some(url) = opts.database_url.as_deref() {
-        // Drift rules live in their own registry: `scythe lint` and
-        // `scythe audit` cannot observe a live database, so listing SC-DRF*
+        // Drift rules live in their own registry: `sqlkit lint` and
+        // `sqlkit audit` cannot observe a live database, so listing SC-DRF*
         // among their rules would advertise rules those commands can never
         // report. The same `[lint]` config is applied, so
         // `rules."SC-DRF02" = "error"` tunes drift like any other rule.
@@ -2319,7 +2320,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         findings.extend(verify_against_database(url, &verifiable, &drift_severities)?);
     }
 
-    // Findings go to stdout (matching `scythe inspect`) so `--format json` can
+    // Findings go to stdout (matching `sqlkit inspect`) so `--format json` can
     // be redirected to a file; progress messages stay on stderr.
     let mut out: Box<dyn std::io::Write> = match opts.output.as_deref() {
         Some(path) => Box::new(std::io::BufWriter::new(
@@ -2329,7 +2330,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     };
     emit_findings(
         format,
-        "scythe-check",
+        "sqlkit-check",
         env!("CARGO_PKG_VERSION"),
         &findings,
         out.as_mut(),
@@ -2366,7 +2367,7 @@ fn check_exit_code(error_count: usize, exit_zero: bool) -> Option<i32> {
 
 /// A `[[sql]]` block queued for live-database verification: its display
 /// name, its configured engine (still in whatever alias form the user wrote
-/// in `scythe.toml`, e.g. `"pg"` or `"cockroachdb"`), and its analyzed
+/// in `sqlkit.toml`, e.g. `"pg"` or `"cockroachdb"`), and its analyzed
 /// queries.
 #[derive(Debug)]
 #[cfg_attr(
@@ -2392,7 +2393,7 @@ struct VerifiableBlock {
 ///
 /// `verify_against_database` is the only consumer of the retained
 /// `AnalyzedQuery` data, and it only runs when `--database-url` is supplied.
-/// Without it, `scythe check` runs entirely offline, so retaining (cloning
+/// Without it, `sqlkit check` runs entirely offline, so retaining (cloning
 /// and keeping alive) every analyzed query for the rest of the process would
 /// be pure waste. Kept as a small pure predicate, like
 /// `partition_verifiable_blocks` below, so the retention decision is
@@ -2485,7 +2486,7 @@ fn verify_postgres_blocks(
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("scythe check: database connection error: {e}");
+                eprintln!("sqlkit check: database connection error: {e}");
             }
         });
 
@@ -2513,7 +2514,7 @@ fn verify_postgres_blocks(
 }
 
 /// Sentinel a generated file's provenance header line is built around, e.g.
-/// `// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef
+/// `// sqlkit:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef
 /// queries=q1:fedcba9876543210`.
 ///
 /// Deliberately comment-syntax-agnostic: the header sits behind whatever
@@ -2523,7 +2524,7 @@ fn verify_postgres_blocks(
 /// it on that line as whitespace-separated `key=value` pairs -- one
 /// tokenizer instead of a per-language regex for stripping each comment
 /// syntax.
-const PROVENANCE_SENTINEL: &str = "scythe:provenance";
+const PROVENANCE_SENTINEL: &str = "sqlkit:provenance";
 
 /// How many leading lines of a generated file are scanned for the
 /// provenance sentinel. Assembly always emits the header at the very top of
@@ -2542,7 +2543,7 @@ const PROVENANCE_SCAN_LINES: usize = 20;
 /// for `options`) has no such field at all, and that must read as "drift for
 /// this field is not covered for this artifact", not as SC-PRV06
 /// malformed-header -- otherwise every artifact already committed before
-/// the #155 fix shipped would flag SC-PRV06 the next time `scythe check` ran, with
+/// the #155 fix shipped would flag SC-PRV06 the next time `sqlkit check` ran, with
 /// no code change of its own to explain it. See [`verify_artifact`]'s
 /// SC-PRV08 and SC-PRV11 checks for where `queries` and `options` actually
 /// get used, and why each is compared only when present.
@@ -2633,13 +2634,13 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
 
 /// Effective severity of each `SC-PRV*` rule, resolved once from the
 /// [`scythe_lint::provenance_registry`] that `run_check` builds and applies
-/// `[lint]` from `scythe.toml` to.
+/// `[lint]` from `sqlkit.toml` to.
 ///
 /// Provenance findings are produced outside the `LintRule::check_*` path --
 /// there is no `LintContext` for "a file on disk" -- so they cannot pick up
 /// their severity the way a SQL rule does, by being iterated out of
 /// [`scythe_lint::RuleRegistry::active_rules`]. That is also why they are
-/// kept out of `default_registry`: `scythe lint` and `scythe audit
+/// kept out of `default_registry`: `sqlkit lint` and `sqlkit audit
 /// --list-rules` would otherwise advertise eleven rules neither can emit.
 /// Resolving them here through
 /// [`scythe_lint::RuleRegistry::effective_severity`] -- the same call every
@@ -2715,7 +2716,7 @@ struct PerFileQueries<'a> {
 struct ProvenanceExpectation<'a> {
     /// `"<block name>:<configured backend>"`, used as the finding's
     /// `query_name`. Deliberately the *configured* backend string, so a
-    /// finding points back at the `scythe.toml` line the reader has to edit.
+    /// finding points back at the `sqlkit.toml` line the reader has to edit.
     target_label: &'a str,
     /// Canonical `backend.name()`, never the configured alias -- see the
     /// SC-PRV03 comparison below.
@@ -2757,7 +2758,7 @@ struct ProvenanceExpectation<'a> {
 /// existed predates it, and that reads as "not covered for this artifact",
 /// not as drift -- see [`verify_artifact`]'s SC-PRV08 and SC-PRV11 checks.
 /// Neither question is a substitute for actually regenerating: where
-/// a full toolchain is available, `scythe generate` followed by `git status`
+/// a full toolchain is available, `sqlkit generate` followed by `git status`
 /// answers both by actually regenerating and diffing byte-for-byte;
 /// provenance verification exists for the CI/review path where running the
 /// full generator on every check is too expensive or the toolchain (database
@@ -2783,7 +2784,7 @@ struct ProvenanceExpectation<'a> {
 ///   note that a config with no `[[sql.gen]]` block at all synthesizes a
 ///   `rust-sqlx` target, which does not support every engine `check` accepts).
 ///   A target that cannot be constructed is a target that cannot be verified,
-///   so it is reported as SC-PRV07 and skipped. `scythe generate` still
+///   so it is reported as SC-PRV07 and skipped. `sqlkit generate` still
 ///   reports the same misconfiguration as a hard error, which is the right
 ///   place for it.
 /// - Any read failure other than "the file does not exist": a non-UTF-8
@@ -2813,7 +2814,7 @@ struct ProvenanceExpectation<'a> {
 ///
 /// A target whose `output` contains `{dir}` is checked once per entry of
 /// `per_file`, at that query file's substituted directory and against that
-/// file's own query fingerprint, mirroring how `scythe generate` wrote it.
+/// file's own query fingerprint, mirroring how `sqlkit generate` wrote it.
 fn verify_provenance(
     sql_config: &SqlConfig,
     catalog: &Catalog,
@@ -2840,7 +2841,7 @@ fn verify_provenance(
                 rule_id: Cow::Borrowed("SC-PRV07"),
                 severity: severities.unverifiable,
                 message: format!(
-                    "cannot verify provenance: failed to resolve [sql.gen] targets: {e} (run `scythe generate` \
+                    "cannot verify provenance: failed to resolve [sql.gen] targets: {e} (run `sqlkit generate` \
                      for the full diagnosis)"
                 ),
             });
@@ -2860,7 +2861,7 @@ fn verify_provenance(
                     severity: severities.unverifiable,
                     message: format!(
                         "cannot verify provenance: backend '{}' with engine '{}' could not be \
-                         constructed: {} (run `scythe generate` for the full diagnosis)",
+                         constructed: {} (run `sqlkit generate` for the full diagnosis)",
                         target.backend, sql_config.engine, e
                     ),
                 });
@@ -2875,7 +2876,7 @@ fn verify_provenance(
                     query_name: target_label,
                     rule_id: Cow::Borrowed("SC-PRV07"),
                     severity: severities.unverifiable,
-                    message: format!("cannot verify provenance: {e} (run `scythe generate` for the full diagnosis)"),
+                    message: format!("cannot verify provenance: {e} (run `sqlkit generate` for the full diagnosis)"),
                 });
                 continue;
             }
@@ -2965,7 +2966,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
             rule_id: Cow::Borrowed("SC-PRV05"),
             severity: expected.severities.missing_header,
             message: format!(
-                "{path_display}: no provenance header found (predates provenance tracking, or is not scythe-managed)"
+                "{path_display}: no provenance header found (predates provenance tracking, or is not sqlkit-managed)"
             ),
         });
         return violations;
@@ -2997,7 +2998,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
             severity: expected.severities.schema_drift,
             message: format!(
                 "{path_display}: schema drift -- generated against schema {header_schema}, \
-                 current schema is {} (run `scythe generate` to refresh)",
+                 current schema is {} (run `sqlkit generate` to refresh)",
                 expected.schema
             ),
         });
@@ -3006,7 +3007,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
     // SC-PRV08 (#94) -- a distinct finding from SC-PRV01 above: this compares
     // the *query* fingerprint, not the schema fingerprint, so editing a
     // `.sql` query file without touching the schema is no longer invisible
-    // to `scythe check`.
+    // to `sqlkit check`.
     //
     // ~keep Deliberately gated on `header.queries` being present, unlike every
     // other field compared here: those four are covered by
@@ -3027,7 +3028,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
             severity: expected.severities.query_drift,
             message: format!(
                 "{path_display}: query drift -- generated against queries {header_queries}, \
-                 current queries are {} (run `scythe generate` to refresh)",
+                 current queries are {} (run `sqlkit generate` to refresh)",
                 expected.queries
             ),
         });
@@ -3054,7 +3055,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
             severity: expected.severities.options_drift,
             message: format!(
                 "{path_display}: options drift -- generated with options {header_options}, current \
-                 [[sql.gen]] options are {} (run `scythe generate` to refresh)",
+                 [[sql.gen]] options are {} (run `sqlkit generate` to refresh)",
                 expected.options
             ),
         });
@@ -3073,7 +3074,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
             severity: expected.severities.backend_drift,
             message: format!(
                 "{path_display}: generated by backend '{header_backend}', but this target now \
-                 configures backend '{}' (run `scythe generate` to refresh)",
+                 configures backend '{}' (run `sqlkit generate` to refresh)",
                 expected.backend_name
             ),
         });
@@ -3088,7 +3089,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
             severity: expected.severities.engine_drift,
             message: format!(
                 "{path_display}: generated for engine '{header_engine}', but this target now \
-                 configures engine '{}' (run `scythe generate` to refresh)",
+                 configures engine '{}' (run `sqlkit generate` to refresh)",
                 expected.engine
             ),
         });
@@ -3100,8 +3101,8 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
             rule_id: Cow::Borrowed("SC-PRV02"),
             severity: expected.severities.version_drift,
             message: format!(
-                "{path_display}: generated by scythe {header_version}, this is scythe {} \
-                 (consider running `scythe generate`)",
+                "{path_display}: generated by sqlkit {header_version}, this is sqlkit {} \
+                 (consider running `sqlkit generate`)",
                 expected.version
             ),
         });
@@ -3116,7 +3117,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
 /// implementation collapsed everything into: `stderr` was piped to
 /// `/dev/null`, a failed spawn silently fell back to the original code, and
 /// a non-zero exit or a bad pipe did too (`_ => code.to_string()`). That
-/// made `scythe generate` produce different bytes depending on whether
+/// made `sqlkit generate` produce different bytes depending on whether
 /// `rustfmt` happened to be on `PATH`, with no way for a caller -- or a
 /// user reading the run's output -- to tell the difference between "clean,
 /// formatted output" and "rustfmt silently did nothing" (GH #167). Splitting
@@ -3231,7 +3232,7 @@ fn apply_rust_formatting(config_name: &str, output_file: &Path, code: &str, vali
 /// never does -- see [`RustFormatOutcome::ToolMissing`] -- but `rustfmt`
 /// running and rejecting the input does, gated behind the same
 /// `--validate-output` opt-in [`report_generated_code_validation`] uses, so
-/// a plain `scythe generate` still never fails on this by default. Pure
+/// a plain `sqlkit generate` still never fails on this by default. Pure
 /// (aside from the `eprintln!`) and free of process-spawning, unlike
 /// [`apply_rust_formatting`], so the exit-code policy above can be asserted
 /// directly against a hand-built [`RustFormatOutcome`] rather than through a
@@ -3298,7 +3299,7 @@ mod tests {
     /// `report_generated_code_validation` return `true` -- the signal
     /// `generate_for_backend`/`run_generate` use to move `generate`'s exit
     /// code to 2 (board #231). Feeds syntactically invalid TypeScript straight
-    /// in, rather than trying to coax `scythe generate` into emitting broken
+    /// in, rather than trying to coax `sqlkit generate` into emitting broken
     /// code from valid SQL, so `poly`'s bundled `oxc` genuinely fails on
     /// content this test controls directly.
     #[test]
@@ -3682,7 +3683,7 @@ SELECT * FROM users WHERE id = $1;
     /// only `sql` varies between them.
     fn sql_block(sql: &str) -> String {
         format!(
-            "[scythe]\nversion = \"1\"\n\n[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
+            "[sqlkit]\nversion = \"1\"\n\n[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
              schema = [\"sql/schema/*.sql\"]\nqueries = [\"sql/queries/*.sql\"]\n{sql}\n"
         )
     }
@@ -3716,7 +3717,7 @@ SELECT * FROM users WHERE id = $1;
     #[test]
     fn error_in_second_sql_block_names_that_block() {
         let toml = "\
-[scythe]
+[sqlkit]
 version = \"1\"
 
 [[sql]]
@@ -4411,7 +4412,7 @@ backend = \"rust-sqlx\"
             "opt1:0011223344556677",
         );
 
-        assert!(line.starts_with("// scythe:provenance "), "got: {line:?}");
+        assert!(line.starts_with("// sqlkit:provenance "), "got: {line:?}");
         assert!(line.contains(&format!("v={}", env!("CARGO_PKG_VERSION"))));
         assert!(line.contains("backend=rust-sqlx"));
         assert!(line.contains("engine=postgresql"));
@@ -4453,7 +4454,7 @@ backend = \"rust-sqlx\"
         assert_eq!(
             line,
             format!(
-                "// scythe:provenance v={} backend=rust-sqlx \
+                "// sqlkit:provenance v={} backend=rust-sqlx \
                  engine=postgresql\\u{{a}}fn\\u{{20}}evil()\\u{{20}}{{}} schema=sch1:ffff \
                  queries=q1:fedcba9876543210 options=opt1:ffff\n",
                 env!("CARGO_PKG_VERSION")
@@ -4478,14 +4479,14 @@ backend = \"rust-sqlx\"
             "opt1:ffff",
         );
 
-        let provenance_lines: Vec<&str> = output.lines().filter(|l| l.contains("scythe:provenance")).collect();
+        let provenance_lines: Vec<&str> = output.lines().filter(|l| l.contains("sqlkit:provenance")).collect();
         assert_eq!(
             provenance_lines.len(),
             1,
             "expected exactly one provenance line, got: {provenance_lines:?}"
         );
         assert!(
-            provenance_lines[0].starts_with("// scythe:provenance "),
+            provenance_lines[0].starts_with("// sqlkit:provenance "),
             "the provenance line itself must still be a comment: {:?}",
             provenance_lines[0]
         );
@@ -4636,7 +4637,7 @@ backend = \"rust-sqlx\"
             "opt1:cccc",
         );
         assert!(
-            output.starts_with("// scythe:provenance "),
+            output.starts_with("// sqlkit:provenance "),
             "got:\n{}",
             &output[..output.len().min(120)]
         );
@@ -4678,7 +4679,7 @@ backend = \"rust-sqlx\"
         let mut lines = output.lines();
         let provenance_line = lines.next().expect("output must have a first line");
         assert!(
-            provenance_line.starts_with("// scythe:provenance "),
+            provenance_line.starts_with("// sqlkit:provenance "),
             "got: {provenance_line:?}"
         );
 
@@ -4699,7 +4700,7 @@ backend = \"rust-sqlx\"
 
     #[test]
     fn parse_provenance_header_reads_slash_slash_comment() {
-        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef\npub fn x() {}\n";
+        let content = "// sqlkit:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef\npub fn x() {}\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert_eq!(header.version.as_deref(), Some("0.13.0"));
         assert_eq!(header.backend.as_deref(), Some("rust-sqlx"));
@@ -4710,14 +4711,14 @@ backend = \"rust-sqlx\"
     #[test]
     fn parse_provenance_header_reads_hash_comment() {
         let content =
-            "# scythe:provenance v=0.13.0 backend=python-psycopg3 engine=postgresql schema=sch1:aaaa\nimport os\n";
+            "# sqlkit:provenance v=0.13.0 backend=python-psycopg3 engine=postgresql schema=sch1:aaaa\nimport os\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert_eq!(header.backend.as_deref(), Some("python-psycopg3"));
     }
 
     #[test]
     fn parse_provenance_header_reads_double_dash_comment() {
-        let content = "-- scythe:provenance v=0.13.0 backend=elixir-postgrex engine=postgresql schema=sch1:bbbb\n";
+        let content = "-- sqlkit:provenance v=0.13.0 backend=elixir-postgrex engine=postgresql schema=sch1:bbbb\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert_eq!(header.backend.as_deref(), Some("elixir-postgrex"));
     }
@@ -4727,7 +4728,7 @@ backend = \"rust-sqlx\"
     /// truly never looks at comment syntax, opening or closing.
     #[test]
     fn parse_provenance_header_ignores_block_comment_closer() {
-        let content = "/* scythe:provenance v=0.13.0 backend=csharp-npgsql engine=postgresql schema=sch1:cccc */\n";
+        let content = "/* sqlkit:provenance v=0.13.0 backend=csharp-npgsql engine=postgresql schema=sch1:cccc */\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert_eq!(header.schema.as_deref(), Some("sch1:cccc"));
         assert_eq!(header.backend.as_deref(), Some("csharp-npgsql"));
@@ -4735,7 +4736,7 @@ backend = \"rust-sqlx\"
 
     #[test]
     fn parse_provenance_header_returns_none_when_sentinel_absent() {
-        let content = "// Auto-generated by scythe. Do not edit.\npub fn x() {}\n";
+        let content = "// Auto-generated by sqlkit. Do not edit.\npub fn x() {}\n";
         assert!(parse_provenance_header(content).is_none());
     }
 
@@ -4745,7 +4746,7 @@ backend = \"rust-sqlx\"
         for _ in 0..(PROVENANCE_SCAN_LINES + 5) {
             content.push_str("// filler line, not the header\n");
         }
-        content.push_str("// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:dddd\n");
+        content.push_str("// sqlkit:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:dddd\n");
 
         assert!(
             parse_provenance_header(&content).is_none(),
@@ -4756,14 +4757,14 @@ backend = \"rust-sqlx\"
     #[test]
     fn parse_provenance_header_ignores_unknown_keys_forward_compatibly() {
         let content =
-            "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee future_field=xyz\n";
+            "// sqlkit:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee future_field=xyz\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert!(header.is_complete());
     }
 
     #[test]
     fn provenance_header_missing_fields_lists_them() {
-        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx\n";
+        let content = "// sqlkit:provenance v=0.13.0 backend=rust-sqlx\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert!(!header.is_complete());
         assert_eq!(header.missing_fields(), vec!["engine", "schema"]);
@@ -4773,7 +4774,7 @@ backend = \"rust-sqlx\"
     /// present.
     #[test]
     fn parse_provenance_header_reads_queries_field() {
-        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee \
+        let content = "// sqlkit:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee \
                         queries=q1:fedcba9876543210\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert_eq!(header.queries.as_deref(), Some("q1:fedcba9876543210"));
@@ -4786,7 +4787,7 @@ backend = \"rust-sqlx\"
     /// gate depends on.
     #[test]
     fn parse_provenance_header_without_queries_field_is_still_complete() {
-        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee\n";
+        let content = "// sqlkit:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert_eq!(header.queries, None);
         assert!(
@@ -4796,7 +4797,7 @@ backend = \"rust-sqlx\"
     }
 
     /// Round-trip through the real assembler: `header_line` writes the
-    /// `queries=` field scythe generate embeds, and `parse_provenance_header`
+    /// `queries=` field sqlkit generate embeds, and `parse_provenance_header`
     /// must read back the exact value handed to it -- the same contract
     /// already pinned for `schema` by
     /// `assemble_output_python_header_carries_noqa_and_still_round_trips`
@@ -4822,7 +4823,7 @@ backend = \"rust-sqlx\"
     /// field when present.
     #[test]
     fn parse_provenance_header_reads_options_field() {
-        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee \
+        let content = "// sqlkit:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee \
                         queries=q1:fedcba9876543210 options=opt1:0011223344556677\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert_eq!(header.options.as_deref(), Some("opt1:0011223344556677"));
@@ -4835,7 +4836,7 @@ backend = \"rust-sqlx\"
     /// the contract `verify_artifact`'s SC-PRV11 gate depends on.
     #[test]
     fn parse_provenance_header_without_options_field_is_still_complete() {
-        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee \
+        let content = "// sqlkit:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee \
                         queries=q1:fedcba9876543210\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert_eq!(header.options, None);
@@ -4846,7 +4847,7 @@ backend = \"rust-sqlx\"
     }
 
     /// Round-trip through the real assembler: `header_line_with_options`
-    /// writes the `options=` field scythe generate now embeds, and
+    /// writes the `options=` field sqlkit generate now embeds, and
     /// `parse_provenance_header` must read back the exact value handed to
     /// it -- the same contract already pinned for `queries` above.
     #[test]
@@ -4902,7 +4903,7 @@ backend = \"rust-sqlx\"
     fn write_artifact(dir: &std::path::Path, header_tail: &str) {
         std::fs::write(
             dir.join("queries.rs"),
-            format!("// scythe:provenance {header_tail}\npub fn generated() {{}}\n"),
+            format!("// sqlkit:provenance {header_tail}\npub fn generated() {{}}\n"),
         )
         .unwrap();
     }
@@ -5020,7 +5021,7 @@ backend = \"rust-sqlx\"
     }
 
     /// #94: editing a `.sql` query file without touching the schema must be
-    /// visible to `scythe check` -- the whole point of SC-PRV08. Distinct
+    /// visible to `sqlkit check` -- the whole point of SC-PRV08. Distinct
     /// from SC-PRV01: the schema fingerprint in the header still matches, so
     /// SC-PRV01 must *not* fire alongside it.
     #[test]
@@ -5262,7 +5263,7 @@ backend = \"rust-sqlx\"
     /// `resolve_options_fingerprint` twice for the identical target and
     /// `base_dir` -- nothing regenerated, nothing edited -- must produce the
     /// identical fingerprint both times. A fingerprint that drifts on its
-    /// own between two runs of `scythe check` against an unchanged project
+    /// own between two runs of `sqlkit check` against an unchanged project
     /// would report false drift on every single run, which is worse than
     /// not fingerprinting options at all.
     #[test]
@@ -5369,7 +5370,7 @@ backend = \"rust-sqlx\"
         assert_eq!(
             violations[0].severity,
             scythe_lint::Severity::Warn,
-            "a scythe version mismatch must never be reported as Error"
+            "a sqlkit version mismatch must never be reported as Error"
         );
     }
 
@@ -5411,7 +5412,7 @@ backend = \"rust-sqlx\"
     /// `get_backend("sqlx", ...)` and `get_backend("rust-sqlx", ...)`
     /// construct the same backend, and `assemble_output` always writes the
     /// canonical `backend.name()`, never the alias the user happened to
-    /// type in `scythe.toml`.
+    /// type in `sqlkit.toml`.
     #[test]
     fn verify_provenance_does_not_false_flag_backend_alias() {
         let dir = tempfile::tempdir().unwrap();
@@ -5496,7 +5497,7 @@ backend = \"rust-sqlx\"
 
         std::fs::write(
             dir.path().join("queries.rs"),
-            "// Auto-generated by scythe. Do not edit.\n",
+            "// Auto-generated by sqlkit. Do not edit.\n",
         )
         .unwrap();
 
@@ -5735,7 +5736,7 @@ backend = \"rust-sqlx\"
 
     /// Provenance severities must come from the lint registry, so a project
     /// can turn schema drift off (or escalate a version mismatch) from
-    /// `[lint]` in `scythe.toml` like any other rule. Before this, SC-PRV01,
+    /// `[lint]` in `sqlkit.toml` like any other rule. Before this, SC-PRV01,
     /// SC-PRV03 and SC-PRV04 were hardcoded `Error` with no opt-out from
     /// failing CI on drift.
     #[test]
@@ -5854,9 +5855,9 @@ backend = \"rust-sqlx\"
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("scythe.toml"),
+            dir.path().join("sqlkit.toml"),
             concat!(
-                "[scythe]\nversion = \"1\"\n\n",
+                "[sqlkit]\nversion = \"1\"\n\n",
                 "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
                 "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
                 "[[sql.gen]]\nbackend = \"rust-sqlx-typo\"\noutput = \"generated\"\n",
@@ -5866,7 +5867,7 @@ backend = \"rust-sqlx\"
 
         let report_path = dir.path().join("report.json");
         let result = run_check(RunCheckOpts {
-            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            config_path: dir.path().join("sqlkit.toml").to_string_lossy().into_owned(),
             database_url: None,
             format: "json".to_string(),
             output: Some(report_path.to_string_lossy().into_owned()),
@@ -5890,7 +5891,7 @@ backend = \"rust-sqlx\"
         assert!(
             report.contains("SC-PRV09"),
             "an unconstructable [sql.gen] target must be its own error finding, matching what \
-             `scythe generate` would refuse (#209):\n{report}"
+             `sqlkit generate` would refuse (#209):\n{report}"
         );
     }
 
@@ -5916,9 +5917,9 @@ backend = \"rust-sqlx\"
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("scythe.toml"),
+            dir.path().join("sqlkit.toml"),
             concat!(
-                "[scythe]\nversion = \"1\"\n\n",
+                "[sqlkit]\nversion = \"1\"\n\n",
                 "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
                 "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
                 "[[sql.gen]]\nbackend = \"rust-sqlx-typo\"\noutput = \"generated\"\n\n",
@@ -5929,7 +5930,7 @@ backend = \"rust-sqlx\"
 
         let report_path = dir.path().join("report.json");
         let result = run_check(RunCheckOpts {
-            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            config_path: dir.path().join("sqlkit.toml").to_string_lossy().into_owned(),
             database_url: None,
             format: "json".to_string(),
             output: Some(report_path.to_string_lossy().into_owned()),
@@ -5980,9 +5981,9 @@ backend = \"rust-sqlx\"
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("scythe.toml"),
+            dir.path().join("sqlkit.toml"),
             concat!(
-                "[scythe]\nversion = \"1\"\n\n",
+                "[sqlkit]\nversion = \"1\"\n\n",
                 "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
                 "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
                 "[[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"generated\"\n\n",
@@ -5993,7 +5994,7 @@ backend = \"rust-sqlx\"
 
         let report_path = dir.path().join("report.json");
         let result = run_check(RunCheckOpts {
-            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            config_path: dir.path().join("sqlkit.toml").to_string_lossy().into_owned(),
             database_url: None,
             format: "json".to_string(),
             output: Some(report_path.to_string_lossy().into_owned()),
@@ -6028,9 +6029,9 @@ backend = \"rust-sqlx\"
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("scythe.toml"),
+            dir.path().join("sqlkit.toml"),
             concat!(
-                "[scythe]\nversion = \"1\"\n\n",
+                "[sqlkit]\nversion = \"1\"\n\n",
                 "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
                 "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
                 "[[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"generated\"\n\n",
@@ -6041,7 +6042,7 @@ backend = \"rust-sqlx\"
 
         let report_path = dir.path().join("report.json");
         let result = run_check(RunCheckOpts {
-            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            config_path: dir.path().join("sqlkit.toml").to_string_lossy().into_owned(),
             database_url: None,
             format: "json".to_string(),
             output: Some(report_path.to_string_lossy().into_owned()),
@@ -6085,9 +6086,9 @@ backend = \"rust-sqlx\"
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("scythe.toml"),
+            dir.path().join("sqlkit.toml"),
             concat!(
-                "[scythe]\nversion = \"1\"\n\n",
+                "[sqlkit]\nversion = \"1\"\n\n",
                 "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
                 "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
                 "[[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"generated\"\n\n",
@@ -6098,7 +6099,7 @@ backend = \"rust-sqlx\"
 
         let report_path = dir.path().join("report.json");
         let result = run_check(RunCheckOpts {
-            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            config_path: dir.path().join("sqlkit.toml").to_string_lossy().into_owned(),
             database_url: None,
             format: "json".to_string(),
             output: Some(report_path.to_string_lossy().into_owned()),
@@ -6127,7 +6128,7 @@ backend = \"rust-sqlx\"
     /// #209, item 1: without `--exit-zero`, an unconstructable `[[sql.gen]]`
     /// target must move `check`'s exit code -- previously it was invisible
     /// to the exit code entirely (only a `Warn`-severity SC-PRV07), so
-    /// `check` could report success (exit 0) on a config `scythe generate`
+    /// `check` could report success (exit 0) on a config `sqlkit generate`
     /// refuses outright.
     #[test]
     fn check_exit_code_reflects_an_unconstructable_gen_target() {
@@ -6165,13 +6166,13 @@ backend = \"rust-sqlx\"
         assert!(violations[0].message.contains("rust-sqlx-typo"));
     }
 
-    /// #207: `scythe generate` refuses (by default) to write to an `output`
+    /// #207: `sqlkit generate` refuses (by default) to write to an `output`
     /// that escapes the project root, via `resolve_contained_output` inside
     /// `run_generate_inner`. Before this test's fix,
     /// `validate_gen_targets_constructible` never called
-    /// `resolve_contained_output` at all, so `scythe check` reported a
+    /// `resolve_contained_output` at all, so `sqlkit check` reported a
     /// config with `output = "../../ESCAPED"` as clean -- green where
-    /// `scythe generate` on the very same config is red. This pins that
+    /// `sqlkit generate` on the very same config is red. This pins that
     /// `check` now reports the same containment violation `generate` would
     /// refuse, as an SC-PRV09 error.
     #[test]
@@ -6200,7 +6201,7 @@ backend = \"rust-sqlx\"
             violations.len(),
             1,
             "an output escaping the project root must be its own SC-PRV09 finding, matching what \
-             `scythe generate` refuses by default: {violations:?}"
+             `sqlkit generate` refuses by default: {violations:?}"
         );
         assert_eq!(violations[0].rule_id, "SC-PRV09");
         assert_eq!(violations[0].severity, scythe_lint::Severity::Error);

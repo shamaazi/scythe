@@ -24,11 +24,11 @@ jobs:
       fail-fast: false
       matrix:
         task:
-          - scythe:lint
-          - scythe:test
-          - scythe:generated-fresh
-          - scythe:integration
-          - scythe:cluster-scope
+          - sqlkit:lint
+          - sqlkit:test
+          - sqlkit:generated-fresh
+          - sqlkit:integration
+          - sqlkit:cluster-scope
     steps:
       - uses: actions/checkout@v5
       - uses: cachix/install-nix-action@v31

@@ -1,7 +1,7 @@
 //! Output formats for lint / audit findings.
 //!
 //! Three reporters ship today:
-//! - [`human`]: matches the existing `scythe lint` text format.
+//! - [`human`]: matches the existing `sqlkit lint` text format.
 //! - [`sarif`]: SARIF 2.1.0, GitHub code-scanning compatible.
 //! - [`json`]: flat machine-readable JSON for CI tooling that doesn't ingest
 //!   SARIF.

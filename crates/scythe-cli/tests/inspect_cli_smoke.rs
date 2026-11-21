@@ -1,4 +1,4 @@
-//! CLI smoke tests for `scythe inspect`.
+//! CLI smoke tests for `sqlkit inspect`.
 //!
 //! All tests here are DB-free — they exercise flags that return without
 //! connecting to a database (`--list-checks`, `--explain`, `--help`).
@@ -9,10 +9,10 @@ use assert_cmd::Command;
 // ---------------------------------------------------------------------------
 
 fn scythe() -> Command {
-    Command::cargo_bin("scythe").expect("scythe binary must exist")
+    Command::cargo_bin("sqlkit").expect("scythe binary must exist")
 }
 
-/// `scythe inspect --list-checks` must exit 0 and list all 13 canonical
+/// `sqlkit inspect --list-checks` must exit 0 and list all 13 canonical
 /// SC-INS* checks.
 #[test]
 fn list_checks_prints_thirteen_rows() {
@@ -31,7 +31,7 @@ fn list_checks_prints_thirteen_rows() {
     }
 }
 
-/// `scythe inspect --explain SC-INS04` must exit 0 and print the check name,
+/// `sqlkit inspect --explain SC-INS04` must exit 0 and print the check name,
 /// Explanation section, and Remediation section.
 #[test]
 fn explain_known_id_prints_body() {
@@ -57,7 +57,7 @@ fn explain_known_id_prints_body() {
     );
 }
 
-/// `scythe inspect --explain SC-NOPE` must exit ≠ 0 and stderr must mention
+/// `sqlkit inspect --explain SC-NOPE` must exit ≠ 0 and stderr must mention
 /// the unknown id.
 #[test]
 fn explain_unknown_id_exits_nonzero() {
@@ -79,7 +79,7 @@ fn explain_unknown_id_exits_nonzero() {
     );
 }
 
-/// `scythe inspect --list-checks --output <path>` — exits 0 and creates the
+/// `sqlkit inspect --list-checks --output <path>` — exits 0 and creates the
 /// specified file; the file content must match what stdout would contain.
 #[test]
 fn output_flag_writes_to_file() {
@@ -116,7 +116,7 @@ fn output_flag_writes_to_file() {
     assert_eq!(content, stdout_content, "--output file content must match stdout");
 }
 
-/// `scythe inspect --help` must document every flag that the CLI surface
+/// `sqlkit inspect --help` must document every flag that the CLI surface
 /// exposes per `docs/guide/cli-reference.md`.
 #[test]
 fn inspect_help_shows_expected_flags() {
@@ -148,7 +148,7 @@ fn inspect_help_shows_expected_flags() {
     }
 }
 
-/// `scythe inspect --list-checks --format json`:
+/// `sqlkit inspect --list-checks --format json`:
 /// The `--format` flag applies to finding emission, not to `--list-checks`
 /// (which has its own table format).  The command must exit 0; `--list-checks`
 /// with `--format json` is not a documented combo and the current implementation
@@ -197,7 +197,7 @@ fn list_checks_postgres_dialect_shows_all_checks() {
     }
 }
 
-/// `scythe inspect <sqlite-url>` — SQLite has no `scythe inspect` driver.
+/// `sqlkit inspect <sqlite-url>` — SQLite has no `sqlkit inspect` driver.
 /// Before #131, every unimplemented engine fell through to a MySQL stub that
 /// refused to connect and reported itself as `mysql`, so a SQLite user was
 /// told about an engine they never asked for. The command must instead fail
@@ -214,7 +214,7 @@ fn inspect_unsupported_engine_errors_naming_the_engine_not_a_stub() {
     let output = scythe()
         .args(["inspect", "sqlite:///nonexistent.db"])
         .env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
         .expect("command must run");
 
@@ -241,18 +241,18 @@ fn inspect_unsupported_engine_errors_naming_the_engine_not_a_stub() {
     );
 }
 
-/// `scythe inspect` without a DB URL and without `--list-checks` must exit
+/// `sqlkit inspect` without a DB URL and without `--list-checks` must exit
 /// non-zero with a diagnostic about the missing URL.
 #[test]
 fn inspect_without_db_url_exits_nonzero() {
     let temp = tempfile::TempDir::new().expect("temp dir");
-    let config_path = temp.path().join("scythe.toml");
+    let config_path = temp.path().join("sqlkit.toml");
     std::fs::write(&config_path, "").unwrap();
 
     let output = scythe()
         .args(["inspect", "--config", config_path.to_str().unwrap()])
         .env_remove("DATABASE_URL")
-        .env_remove("SCYTHE_DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
         .output()
         .expect("command must run");
 

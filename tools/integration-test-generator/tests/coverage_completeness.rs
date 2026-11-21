@@ -7,7 +7,7 @@
 //! drifted out of coverage and only an audit noticed.
 //!
 //! So this file never hand-writes either list. `manifests/` is enumerated from
-//! disk, the covered set is enumerated from the committed `scythe.toml` files,
+//! disk, the covered set is enumerated from the committed `sqlkit.toml` files,
 //! and — critically — a project's `(backend, engine)` is mapped onto the
 //! manifest it actually selects by calling the *real* resolver,
 //! `scythe_codegen::backends::get_backend`. That matters because the mapping is
@@ -115,14 +115,14 @@ fn shipped_manifests() -> BTreeMap<BackendPair, String> {
 }
 
 /// Directory names of every committed integration project, i.e. every
-/// directory under `integration_tests/` holding a `scythe.toml`.
+/// directory under `integration_tests/` holding a `sqlkit.toml`.
 fn integration_projects() -> Vec<(String, PathBuf)> {
     let dir = repo_root().join("integration_tests");
     let mut projects: Vec<(String, PathBuf)> = fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("reading {}: {e}", dir.display()))
         .map(|entry| entry.expect("directory entry").path())
         .filter_map(|path| {
-            let config = path.join("scythe.toml");
+            let config = path.join("sqlkit.toml");
             if !config.is_file() {
                 return None;
             }
@@ -140,7 +140,7 @@ fn integration_projects() -> Vec<(String, PathBuf)> {
 }
 
 /// The manifests actually exercised by a committed project, resolved through
-/// the same code path `scythe generate` takes.
+/// the same code path `sqlkit generate` takes.
 fn covered_manifests() -> BTreeMap<BackendPair, BTreeSet<String>> {
     let mut covered: BTreeMap<BackendPair, BTreeSet<String>> = BTreeMap::new();
     for (project, config_path) in integration_projects() {
@@ -273,7 +273,7 @@ fn every_backend_manifest_has_an_integration_project() {
     assert_ratchet(&gaps, &load_exemptions(&exemptions_path(), "manifests"), "manifests");
 }
 
-/// #118/#134/#135: every integration project is run by the `scythe:integration` devenv
+/// #118/#134/#135: every integration project is run by the `sqlkit:integration` devenv
 /// task, which is both how a project is run locally and what CI runs.
 ///
 /// Without this, the manifest check above is satisfiable by committing a
@@ -290,9 +290,9 @@ fn every_integration_project_runs_in_the_devenv_task() {
     let devenv = repo_root().join("devenv.nix");
     let contents = read_to_string(&devenv);
     let task = contents
-        .split_once("\"scythe:integration\" = {")
+        .split_once("\"sqlkit:integration\" = {")
         .map(|(_, rest)| rest)
-        .unwrap_or_else(|| panic!("no scythe:integration task in {}", devenv.display()));
+        .unwrap_or_else(|| panic!("no sqlkit:integration task in {}", devenv.display()));
     let words: BTreeSet<&str> = task
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
         .filter(|word| !word.is_empty())
@@ -304,7 +304,7 @@ fn every_integration_project_runs_in_the_devenv_task() {
         .map(|(project, _)| {
             (
                 project,
-                format!("not run by scythe:integration in {}", devenv.display()),
+                format!("not run by sqlkit:integration in {}", devenv.display()),
             )
         })
         .collect();

@@ -168,8 +168,8 @@ pub fn split_query_file(content: &str) -> Vec<String> {
 /// `--` comment, so a file that opens with a license header or a plain
 /// explanatory comment does not trip this check; only a file containing a
 /// forgotten or mistyped annotation (or none at all) does. See issue #204:
-/// `scythe generate`/`scythe check` used to report success on a query file
-/// reduced to zero blocks, and `scythe audit` on the same file found real
+/// `sqlkit generate`/`sqlkit check` used to report success on a query file
+/// reduced to zero blocks, and `sqlkit audit` on the same file found real
 /// findings the other commands never saw because they never looked at the
 /// SQL at all.
 pub fn has_unannotated_sql(content: &str) -> bool {
@@ -261,16 +261,16 @@ pub fn validate_dialect(raw: &str) -> Result<String, String> {
     ))
 }
 
-/// Try to read the SQL dialect from a scythe.toml config file.
+/// Try to read the SQL dialect from a sqlkit.toml config file.
 ///
 /// Returns `Ok(None)` when the config file does not exist -- a legitimate,
-/// common case in explicit-file mode (`scythe fmt`/`scythe lint` on a bare
+/// common case in explicit-file mode (`sqlkit fmt`/`sqlkit lint` on a bare
 /// file list, with no project config at all). Returns `Err` when the file
 /// *does* exist but cannot be read or fails to parse as valid TOML, instead
 /// of silently degrading to `Ok(None)` (which every caller then reads as "no
 /// dialect configured" and defaults to `ansi`).
 ///
-/// Before this distinction, `scythe lint --config broken.toml pg.sql`
+/// Before this distinction, `sqlkit lint --config broken.toml pg.sql`
 /// swallowed a genuinely invalid `--config` and linted with the wrong
 /// dialect with no error at all -- see issue #206, item 4.
 pub fn dialect_from_config(config_path: &str) -> Result<Option<String>, String> {
@@ -317,15 +317,15 @@ pub fn redact_url_password(url: &str) -> String {
     re.replace(url, "${prefix}:***@").into_owned()
 }
 
-/// The directory a `scythe.toml` config file lives in. `schema`/`queries`
+/// The directory a `sqlkit.toml` config file lives in. `schema`/`queries`
 /// glob patterns and `output` directories in the config are resolved
 /// relative to this directory, not the process's current working directory.
 ///
 /// Falls back to `"."` when `config_path` has no parent component (e.g. a
-/// bare filename like `"scythe.toml"`).
+/// bare filename like `"sqlkit.toml"`).
 ///
 /// `Path::parent()` returns `Some(Path::new(""))` -- not `None` -- for a
-/// single-component relative path like `"scythe.toml"`, so the `None`
+/// single-component relative path like `"sqlkit.toml"`, so the `None`
 /// fallback above never actually fires for the common case of running from
 /// the project root with the default config name. Left unhandled, every
 /// message that prints this directory (e.g. `resolve_globs`'s "config dir:"
@@ -351,7 +351,7 @@ pub fn config_dir(config_path: &str) -> &Path {
 /// directory-depth counter, going negative exactly when a `..` pops past
 /// the join point. This is deliberately *not* implemented by canonicalizing
 /// `base_dir.join(output)` and checking `starts_with` -- the output
-/// directory frequently does not exist yet (that is what `scythe generate`
+/// directory frequently does not exist yet (that is what `sqlkit generate`
 /// is about to create), and canonicalization requires the path to exist.
 /// It is also not implemented by naively collapsing `..` against an
 /// accumulator that silently drops unmatched leading `..` components (the
@@ -400,7 +400,7 @@ pub fn resolve_contained_output(
         return Ok(joined);
     }
     Err(format!(
-        "{label}: output '{output}' escapes the project root '{base}'; scythe refuses to create \
+        "{label}: output '{output}' escapes the project root '{base}'; sqlkit refuses to create \
          directories or write files outside the project by default -- pass --allow-output-escape \
          if writing there is deliberate",
         base = base_dir.display(),
@@ -415,8 +415,8 @@ pub fn resolve_contained_output(
 ///    [`Path::is_absolute`] — on Windows a Unix-style absolute pattern like
 ///    `/abs/x` is *not* `is_absolute()` but *is* `has_root()`) pass through
 ///    unchanged.
-/// 2. An empty or `"."` `base_dir` (e.g. `config_dir("scythe.toml")`, or
-///    `config_dir("./scythe.toml")`) is treated as identity: the pattern is
+/// 2. An empty or `"."` `base_dir` (e.g. `config_dir("sqlkit.toml")`, or
+///    `config_dir("./sqlkit.toml")`) is treated as identity: the pattern is
 ///    returned unchanged rather than joined, so `"./db/*.sql"` and
 ///    `"db/*.sql"` report matches under the same spelling the user wrote.
 ///    This keeps `FileViolation.file` / SARIF / JSON output byte-stable
@@ -450,7 +450,7 @@ pub(crate) fn rebase_pattern<'a>(pattern: &'a str, base_dir: &Path) -> Cow<'a, s
 /// `label` identifies the call site (e.g. `"[main] schema"`) for the error
 /// message emitted when a pattern matches no files — matching nothing is
 /// treated as a hard configuration error rather than a warning, since paths
-/// in `scythe.toml` resolve relative to the config file's directory (not the
+/// in `sqlkit.toml` resolve relative to the config file's directory (not the
 /// process's current working directory) as of 0.13.0, and an empty match is
 /// the most common symptom of a stale CWD-relative pattern.
 pub fn resolve_globs(
@@ -467,7 +467,7 @@ pub fn resolve_globs(
                 "{label} pattern '{pattern}' matched no files\n  \
                  config dir: {config_dir}\n  \
                  resolved:   {resolved}\n  \
-                 note: paths in scythe.toml resolve relative to the config file's directory,\n        \
+                 note: paths in sqlkit.toml resolve relative to the config file's directory,\n        \
                  not the current working directory (changed in 0.13.0)",
                 config_dir = base_dir.display(),
                 resolved = rebased,
@@ -483,7 +483,7 @@ pub fn resolve_globs(
 
 /// Effective severity of `SC-PARSE01` (query fails to parse) and
 /// `SC-PARSE02` (query fails to analyze), resolved once from
-/// [`scythe_lint::parse_registry`] after applying `scythe.toml`'s `[lint]`
+/// [`scythe_lint::parse_registry`] after applying `sqlkit.toml`'s `[lint]`
 /// table.
 ///
 /// Both findings are produced outside the `LintRule::check_*` path -- a
@@ -737,8 +737,8 @@ mod tests {
         }
     }
 
-    /// An empty `base_dir` (from `config_dir("scythe.toml")`) and an
-    /// explicit `"."` `base_dir` (from `config_dir("./scythe.toml")`) must
+    /// An empty `base_dir` (from `config_dir("sqlkit.toml")`) and an
+    /// explicit `"."` `base_dir` (from `config_dir("./sqlkit.toml")`) must
     /// both be treated as identity, so equivalent `--config` spellings
     /// report matched paths using the exact string the caller wrote instead
     /// of a `./`-prefixed variant.
@@ -834,13 +834,13 @@ mod tests {
 
     #[test]
     fn config_dir_normalizes_bare_filename_to_dot() {
-        assert_eq!(config_dir("scythe.toml"), Path::new("."));
-        assert_eq!(config_dir("./scythe.toml"), Path::new("."));
+        assert_eq!(config_dir("sqlkit.toml"), Path::new("."));
+        assert_eq!(config_dir("./sqlkit.toml"), Path::new("."));
     }
 
     #[test]
     fn config_dir_keeps_a_real_parent() {
-        assert_eq!(config_dir("project/scythe.toml"), Path::new("project"));
+        assert_eq!(config_dir("project/sqlkit.toml"), Path::new("project"));
     }
 
     /// #207: an absolute `output` always escapes, regardless of `base_dir`.

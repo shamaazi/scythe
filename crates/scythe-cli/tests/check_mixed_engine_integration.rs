@@ -1,5 +1,5 @@
 //! Regression test for the mixed-engine `--database-url` verification bug:
-//! `scythe check --database-url` used to run *every* `[[sql]]` block's
+//! `sqlkit check --database-url` used to run *every* `[[sql]]` block's
 //! queries through the PostgreSQL wire protocol, even blocks configured for
 //! a non-PostgreSQL engine. A MySQL/MSSQL/etc. block in an otherwise
 //! PostgreSQL config produced a flood of spurious SC-VER01 errors and made
@@ -40,9 +40,9 @@ fn url() -> String {
     )
 }
 
-/// Write a `scythe.toml` with one `postgresql` block (pointed at a real
+/// Write a `sqlkit.toml` with one `postgresql` block (pointed at a real
 /// table, `table_name`, that the caller must create in the live database
-/// before invoking `scythe check`) and one `mysql` block that never touches
+/// before invoking `sqlkit check`) and one `mysql` block that never touches
 /// the database.
 fn write_mixed_engine_fixture(dir: &TempDir, table_name: &str) -> String {
     let pg_query = format!("-- @name GetUser\n-- @returns :one\nSELECT id, name FROM {table_name} WHERE id = $1;\n");
@@ -55,7 +55,7 @@ fn write_mixed_engine_fixture(dir: &TempDir, table_name: &str) -> String {
     fs::write(dir.path().join("mysql_queries.sql"), mysql_query).expect("write mysql_queries.sql");
     fs::write(dir.path().join("mysql_schema.sql"), mysql_schema).expect("write mysql_schema.sql");
 
-    let config_content = r#"[scythe]
+    let config_content = r#"[sqlkit]
 version = "1"
 
 [[sql]]
@@ -71,8 +71,8 @@ schema = ["mysql_schema.sql"]
 queries = ["mysql_queries.sql"]
 "#
     .to_string();
-    let config_path = dir.path().join("scythe.toml");
-    fs::write(&config_path, config_content).expect("write scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
+    fs::write(&config_path, config_content).expect("write sqlkit.toml");
 
     config_path.to_string_lossy().into_owned()
 }
@@ -109,7 +109,7 @@ fn check_with_mixed_engine_config_skips_non_postgres_block() {
     let dir = TempDir::new().expect("tempdir");
     let config_path = write_mixed_engine_fixture(&dir, table_name);
 
-    let output = Command::cargo_bin("scythe")
+    let output = Command::cargo_bin("sqlkit")
         .expect("scythe binary")
         .args([
             "check",
@@ -126,7 +126,7 @@ fn check_with_mixed_engine_config_skips_non_postgres_block() {
         // this test would pass without ever exercising verification.
         .current_dir(dir.path())
         .output()
-        .expect("spawn scythe check");
+        .expect("spawn sqlkit check");
 
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();

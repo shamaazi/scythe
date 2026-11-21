@@ -3,7 +3,7 @@
 //! Connects to a running database via a connection URL, runs a set of
 //! catalog/operational checks, and surfaces issues as
 //! [`scythe_lint::reporters::Finding`] values that can be emitted through the
-//! same reporters used by `scythe audit` (human / SARIF / JSON).
+//! same reporters used by `sqlkit audit` (human / SARIF / JSON).
 //!
 //! ## Engines
 //!

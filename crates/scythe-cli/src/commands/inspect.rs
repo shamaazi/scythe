@@ -1,15 +1,15 @@
-//! `scythe inspect` — connect to a live database and run operational health
+//! `sqlkit inspect` — connect to a live database and run operational health
 //! checks, emitting findings in the same reporter shapes used by `scythe
 //! audit` (human / SARIF / JSON).
 //!
 //! Phase 1C additions:
-//! - `[inspect]` config section in `scythe.toml` (database_url, api_schemas,
+//! - `[inspect]` config section in `sqlkit.toml` (database_url, api_schemas,
 //!   extra_rules, severity_overrides, suppression rules, inline checks).
 //! - `--explain <CHECK_ID>` flag: prints full rationale without a DB connection.
 //! - Suppression engine applied to findings before emission.
 //! - Severity overrides applied to the registry before running.
-//! - URL precedence: CLI positional > `$DATABASE_URL` > `$SCYTHE_DATABASE_URL`
-//!   > `[inspect].database_url` in `scythe.toml`.
+//! - URL precedence: CLI positional > `$DATABASE_URL` > `$SQLKIT_DATABASE_URL`
+//!   > `[inspect].database_url` in `sqlkit.toml`.
 
 use std::fs::File;
 use std::io::Write;
@@ -23,7 +23,7 @@ use scythe_inspect::{CheckRegistry, DbDriver, InspectConfig, InspectError, Unsup
 use scythe_lint::reporters::{Finding, Format};
 use scythe_lint::{Severity, emit_findings};
 
-const TOOL_NAME: &str = "scythe-inspect";
+const TOOL_NAME: &str = "sqlkit-inspect";
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Inputs to [`run_inspect`]. Mirrors the clap `Commands::Inspect` shape.
@@ -44,14 +44,14 @@ pub struct RunInspectOpts {
     pub output: Option<String>,
     /// Engine override. Defaults to the URL scheme (`postgres` if no URL).
     pub dialect: Option<String>,
-    /// Path to `scythe.toml` (default: `"scythe.toml"`).
+    /// Path to `sqlkit.toml` (default: `"sqlkit.toml"`).
     pub config_path: String,
 }
 
 pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error>> {
     let inspect_config: Option<InspectConfig> =
         parse_inspect_section(Path::new(&opts.config_path)).unwrap_or_else(|e| {
-            eprintln!("scythe-inspect: warning: could not parse [inspect] config: {e}");
+            eprintln!("sqlkit-inspect: warning: could not parse [inspect] config: {e}");
             None
         });
 
@@ -169,7 +169,7 @@ pub(crate) fn build_driver_with_config(
             Box::new(driver)
         }
         // Every remaining engine — SQLite,
-        // or a URL scheme that got this far — has no `scythe inspect`
+        // or a URL scheme that got this far — has no `sqlkit inspect`
         // implementation. It used to fall through to a MySQL stub, so a SQLite
         // user was told `engine "mysql" is not supported`: an engine they never
         // mentioned, which reads as a scythe bug rather than an
@@ -189,7 +189,7 @@ pub(crate) fn build_driver_with_config(
 /// default to `postgres`.
 ///
 /// An explicit `--dialect` is normalized and validated against the only two
-/// engines `scythe inspect` actually dispatches to
+/// engines `sqlkit inspect` actually dispatches to
 /// ([`build_driver_with_config`]'s `"postgres"` match): before
 /// this, an unrecognized value (a typo, or `--dialect klingon`) passed
 /// through unchanged, `--list-checks` silently reported "no checks
@@ -226,8 +226,8 @@ fn resolve_engine(dialect: Option<&str>, url: Option<&str>) -> Result<String, St
 }
 
 /// Resolve the database URL with the full precedence chain:
-/// CLI positional > `$DATABASE_URL` > `$SCYTHE_DATABASE_URL` >
-/// `[inspect].database_url` in scythe.toml.
+/// CLI positional > `$DATABASE_URL` > `$SQLKIT_DATABASE_URL` >
+/// `[inspect].database_url` in sqlkit.toml.
 pub(crate) fn resolve_url(
     positional: Option<&str>,
     config_url: Option<&str>,
@@ -235,7 +235,7 @@ pub(crate) fn resolve_url(
     resolve_url_inner(
         positional,
         std::env::var("DATABASE_URL").ok().as_deref(),
-        std::env::var("SCYTHE_DATABASE_URL").ok().as_deref(),
+        std::env::var("SQLKIT_DATABASE_URL").ok().as_deref(),
         config_url,
     )
 }
@@ -258,16 +258,16 @@ fn resolve_url_inner(
 /// Pure infallible URL resolver behind [`resolve_url`], which wraps it in a
 /// `Result`.
 ///
-/// Precedence (highest → lowest): `$DATABASE_URL` > `$SCYTHE_DATABASE_URL`
+/// Precedence (highest → lowest): `$DATABASE_URL` > `$SQLKIT_DATABASE_URL`
 /// > config file.
 ///
-/// `scythe lint`'s inspect auto-run used to share this via a now-removed
+/// `sqlkit lint`'s inspect auto-run used to share this via a now-removed
 /// `resolve_inspect_url` wrapper. It no longer does: falling back to a bare
 /// environment variable meant a linter could open an outbound database
 /// connection purely because `$DATABASE_URL` happened to be set, with no
 /// flag to request it and no visible diagnostic if it failed (#210). `lint`
 /// now only honours an explicit `--database-url` or `[inspect].database_url`
-/// in `scythe.toml` — see `lint_cmd::try_run_inspect`.
+/// in `sqlkit.toml` — see `lint_cmd::try_run_inspect`.
 fn resolve_url_inner_opt(
     env_database_url: Option<&str>,
     env_scythe_database_url: Option<&str>,
@@ -302,7 +302,7 @@ fn print_check_catalog_from_registry(
     if checks.is_empty() {
         writeln!(
             out,
-            "no checks available for engine `{engine}` — try `scythe inspect --list-checks` with --dialect postgres"
+            "no checks available for engine `{engine}` — try `sqlkit inspect --list-checks` with --dialect postgres"
         )?;
         return Ok(());
     }
@@ -342,7 +342,7 @@ pub(crate) fn print_explanation(
         .filter(|s| s.engines.iter().any(|e| e == engine))
         .ok_or_else(|| {
             format!(
-                "no check with id '{id}' for engine '{engine}' — try `scythe inspect --list-checks --dialect {engine}`"
+                "no check with id '{id}' for engine '{engine}' — try `sqlkit inspect --list-checks --dialect {engine}`"
             )
         })?;
 

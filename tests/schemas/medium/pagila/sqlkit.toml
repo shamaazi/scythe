@@ -1,8 +1,8 @@
-[scythe]
+[sqlkit]
 version = "1"
 
 [[sql]]
-name = "basemind"
+name = "pagila"
 engine = "postgresql"
 schema = ["schema.sql"]
 queries = ["queries/*.sql"]

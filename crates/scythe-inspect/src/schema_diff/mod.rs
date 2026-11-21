@@ -29,12 +29,12 @@
 //!
 //! Severities come from a [`RuleRegistry`](scythe_lint::RuleRegistry) built by
 //! [`drift_registry`](scythe_lint::drift_registry) and carried in
-//! [`DriftSeverities`], so `[lint]` in `scythe.toml` tunes drift rules exactly
+//! [`DriftSeverities`], so `[lint]` in `sqlkit.toml` tunes drift rules exactly
 //! as it tunes every other `SC-*` rule.
 //!
 //! [`diff`] and [`SchemaDescription`] were always engine-agnostic — they
 //! never touch a connection. [`fetch_live_schema`] and [`drift_findings`]
-//! (the free functions `scythe-cli`'s `scythe check` calls directly) remain
+//! (the free functions `scythe-cli`'s `sqlkit check` calls directly) remain
 //! PostgreSQL-only, reading `pg_catalog` through a `tokio_postgres::Client`
 //! parameter. Catalog-reading for other engines is not similarly restricted:
 //! [`source::SchemaCatalogDriver`] is the engine-agnostic trait for it, and

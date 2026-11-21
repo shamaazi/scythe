@@ -1,4 +1,4 @@
-//! GH #147: `scythe generate` silently narrowed a nested aggregate.
+//! GH #147: `sqlkit generate` silently narrowed a nested aggregate.
 //!
 //! When a backend cannot build a struct for a `json_agg`/`row_to_json` column,
 //! `degrade_unsupported_nested_structs` rewrites that column to an opaque
@@ -21,7 +21,7 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 fn stderr(output: &Output) -> String {
@@ -43,12 +43,12 @@ fn write_project(dir: &std::path::Path, backend: &str) -> String {
     std::fs::write(dir.join("schema.sql"), SCHEMA_SQL).unwrap();
     std::fs::write(dir.join("queries.sql"), QUERY_SQL).unwrap();
     let config = format!(
-        "[scythe]\nversion = \"1\"\n\n\
+        "[sqlkit]\nversion = \"1\"\n\n\
          [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
          schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
          [[sql.gen]]\nbackend = \"{backend}\"\noutput = \"out\"\n"
     );
-    let config_path = dir.join("scythe.toml");
+    let config_path = dir.join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
     config_path.to_string_lossy().into_owned()
 }
@@ -65,7 +65,7 @@ fn generate_reports_nothing_for_a_backend_that_builds_the_nested_struct() {
     let output = scythe_bin()
         .args(["generate", "--config", &config_path])
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     let err = stderr(&output);
     assert!(output.status.success(), "generate must succeed; stderr: {err}");

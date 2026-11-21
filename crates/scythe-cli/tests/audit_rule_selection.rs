@@ -1,4 +1,4 @@
-//! `scythe audit` regressions for the two ways its rule set could shrink
+//! `sqlkit audit` regressions for the two ways its rule set could shrink
 //! without saying so:
 //!
 //! - CWE ids were scraped out of `LintRule::description()` instead of read
@@ -23,17 +23,17 @@ use tempfile::TempDir;
 const DANGEROUS_SQL: &str = "SELECT pg_read_file('/etc/passwd');\n";
 
 fn run_audit(args: &[&str]) -> std::process::Output {
-    Command::cargo_bin("scythe")
+    Command::cargo_bin("sqlkit")
         .expect("scythe binary must exist")
         .args(args)
         .output()
-        .expect("run scythe audit")
+        .expect("run sqlkit audit")
 }
 
-/// Path to a `scythe.toml` that does not exist, so the audit falls back to
+/// Path to a `sqlkit.toml` that does not exist, so the audit falls back to
 /// the canonical registry.
 fn absent_config(dir: &TempDir) -> String {
-    dir.path().join("scythe.toml").to_string_lossy().into_owned()
+    dir.path().join("sqlkit.toml").to_string_lossy().into_owned()
 }
 
 /// A user rule that declares `cwe = ["CWE-89"]` but never writes "CWE" in its
@@ -41,9 +41,9 @@ fn absent_config(dir: &TempDir) -> String {
 /// `LintRule::cwe()` finds the declaration.
 fn write_user_rule_config(dir: &TempDir, dialects: &str) -> String {
     fs::write(
-        dir.path().join("scythe.toml"),
+        dir.path().join("sqlkit.toml"),
         format!(
-            r#"[scythe]
+            r#"[sqlkit]
 version = "1"
 
 [[audit.rule]]
@@ -62,8 +62,8 @@ functions = ["my_dangerous_call"]
 "#
         ),
     )
-    .expect("write scythe.toml");
-    dir.path().join("scythe.toml").to_string_lossy().into_owned()
+    .expect("write sqlkit.toml");
+    dir.path().join("sqlkit.toml").to_string_lossy().into_owned()
 }
 
 #[test]
@@ -218,10 +218,10 @@ fn audit_with_no_executable_rule_fails_instead_of_reporting_clean() {
     let dir = TempDir::new().expect("tempdir");
     let sql_path = dir.path().join("dangerous.sql");
     fs::write(&sql_path, DANGEROUS_SQL).expect("write dangerous.sql");
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     fs::write(
         &config_path,
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [lint.categories]
@@ -230,7 +230,7 @@ migration = "off"
 antipattern = "off"
 "#,
     )
-    .expect("write scythe.toml");
+    .expect("write sqlkit.toml");
 
     let output = run_audit(&[
         "audit",
@@ -277,10 +277,10 @@ fn audit_with_no_executable_rule_still_honours_exit_zero() {
     let dir = TempDir::new().expect("tempdir");
     let sql_path = dir.path().join("dangerous.sql");
     fs::write(&sql_path, DANGEROUS_SQL).expect("write dangerous.sql");
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     fs::write(
         &config_path,
-        r#"[scythe]
+        r#"[sqlkit]
 version = "1"
 
 [lint.categories]
@@ -289,7 +289,7 @@ migration = "off"
 antipattern = "off"
 "#,
     )
-    .expect("write scythe.toml");
+    .expect("write sqlkit.toml");
 
     let output = run_audit(&[
         "audit",

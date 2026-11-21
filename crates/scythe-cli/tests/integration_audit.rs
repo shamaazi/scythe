@@ -83,7 +83,7 @@ fn suppression_drops_annotated_grant_and_keeps_plain_grant() {
     let sql = concat!(
         "GRANT ALL ON users TO bob;\n",
         "\n",
-        "-- scythe-audit: ignore[SC-SEC02] reason=\"vetted\"\n",
+        "-- sqlkit-audit: ignore[SC-SEC02] reason=\"vetted\"\n",
         "GRANT ALL ON other TO alice;\n",
     );
 
@@ -216,7 +216,7 @@ fn multi_rule_suppression_silences_every_listed_id() {
     let registry = default_registry();
 
     let sql = concat!(
-        "-- scythe-audit: ignore[SC-SEC02,SC-SEC03]\n",
+        "-- sqlkit-audit: ignore[SC-SEC02,SC-SEC03]\n",
         "GRANT ALL ON users TO PUBLIC;\n",
     );
 

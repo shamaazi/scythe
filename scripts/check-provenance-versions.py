@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assert every committed `scythe:provenance v=X.Y.Z` header matches the
+"""Assert every committed `sqlkit:provenance v=X.Y.Z` header matches the
 version in crates/scythe-cli/Cargo.toml.
 
 Why this exists (issue #129): the inline check in .github/workflows/ci.yml
@@ -42,7 +42,7 @@ SCAN_ROOTS = (
     "website/src/content/docs",
 )
 
-PROVENANCE_RE = re.compile(r"scythe:provenance v=(\d+\.\d+\.\d+)")
+PROVENANCE_RE = re.compile(r"sqlkit:provenance v=(\d+\.\d+\.\d+)")
 
 # Files whose provenance headers are quoted history rather than live examples.
 #
@@ -149,7 +149,7 @@ def main() -> int:
 
     for root in empty_roots:
         print(
-            f"error: found no scythe:provenance headers under '{root}'. Generated artifacts "
+            f"error: found no sqlkit:provenance headers under '{root}'. Generated artifacts "
             f"there are expected to carry one, so this check would pass vacuously for that root. "
             f"Either regenerate them, or delete the root from SCAN_ROOTS in this script.",
             file=sys.stderr,

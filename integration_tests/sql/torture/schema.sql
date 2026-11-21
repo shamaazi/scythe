@@ -10,7 +10,7 @@
 -- name scythe itself might synthesize. This schema exists only to give the
 -- compile gate (scripts/check-generated-backends.py) something with teeth.
 -- It is never migrated into the live database used by the `mise run test:*`
--- integration tests, and no `scythe.toml` under integration_tests/ other
+-- integration tests, and no `sqlkit.toml` under integration_tests/ other
 -- than the ones the gate writes into a scratch copy points at it.
 --
 -- Every construct below is independently proven to parse under scythe-core
@@ -28,7 +28,7 @@
 --
 -- The three non-identifier names below (`"my col"`, `"with-dash"`, `"2fa"`)
 -- have no testing_data/ fixture. They were verified directly instead, by
--- running `scythe generate` over a two-column schema using them and reading
+-- running `sqlkit generate` over a two-column schema using them and reading
 -- the result: scythe-core resolves all three between DDL and query, and
 -- python-psycopg3 emits `my_col` / `with_dash` / `col_2fa` read positionally
 -- (`row[1]`). That check matters because of the non-ASCII case immediately
@@ -38,7 +38,7 @@
 --
 -- The non-ASCII identifier issue #181 asks for is deliberately NOT a column
 -- here: `CREATE TABLE t ("café" TEXT)` plus `SELECT "café" FROM t` makes
--- `scythe generate` fail outright with `UNKNOWN_COLUMN: column "café" does
+-- `sqlkit generate` fail outright with `UNKNOWN_COLUMN: column "café" does
 -- not exist` -- scythe-core itself cannot resolve a byte-identical quoted
 -- non-ASCII identifier between DDL and a query, before any backend runs. A
 -- parse-time failure here would abort generation for the whole file, taking

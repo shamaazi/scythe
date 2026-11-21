@@ -179,7 +179,7 @@ pub fn emit(tool_name: &str, tool_version: &str, findings: &[Finding], out: &mut
                 driver: SarifDriver {
                     name: tool_name,
                     version: tool_version,
-                    information_uri: Some("https://docs.scythe.kreuzberg.dev/"),
+                    information_uri: Some("https://github.com/shamaazi/scythe"),
                     rules,
                 },
             },
@@ -212,10 +212,10 @@ mod tests {
             source: None,
         }];
         let mut buf = Vec::new();
-        emit("scythe-audit", "0.0.0", &findings, &mut buf).unwrap();
+        emit("sqlkit-audit", "0.0.0", &findings, &mut buf).unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&buf).unwrap();
         assert_eq!(parsed["version"], "2.1.0");
-        assert_eq!(parsed["runs"][0]["tool"]["driver"]["name"], "scythe-audit");
+        assert_eq!(parsed["runs"][0]["tool"]["driver"]["name"], "sqlkit-audit");
         assert_eq!(parsed["runs"][0]["results"][0]["ruleId"], "SC-SEC02");
         assert_eq!(parsed["runs"][0]["results"][0]["level"], "error");
         assert_eq!(
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn sarif_empty_findings_emits_empty_results() {
         let mut buf = Vec::new();
-        emit("scythe-audit", "0.0.0", &[], &mut buf).unwrap();
+        emit("sqlkit-audit", "0.0.0", &[], &mut buf).unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&buf).unwrap();
         assert!(parsed["runs"][0]["results"].as_array().unwrap().is_empty());
     }

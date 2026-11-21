@@ -159,7 +159,7 @@ impl ScytheError {
     /// well enough to reject — a misspelled option key, an out-of-range value.
     ///
     /// Prefer this over [`ScytheError::new`] with [`ErrorCode::InternalError`]
-    /// anywhere the offending input came from `scythe.toml` rather than from
+    /// anywhere the offending input came from `sqlkit.toml` rather than from
     /// scythe's own state.
     pub fn invalid_config(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::InvalidConfig, msg)
@@ -185,7 +185,7 @@ impl ScytheError {
             ErrorCode::UnresolvedType,
             format!(
                 "{subject} \"{column}\": {function}(...) in the select list returns PostgreSQL's anonymous \
-                 `record` type, which scythe cannot resolve to a type it can generate code for -- move it \
+                 `record` type, which sqlkit cannot resolve to a type it can generate code for -- move it \
                  into the FROM clause instead (e.g. `FROM ..., {function}(...) AS {column}`) and select \
                  {column}'s fields directly instead of the whole record"
             ),
@@ -199,7 +199,7 @@ impl ScytheError {
         Self::new(
             ErrorCode::UnresolvedType,
             format!(
-                "{subject} \"{column}\": ROW(...) builds a row with no single neutral type scythe can name -- \
+                "{subject} \"{column}\": ROW(...) builds a row with no single neutral type sqlkit can name -- \
                  CAST it to a named composite type, or select its fields individually instead of one ROW(...) value"
             ),
         )
@@ -213,7 +213,7 @@ impl ScytheError {
     pub fn unresolved_expression_type(subject: &str, column: &str) -> Self {
         Self::new(
             ErrorCode::UnresolvedType,
-            format!("{subject} \"{column}\": scythe could not determine a type for this expression"),
+            format!("{subject} \"{column}\": sqlkit could not determine a type for this expression"),
         )
     }
 }

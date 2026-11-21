@@ -10,7 +10,7 @@
 #   * `line_length` is generous. Generated code is not written for humans to
 #     hand-edit; the provenance header alone exceeds ruff's 88-column default,
 #     which is why it carries `# noqa: E501`. Wrapping decisions belong to the
-#     backends and to `scythe fmt`, not to a linter run over their output.
+#     backends and to `sqlkit fmt`, not to a linter run over their output.
 #   * ruff's UP042 is ignored. It asks for `StrEnum` in place of `str, Enum`,
 #     but `StrEnum` changes `str()` and `format()` of a member from
 #     `Status.ACTIVE` to `active`, so switching would change runtime behavior

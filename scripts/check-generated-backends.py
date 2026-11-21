@@ -211,7 +211,7 @@ HARNESS_STUBS: dict[str, tuple[str, str]] = {
 
 def find_pg_projects() -> list[dict]:
     projects = []
-    for scythe_toml in sorted(glob.glob(os.path.join(INTEGRATION, "*", "scythe.toml"))):
+    for scythe_toml in sorted(glob.glob(os.path.join(INTEGRATION, "*", "sqlkit.toml"))):
         proj_dir = os.path.dirname(scythe_toml)
         with open(scythe_toml, "rb") as fh:
             data = tomllib.load(fh)
@@ -332,7 +332,7 @@ def main() -> int:
             f"FAIL: found no postgresql-engine projects under {INTEGRATION}. "
             "This gate compiles every backend against the torture schema, so an "
             "empty project list means it checked nothing. Discovery looks for "
-            'engine = "postgresql" in each project\'s scythe.toml -- check that '
+            'engine = "postgresql" in each project\'s sqlkit.toml -- check that '
             "the key, its spelling, or the directory layout has not moved.",
             file=sys.stderr,
         )
@@ -341,7 +341,7 @@ def main() -> int:
     print(f"scratch workspace: {scratch}")
 
     # sql/ is copied once and shared by every project below via the same
-    # `../sql/...` relative paths their committed scythe.toml already uses.
+    # `../sql/...` relative paths their committed sqlkit.toml already uses.
     shutil.copytree(os.path.join(INTEGRATION, "sql"), os.path.join(scratch, "sql"))
 
     results = []
@@ -354,12 +354,12 @@ def main() -> int:
                 "node_modules", "bin", "obj", "target", "__pycache__", "*.egg-info", "_build", "deps"
             ),
         )
-        # No rmtree of the output dir first: `scythe generate` overwrites the
+        # No rmtree of the output dir first: `sqlkit generate` overwrites the
         # files it owns in place, and for rust-sqlx-nested-json `output` is
         # "src" -- the same directory main.rs (a HARNESS_STUBS target) lives
         # in, so removing the directory would also remove the just-written
         # stub (or race with writing it, depending on order).
-        patch_scythe_toml(os.path.join(dst, "scythe.toml"))
+        patch_scythe_toml(os.path.join(dst, "sqlkit.toml"))
 
         stub = HARNESS_STUBS.get(proj["backend"])
         if stub is not None:

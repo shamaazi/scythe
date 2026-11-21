@@ -1,20 +1,20 @@
-//! Regression tests for issue #207: `scythe generate` used to create
+//! Regression tests for issue #207: `sqlkit generate` used to create
 //! directories and write wherever `[[sql.gen]].output` pointed, with no
 //! containment check against the project root -- a `../../ESCAPED` or an
-//! absolute path was silently honoured, making `scythe generate` run in CI
-//! against a PR-modified `scythe.toml` an arbitrary
+//! absolute path was silently honoured, making `sqlkit generate` run in CI
+//! against a PR-modified `sqlkit.toml` an arbitrary
 //! directory-create-and-write primitive. Two targets sharing one `output`
 //! also silently clobbered each other, both reporting success.
 //!
 //! Every test drives the compiled binary via
-//! `Command::new(env!("CARGO_BIN_EXE_scythe"))`.
+//! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))`.
 
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
 fn scythe_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_scythe"))
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
 }
 
 fn stderr(output: &Output) -> String {
@@ -35,17 +35,17 @@ fn generate_rejects_parent_traversal_output_by_default() {
     std::fs::write(project.join("schema.sql"), SCHEMA_SQL).unwrap();
     std::fs::write(project.join("queries.sql"), QUERY_SQL).unwrap();
 
-    let config = "[scythe]\nversion = \"1\"\n\n\
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
         schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
         [[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"../../ESCAPED\"\n";
-    let config_path = project.join("scythe.toml");
+    let config_path = project.join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
         .args(["generate", "--config", config_path.to_str().unwrap()])
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     let err = stderr(&output);
     assert!(
@@ -72,11 +72,11 @@ fn generate_allows_parent_traversal_output_with_opt_out_flag() {
     std::fs::write(project.join("schema.sql"), SCHEMA_SQL).unwrap();
     std::fs::write(project.join("queries.sql"), QUERY_SQL).unwrap();
 
-    let config = "[scythe]\nversion = \"1\"\n\n\
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
         schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
         [[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"../ESCAPED\"\n";
-    let config_path = project.join("scythe.toml");
+    let config_path = project.join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
@@ -87,7 +87,7 @@ fn generate_allows_parent_traversal_output_with_opt_out_flag() {
             "--allow-output-escape",
         ])
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     assert!(
         output.status.success(),
@@ -114,19 +114,19 @@ fn generate_rejects_absolute_output_by_default() {
 
     let abs_output = root.path().join("abs_out");
     let config = format!(
-        "[scythe]\nversion = \"1\"\n\n\
+        "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
         schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
         [[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"{}\"\n",
         abs_output.display().to_string().replace('\\', "/"),
     );
-    let config_path = project.join("scythe.toml");
+    let config_path = project.join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
         .args(["generate", "--config", config_path.to_str().unwrap()])
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     assert!(
         !output.status.success(),
@@ -147,19 +147,19 @@ fn generate_rejects_two_targets_that_would_clobber_each_other() {
 
     // typescript-postgres and typescript-bun are both TypeScript backends, so both
     // emit "queries.ts" -- sharing `output = "o"` makes them collide.
-    let config = "[scythe]\nversion = \"1\"\n\n\
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
         schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
         [[sql.gen]]\nbackend = \"typescript-postgres\"\noutput = \"o\"\n\n\
         [[sql.gen]]\nbackend = \"typescript-bun\"\noutput = \"o\"\n";
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
         .args(["generate", "--config", config_path.to_str().unwrap()])
         .current_dir(dir.path())
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     let err = stderr(&output);
     assert!(
@@ -184,18 +184,18 @@ fn generate_allows_a_normal_relative_output() {
     std::fs::write(dir.path().join("schema.sql"), SCHEMA_SQL).unwrap();
     std::fs::write(dir.path().join("queries.sql"), QUERY_SQL).unwrap();
 
-    let config = "[scythe]\nversion = \"1\"\n\n\
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
         schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
         [[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"generated\"\n";
-    let config_path = dir.path().join("scythe.toml");
+    let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
 
     let output = scythe_bin()
         .args(["generate", "--config", config_path.to_str().unwrap()])
         .current_dir(dir.path())
         .output()
-        .expect("run scythe generate");
+        .expect("run sqlkit generate");
 
     assert!(
         output.status.success(),

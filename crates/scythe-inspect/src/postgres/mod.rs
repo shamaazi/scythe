@@ -178,7 +178,7 @@ impl DbDriver for PostgresDriver {
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("scythe-inspect: postgres connection task error: {e}");
+                eprintln!("sqlkit-inspect: postgres connection task error: {e}");
             }
         });
 
@@ -288,7 +288,7 @@ mod tests {
     /// two-argument `round(v, s)` for `numeric`, so `round(float8, int)` fails
     /// with SQLSTATE 42883 on every server version.  Because `run_all` used to
     /// abort on the first failing check, this single expression took the entire
-    /// `scythe inspect` command down.
+    /// `sqlkit inspect` command down.
     #[test]
     fn no_check_calls_two_arg_round_on_a_float() {
         let registry = CheckRegistry::canonical();

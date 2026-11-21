@@ -39,7 +39,7 @@ pub struct Catalog {
     /// dialect-specific type semantics (e.g. SQLite's `REAL` is an 8-byte
     /// IEEE float, unlike PostgreSQL's 4-byte `real`).
     dialect: SqlDialect,
-    /// Configured engine name (`scythe.toml`'s `[[sql]] engine`) when the
+    /// Configured engine name (`sqlkit.toml`'s `[[sql]] engine`) when the
     /// caller knows it, e.g. `"postgresql"`, `"redshift"`, `"duckdb"`.
     ///
     /// `SqlDialect` deliberately collapses every PostgreSQL-compatible

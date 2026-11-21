@@ -32,7 +32,7 @@ use crate::backend_trait::CodegenBackend;
 /// comment, ...), so a reader finds this substring and treats everything
 /// after it on that line as the field list, instead of needing a
 /// per-language rule for stripping each comment syntax.
-pub const HEADER_SENTINEL: &str = "scythe:provenance";
+pub const HEADER_SENTINEL: &str = "sqlkit:provenance";
 
 /// Line-comment token to embed the provenance header behind, derived from
 /// `manifest().backend.language`.
@@ -56,7 +56,7 @@ pub fn comment_prefix(language: &str) -> &'static str {
 /// `manifest().backend.language` the same way [`comment_prefix`] is.
 ///
 /// Python only, for one concrete reason: ruff's default `line-length` is 88,
-/// while the header runs to roughly 99 characters (`# scythe:provenance
+/// while the header runs to roughly 99 characters (`# sqlkit:provenance
 /// v=0.13.0 backend=python-psycopg3 engine=postgresql schema=sch1:` plus 16
 /// hex digits). Without a suppression, *every* file scythe generates for a
 /// Python target reports `E501 Line too long` on line 1 under `ruff check
@@ -130,14 +130,14 @@ fn needs_escape(character: char) -> bool {
 /// none of the escaped characters, so no shipped header's bytes change and
 /// no `Cow` is ever allocated. The escaping exists for the one field that
 /// is *not* constrained: `engine` is the `[[sql]]` `engine = "..."` value,
-/// deserialized verbatim from the user's `scythe.toml` with no validation
+/// deserialized verbatim from the user's `sqlkit.toml` with no validation
 /// upstream (`normalize_engine` only consults it to pick a dialect; the raw
 /// string is what a caller passes through to here). Encoding at the point
 /// of embedding, rather than at config parse time, means the guarantee
 /// holds regardless of how a value arrives — this call site today, or any
 /// future one — not just for callers that happen to validate first.
 ///
-/// The verifier (`scythe check`) must encode its configured engine the same
+/// The verifier (`sqlkit check`) must encode its configured engine the same
 /// way before comparing it against the header's `engine` field: the header
 /// always holds the encoded value, so comparing it against a raw one would
 /// permanently false-flag SC-PRV04 for any config whose engine string
@@ -222,7 +222,7 @@ pub fn decode_field(value: &str) -> Cow<'_, str> {
 /// (`header_line_round_trips_adversarial_field_values`) instead of two
 /// tests each asserting half of it against a hand-written string.
 ///
-/// `scythe check` still reads headers through its own private tokenizer in
+/// `sqlkit check` still reads headers through its own private tokenizer in
 /// `scythe-cli`, which does not decode. That stays correct rather than
 /// merely tolerable: it compares the field it read against the *encoded*
 /// configured value (it runs that value through [`sanitize_field`] first),
@@ -251,7 +251,7 @@ pub fn parse_header_fields(line: &str) -> Option<Vec<(&str, String)>> {
 
 /// Build the provenance header line that [`assemble_file`] prepends to every
 /// generated file, right after [`CodegenBackend::file_preamble`] and before
-/// [`CodegenBackend::file_header`]: the sentinel `scythe check` searches for,
+/// [`CodegenBackend::file_header`]: the sentinel `sqlkit check` searches for,
 /// commented out using the target language's own line-comment syntax so it
 /// reads as an ordinary comment to every downstream compiler, formatter, and
 /// human.
@@ -266,7 +266,7 @@ pub fn parse_header_fields(line: &str) -> Option<Vec<(&str, String)>> {
 /// `version` is supplied by the caller rather than read from this crate's
 /// own `CARGO_PKG_VERSION`. The number that belongs in the header is the
 /// version of the `scythe` binary that produced the file, because that is
-/// the number `scythe check` compares against; `scythe-codegen` happens to
+/// the number `sqlkit check` compares against; `scythe-codegen` happens to
 /// share the workspace version today, but baking its own constant in here
 /// would silently embed the wrong one the moment the two diverge.
 ///
@@ -274,7 +274,7 @@ pub fn parse_header_fields(line: &str) -> Option<Vec<(&str, String)>> {
 /// produced this file (see `AnalyzedQuery::fingerprint_set` in
 /// `scythe-core`), the `queries=` counterpart to `schema`'s `sch1:<16 hex>`
 /// — added in #94 so that editing a `.sql` query file without touching the
-/// schema is no longer invisible to `scythe check`.
+/// schema is no longer invisible to `sqlkit check`.
 ///
 /// *Every* field is passed through [`sanitize_field`] before embedding, not
 /// just the free-form `engine` one. Four of the five cannot contain an
@@ -368,7 +368,7 @@ const OPTIONS_FINGERPRINT_ALGORITHM_TAG: &str = "opt1";
 /// same option set must hash identically on every machine and every run,
 /// forever. A collision only under-reports drift (treats two different
 /// option sets as the same), never over-reports it, which is an acceptable
-/// failure mode for a hint that `scythe generate` fixes either way -- this
+/// failure mode for a hint that `sqlkit generate` fixes either way -- this
 /// is not a security boundary a cryptographic hash exists to defend.
 fn fnv1a_64(bytes: &[u8]) -> u64 {
     const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
@@ -390,7 +390,7 @@ fn fnv1a_64(bytes: &[u8]) -> u64 {
 /// engine, schema, queries -- and none of them moved when only an *option*
 /// changed: flipping `row_type`, adding a `derive`, or swapping in a
 /// different `manifest = "..."` overlay left the header byte-identical, so
-/// `scythe check` reported a stale artifact as fresh.
+/// `sqlkit check` reported a stale artifact as fresh.
 ///
 /// `options` is any iterator of `(key, value)` pairs -- a caller typically
 /// passes a `[[sql.gen]]` target's resolved `HashMap<String, String>` by
@@ -418,7 +418,7 @@ fn fnv1a_64(bytes: &[u8]) -> u64 {
 ///   keys are generated once per process from the OS random source (see
 ///   `ahash::random_state::get_fixed_seeds`, gated on the `std` feature),
 ///   not compiled in, so the identical option set hashes differently
-///   between two separate `scythe generate`/`scythe check` invocations --
+///   between two separate `sqlkit generate`/`sqlkit check` invocations --
 ///   which would make every fingerprint here spurious drift on every run.
 /// - **Injective encoding.** Every key, value, and the overlay's content are
 ///   each passed through [`sanitize_field`] before being folded into the
@@ -639,8 +639,8 @@ mod tests {
         r"\u{20}literal-escape",
         "\"quoted\"",
         "'single'",
-        "scythe:provenance v=9.9.9",
-        "// scythe:provenance",
+        "sqlkit:provenance v=9.9.9",
+        "// sqlkit:provenance",
         "# noqa: E501",
         "ünïcödé-ロケール",
         "emoji-🎉-field",
@@ -750,7 +750,7 @@ mod tests {
     #[test]
     fn parse_header_fields_preserves_unknown_keys() {
         let fields =
-            parse_header_fields("// scythe:provenance v=0.15.0 future_field=xyz").expect("header line must parse");
+            parse_header_fields("// sqlkit:provenance v=0.15.0 future_field=xyz").expect("header line must parse");
         assert_eq!(
             fields,
             vec![("v", "0.15.0".to_string()), ("future_field", "xyz".to_string())]
@@ -806,7 +806,7 @@ mod tests {
 
         assert_eq!(
             line,
-            "// scythe:provenance v=9.9.9-caller backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef \
+            "// sqlkit:provenance v=9.9.9-caller backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef \
              queries=q1:fedcba9876543210\n"
         );
     }
@@ -849,7 +849,7 @@ mod tests {
 
         assert_eq!(
             line,
-            "// scythe:provenance v=0.15.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef \
+            "// sqlkit:provenance v=0.15.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef \
              queries=q1:fedcba9876543210\n"
         );
     }
@@ -869,7 +869,7 @@ mod tests {
 
         assert_eq!(
             line,
-            "// scythe:provenance v=0.15.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef \
+            "// sqlkit:provenance v=0.15.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef \
              queries=q1:fedcba9876543210 options=opt1:0011223344556677\n"
         );
     }
@@ -913,7 +913,7 @@ mod tests {
 
     /// The whole reason `options_fingerprint` sorts internally: a caller's
     /// `HashMap` iterates in an order this function must not be sensitive
-    /// to, since two runs of `scythe generate` against the identical config
+    /// to, since two runs of `sqlkit generate` against the identical config
     /// can iterate that map differently.
     #[test]
     fn options_fingerprint_is_independent_of_input_order() {

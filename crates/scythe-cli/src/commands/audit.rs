@@ -1,10 +1,10 @@
-//! `scythe audit` — run security-category lint rules with security-flavoured
+//! `sqlkit audit` — run security-category lint rules with security-flavoured
 //! defaults (all-on, error-by-default) and emit findings in human / SARIF /
 //! JSON format.
 //!
 //! Supports:
-//! - Inline `-- scythe-audit: ignore[ID]` suppression annotations.
-//! - User-supplied rules via `[[audit.rule]]` in `scythe.toml` and optional
+//! - Inline `-- sqlkit-audit: ignore[ID]` suppression annotations.
+//! - User-supplied rules via `[[audit.rule]]` in `sqlkit.toml` and optional
 //!   `extra_rules = [...]` TOML files.
 
 use std::fs::File;
@@ -29,7 +29,7 @@ use super::shared::{
     validate_schema_source,
 };
 
-const TOOL_NAME: &str = "scythe-audit";
+const TOOL_NAME: &str = "sqlkit-audit";
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Inputs to `run_audit`. Mirrors the clap `Commands::Audit` shape so the CLI
@@ -90,7 +90,7 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(id) = &opts.explain
             && !registry.all_rules().iter().any(|(r, _)| r.id() == id.as_str())
         {
-            return Err(format!("no rule with id '{}' — try `scythe audit --list-rules`", id).into());
+            return Err(format!("no rule with id '{}' — try `sqlkit audit --list-rules`", id).into());
         }
 
         let mut out: Box<dyn Write> = open_output(opts.output.as_deref())?;
@@ -156,7 +156,7 @@ fn run_cluster_scope_gate(opts: &RunAuditOpts, format: Format) -> Result<(), Box
         None => cluster_scope::helper::PgVersion::default(),
     };
     if opts.files.is_empty() {
-        return Err("scythe audit --cluster-scope requires explicit planned-schema file(s)".into());
+        return Err("sqlkit audit --cluster-scope requires explicit planned-schema file(s)".into());
     }
 
     let report = cluster_scope::run(&opts.files, version)?;
@@ -247,16 +247,16 @@ fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error:
     }
 }
 
-/// Build the rule registry from `scythe.toml`'s `[lint]` and `[audit]`
+/// Build the rule registry from `sqlkit.toml`'s `[lint]` and `[audit]`
 /// sections: canonical rules plus severity overrides, plus any user-defined
 /// rules from `[[audit.rule]]` and `extra_rules`.
 ///
 /// Used two ways:
 /// - Discovery (`--list-rules` / `--explain`): the registry is never
 ///   executed, so the catalog reflects severities and rules as configured.
-/// - Explicit-file mode (`scythe audit <file>...`): the *same* registry is
+/// - Explicit-file mode (`sqlkit audit <file>...`): the *same* registry is
 ///   executed by [`audit_explicit_files`] -- before this, explicit-file mode
-///   built a bare `default_registry()` and ignored `scythe.toml` entirely,
+///   built a bare `default_registry()` and ignored `sqlkit.toml` entirely,
 ///   so a rule configured `"off"` still fired and `[[audit.rule]]` entries
 ///   never ran (issue #206, item 2).
 ///
@@ -378,7 +378,7 @@ pub(crate) fn print_rule_explanation(
     // ones that would currently fire.
     let rules = registry.all_rules();
     let Some((rule, sev)) = rules.iter().find(|(r, _)| r.id() == rule_id) else {
-        return Err(format!("no rule with id '{}' — try `scythe audit --list-rules`", rule_id).into());
+        return Err(format!("no rule with id '{}' — try `sqlkit audit --list-rules`", rule_id).into());
     };
     writeln!(out, "{} — {}", rule.id(), rule.name())?;
     writeln!(out, "  category: {}", rule.category())?;
@@ -400,7 +400,7 @@ pub(crate) fn print_rule_explanation(
     Ok(())
 }
 
-/// Select the rules `scythe audit` will actually execute against `dialect`,
+/// Select the rules `sqlkit audit` will actually execute against `dialect`,
 /// and report -- out loud -- everything that was dropped on the way.
 ///
 /// Two filters decide what runs, and before this neither was observable:
@@ -462,7 +462,7 @@ fn prepare_audit_rules<'a>(
             rule_id: "SC-AUDIT00".to_string(),
             rule_name: Some("no-applicable-rules".to_string()),
             rule_description: Some(
-                "scythe audit had no rule to run, so it examined nothing. Reported as an error rather \
+                "sqlkit audit had no rule to run, so it examined nothing. Reported as an error rather \
                  than an empty (clean-looking) report so an audit that verified nothing cannot pass a \
                  CI gate."
                     .to_string(),
@@ -591,7 +591,7 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         // `parse_engine_dialect`, not `SqlDialect::from_str(..).unwrap_or(PostgreSQL)`:
         // a typo'd engine (`mysql8`) used to be silently audited as
         // PostgreSQL -- wrong catalog parsing and a wrong dialect-gated rule
-        // set, with `scythe audit` reporting success regardless (#165, item
+        // set, with `sqlkit audit` reporting success regardless (#165, item
         // 3). `--dialect` already rejects this same mistake via
         // `validate_audit_dialect`; the config's `engine` field did not.
         let sql_dialect = parse_engine_dialect(engine_label).map_err(|e| format!("[{}] {}", sql_config.name, e))?;
@@ -670,11 +670,11 @@ pub(crate) fn audit_explicit_files(
     let catalog = Catalog::from_ddl_with_dialect(&[], &sql_dialect)
         .unwrap_or_else(|_| Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog"));
 
-    // Loads `scythe.toml`'s `[lint]`/`[audit]` sections when `config_path`
+    // Loads `sqlkit.toml`'s `[lint]`/`[audit]` sections when `config_path`
     // exists, falling back to the canonical registry when it does not --
     // explicit-file mode must still work with no config at all. Before
     // this, explicit-file mode always used a bare `default_registry()`, so
-    // a rule turned `"off"` in `scythe.toml` still fired and `[[audit.rule]]`
+    // a rule turned `"off"` in `sqlkit.toml` still fired and `[[audit.rule]]`
     // user rules never ran (#206, item 2).
     let registry = load_registry(config_path)?;
     let all_active = registry.active_rules();
@@ -713,7 +713,7 @@ struct StatementParseFailure {
 ///
 /// [`sqlparser::parser::Parser::parse_sql`] parses the whole input as one
 /// unit and fails on the first unparseable statement, taking every
-/// statement before it down too. For `scythe audit`, that meant a single
+/// statement before it down too. For `sqlkit audit`, that meant a single
 /// statement using SQL syntax the parser does not yet support silently
 /// disabled every finding in the rest of the file -- including real
 /// security findings -- with only a stderr line (not visible to a CI job
