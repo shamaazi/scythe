@@ -112,6 +112,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Minimum supported versions raised: Node.js 22, PHP 8.3, Elixir 1.17, Go 1.27, Java 25.
+- Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
 - TypeScript and JavaScript `:one` functions guard a missing row in one line
   (`if (row === undefined) throw new Error(...);`) instead of a three-line
   block. A statement that always returns a row (an aggregate, `INSERT ...
@@ -166,6 +168,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of the generic `Fetch all X rows.` / `Execute a query ...` wording,
   which stays the fallback. Several lines render as a multi-line block. The
   comment stays in the emitted SQL text.
+## [0.20.3] - 2026-10-31
+
+### Changed
+
+- Development tasks run with mise instead of go-task. `mise.toml` and
+  `mise.lock` pin every tool at the xberg-io/toolchains baseline, with Rust
+  still pinned by `rust-toolchain.toml` (now 1.99.1). Every Taskfile task keeps
+  its name (`mise run test`, `mise run version:sync 0.20.3`); the integration
+  tasks live in `integration_tests/mise.toml` and run from that directory.
+  `pnpm` moves to 12.15.0 and every integration lockfile is relocked for it.
+- CI installs its tools with `setup-mise` and runs the mise tasks, gains a
+  toolchain baseline gate, runs its macOS jobs on `macos-26` and
+  `macos-26-intel`, and pins every action to a tag. A publish dispatched for a
+  tag that predates `mise-tasks/version/check.sh` skips that check with a
+  notice.
+- Governance and plugin bundles are regenerated with ai-rulez 5.9.8, which
+  writes its index lists with `-` markers. ai-rulez is no longer pinned
+  anywhere: tasks, the MCP server and the hook source follow its latest
+  release. `version:sync` now relocks the plugin root before regenerating the
+  bundles.
 
 ## [0.20.2] - 2026-10-31
 
