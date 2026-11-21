@@ -1,217 +1,94 @@
-# Contributing to Scythe
+# Contributing
 
-## Quick Start
+## Branches
 
-Prerequisites:
+- `main` mirrors upstream ([Goldziher/scythe](https://github.com/Goldziher/scythe)) and is never
+  committed to here.
+- `shamaazi` carries all of this fork's work. Commit to it directly, one logical change per commit.
 
-- [rustup](https://rustup.rs/) (installs the pinned toolchain from `.rust-toolchain.toml`)
-- [mise](https://mise.jdx.dev/) (installs the pinned tools from `mise.toml` and runs the tasks)
-- Docker (for integration tests only)
+To pick up upstream changes, fetch `upstream/main`, fast-forward `main` to it and merge `main` into
+`shamaazi`. Upstream still has every engine and language; the merge keeps this fork's deletions.
+
+The crates keep upstream's names (`scythe-*`) and the layout of `crates/scythe-core` (parser,
+analyzer, catalog), including the branches for dialects this fork no longer configures, so a
+PostgreSQL fix made here can be cherry-picked onto upstream's `main` and offered upstream.
+
+## Setup
+
+Install [Nix](https://nixos.org/download) and [devenv](https://devenv.sh/getting-started/), then:
 
 ```bash
-git clone https://github.com/Goldziher/scythe.git
-cd scythe
-mise run setup    # install tools and pre-commit hooks, fetch dependencies
-mise run check    # run lint + test — verify everything passes
+devenv shell
+devenv tasks run scythe:test
 ```
 
-This should take under 5 minutes from clone to green tests.
+`devenv.nix` pins the Rust toolchain from `rust-toolchain.toml` and provides Bun and a PostgreSQL
+service for the integration projects. Build in debug only; nothing here needs `--release`.
 
-## Pre-commit hooks
+## Tasks
 
-Install the git hooks with `mise run setup` (or `poly hooks install` directly). On
-every commit, poly runs lint, format, and file-safety checks plus `cargo clippy`;
-the Cargo hook also runs `cargo sort`, `cargo machete`, and `cargo deny`, and the
-commit-msg hook validates the message. Run all hooks manually with
-`poly hooks run pre-commit --all-files`.
+| Task | What it runs |
+|---|---|
+| `scythe:build` | Debug build of the CLI |
+| `scythe:test` | `cargo test --workspace`, then the core and codegen tests on mygiving's `postgres,lang-typescript` build |
+| `scythe:lint` | `cargo fmt --all --check` and `cargo clippy -- -D warnings` on the full and the minimal build |
+| `scythe:generate` | Regenerate the fixture tests and the integration projects' generated code |
+| `scythe:generated-fresh` | `scythe:generate`, then fail if anything changed |
+| `scythe:integration` | Run the integration projects (starts devenv's PostgreSQL on port 5433) |
+| `scythe:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` acceptance controls |
+
+The GitHub workflow in `.github/workflows/ci.yml` runs the same tasks. Linking every test binary at
+once can exhaust memory on a small machine; `cargo test --workspace -j1` avoids it.
 
 ## Architecture
-
-Crate dependency graph:
 
 ```text
 scythe-cli
   |-- scythe-codegen
   |     |-- scythe-backend  (manifests, type resolution, naming)
   |     +-- scythe-core     (SQL parsing, catalog, type analysis)
-  +-- scythe-lint            (SQL linting rules + sqruff integration)
+  |-- scythe-inspect        (live PostgreSQL checks, schema drift, SQLite schema execution)
+  +-- scythe-lint           (lint and audit rules, sqruff integration)
 ```
-
-What each crate does:
-
-- **scythe-core** -- SQL parsing, schema catalog construction, type inference
-- **scythe-backend** -- manifest-driven type resolution, naming conventions, template rendering
-- **scythe-codegen** -- code generation backends implementing `CodegenBackend` trait
-- **scythe-lint** -- lint engine, rule registry, and built-in SQL lint rules
-- **scythe-cli** -- CLI binary, config loading, orchestration
-
-Key directories:
 
 | Directory | Purpose |
 |---|---|
-| `crates/` | All workspace crates |
-| `crates/scythe-codegen/manifests/` | Backend manifest TOML files (type mappings per backend/engine) |
-| `crates/scythe-codegen/src/backends/` | Backend implementations |
-| `crates/scythe-lint/src/rules/` | Lint rule implementations (performance, safety, style, naming, antipattern, codegen) |
-| `testing_data/` | 275+ JSON test fixtures for snapshot testing (see [Fixture Conventions](#fixture-conventions)) |
-| `integration_tests/` | Per-backend integration tests with Docker database containers |
-| `tools/test-generator/` | Generates Rust tests from JSON fixtures |
-| `tools/snippet-runner/` | Validates documentation code snippets |
-| `tools/migrate-fixtures/` | Fixture migration utility |
-| `website/src/content/docs/` | Documentation site |
+| `crates/scythe-codegen/manifests/` | Backend manifests: type mappings per backend and engine |
+| `crates/scythe-codegen/src/backends/` | `sqlx.rs`, `tokio_postgres.rs`, and `typescript_postgres.rs` (postgres.js and Bun) on `typescript_common.rs` |
+| `crates/scythe-lint/src/rules/` | Lint and audit rules |
+| `crates/scythe-conformance/` | Live nullability conformance suite (PostgreSQL and SQLite) |
+| `testing_data/` | JSON fixtures the test generator turns into tests |
+| `integration_tests/` | Projects that run generated code against real databases |
+| `tools/test-generator/` | Generates `crates/scythe-codegen/tests/generated` from `testing_data/` |
+| `tools/integration-test-generator/` | Renders the Rust integration projects from templates |
 
-## Adding a Language Backend
+## Fixtures
 
-1. Create a manifest TOML at `crates/scythe-codegen/manifests/{name}.toml`. For engine-specific variants, use `{name}.{engine}.toml` (e.g., `java-jdbc.mysql.toml`). Existing manifests serve as reference.
+Fixtures live under `testing_data/{category}/`; their IDs must be unique and `snake_case`, since they
+become test names. The loader in `tools/test-generator/src/fixture.rs` is the schema, and it rejects
+unknown keys. After changing a fixture, a backend or a template, run `scythe:generate` and commit the
+regenerated files; `scythe:generated-fresh` fails otherwise.
 
-2. Implement the `CodegenBackend` trait in `crates/scythe-codegen/src/backends/{name}.rs`. The trait is defined in `crates/scythe-codegen/src/backend_trait.rs`.
+## Integration projects
 
-3. Register the backend in `crates/scythe-codegen/src/backends/mod.rs`.
+`rust-sqlx`, `rust-tokio-postgres` and `rust-sqlx-sqlite` are rendered by
+`tools/integration-test-generator`; `rust-sqlx-nested-json` and `typescript-bun` are kept by hand.
+Every project must be run by the `scythe:integration` task:
+`tools/integration-test-generator/tests/coverage_completeness.rs` fails otherwise.
 
-4. Add any backend-specific validation logic in `crates/scythe-codegen/src/lib.rs`.
+## Adding a lint rule
 
-5. Create an integration test directory at `integration_tests/{name}/` with a working project that imports the generated code and executes queries against a real database.
+1. Implement `LintRule` in the right file under `crates/scythe-lint/src/rules/`.
+2. Register it in `crates/scythe-lint/src/registry.rs`.
+3. Add fixtures under `testing_data/lint/` that trigger and do not trigger it, and unit tests in the rule file.
 
-6. Add test fixture expectations in `testing_data/` if the backend requires new fixture coverage.
+## Commits
 
-7. Add integration test tasks in `integration_tests/mise.toml`.
-
-All 275+ existing fixtures will automatically test the new backend through snapshot tests.
-
-## Adding a Database Engine
-
-1. Add the engine variant to the SQL parser and catalog in `scythe-core`. Engine-specific SQL syntax and types must be handled here.
-
-2. Create engine-specific manifests at `crates/scythe-codegen/manifests/{backend}.{engine}.toml` for each backend that supports the engine.
-
-3. Add type mappings for the engine's SQL types in the manifest TOML. Map each SQL type to the target language's native type.
-
-4. Create integration test SQL schemas in `integration_tests/` with engine-appropriate DDL.
-
-5. Add a Docker service in `integration_tests/docker-compose.yml` if the engine requires a running server.
-
-## Adding a Lint Rule
-
-1. Add the rule implementation in the appropriate file under `crates/scythe-lint/src/rules/` (e.g., `performance.rs`, `safety.rs`, `style.rs`, `naming.rs`, `antipattern.rs`, `codegen.rs`). Implement the `LintRule` trait.
-
-2. Register the rule in `crates/scythe-lint/src/registry.rs`.
-
-3. Add test fixtures in `testing_data/lint/` with SQL that triggers and does not trigger the rule.
-
-4. Add tests in the rule file itself.
-
-5. Document the rule in `website/src/content/docs/reference/lint-rules.md`.
-
-## Testing
-
-| Command | What it runs |
-|---|---|
-| `mise run test` | Unit tests + snapshot tests + fixture-generated tests |
-| `mise run test:verbose` | Same, with `--nocapture` output |
-| `mise run lint` | All linters via poly (fmt, clippy, cargo-deny, cargo-machete, etc.) |
-| `mise run check` | Lint + test combined |
-| `mise run snippets:validate` | Validate documentation code snippets at syntax level |
-| `mise run snippets:validate:compile` | Validate documentation code snippets at compile level |
-
-## Fixture Conventions
-
-All JSON test fixtures live under `testing_data/`. Do not create fixture directories at the repo root.
-
-| Subdirectory | Contents |
-|---|---|
-| `testing_data/{category}/` | Fixtures for a specific SQL feature (select, joins, types, lint, etc.) |
-| `testing_data/engines_pending/` | Type mapping fixtures for engines not yet fully implemented (mssql, oracle, redshift, snowflake). Add fixtures here when speccing out new engine support before the implementation lands. |
-
-Fixture IDs must be unique across all files and are used as test function names — use `snake_case`.
-
-There is no standalone JSON Schema for the fixture format: the loader in `tools/test-generator/src/fixture.rs`
-(`Fixture` and friends) is the schema. Every struct carries `#[serde(deny_unknown_fields)]`, so a misspelled or
-stale key fails fixture loading with an error naming the offending key, rather than silently loading as an empty
-default.
-
-Fixture-generated tests: tests are generated from JSON fixtures in `testing_data/` by the `test-generator` tool. CI runs this automatically. To regenerate locally:
-
-```bash
-cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-codegen/tests/generated
-cargo fmt --all
-```
-
-Integration tests require Docker. From `integration_tests/`:
-
-```bash
-mise run db:up        # start PostgreSQL/MySQL/SQLite containers
-mise run db:migrate   # apply schema
-mise run all          # run all integration tests
-mise run db:down      # stop containers
-```
-
-Individual integration tests: `mise run test:rust-sqlx`, `mise run test:python-psycopg3`, etc.
-
-## Code Style
-
-- Rust formatting: `cargo fmt --all`
-- Rust linting: `cargo clippy --workspace -- -D warnings`
-- Rust edition: 2024
-- Use `ahash` instead of `std::collections::HashMap`
-- Max 120 character line width
-- Generated code must pass real language tooling (ruff, biome, gofmt, etc.)
-- Pre-commit hooks enforce all of the above plus:
-  - Trailing whitespace and EOF newlines
-  - TOML/YAML/JSON validation
-  - Markdown linting
-  - Shell script formatting (shfmt)
-  - Unused dependency detection (cargo-machete)
-  - License and advisory checks (cargo-deny)
-  - Conventional commit message format (gitfluff)
-
-## Commit Messages
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-| Prefix | Use for |
-|---|---|
-| `feat:` | New features |
-| `fix:` | Bug fixes |
-| `docs:` | Documentation changes |
-| `refactor:` | Code restructuring without behavior change |
-| `test:` | Test additions or changes |
-| `chore:` | Maintenance, dependency updates, CI changes |
-
-First line under 72 characters, imperative mood. Add scope when useful: `feat(codegen): add Ruby MySQL2 backend`.
-
-Use `feat!:` or `fix!:` prefix for breaking changes.
-
-## PR Requirements
-
-- All CI checks must pass (lint, test, build, snippet validation)
-- New features need tests
-- Backend changes need integration tests
-- One logical change per PR
-- PR title follows conventional commit format
-
-## Breaking Changes
-
-- Bump the minor version (0.x.0)
-- Document in changelog with migration notes
-- Use `feat!:` or `fix!:` commit prefix
-
-## Security
-
-- No secrets in code or test files
-- Use environment variables for database credentials
-- Report security issues privately -- do not open public issues
+[Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`,
+`refactor:`, `test:`, `chore:`, with a scope where useful (`fix(analyzer): ...`) and `!` for a
+breaking change. The body says why. Add an entry under `## [Unreleased]` in `CHANGELOG.md` for
+anything a user of the CLI would notice.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
-
-## AI governance and plugin bundles
-
-ai-rulez is never pinned: the tasks run its latest release through `npx -y ai-rulez@latest` (Node 22 or later).
-Installing governance hooks requires Python 3.11 or newer. Run `mise run governance:hooks`
-without replacing existing local preferences. Edit `.ai-rulez/` for maintainer
-governance and `plugin/.ai-rulez/` for installable product skills. Run
-`mise run governance:check` and `mise run plugin:verify` before committing.
-See [plugin installation and publishing](plugin/assets/README.md).
-
-Registry publisher identities and initial account enrollment are documented in [Plugin distribution](.github/PLUGIN-PUBLISHING.md).
+Contributions are licensed under the MIT License.

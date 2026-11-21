@@ -1,108 +1,39 @@
 # integration_tests
 
-Cross-language integration test harnesses for scythe-generated database access code, one
-directory per backend (language + driver + engine combination).
+Projects that run scythe-generated code against real databases, one directory per backend and
+engine combination:
+
+| Project | Backend | Engine |
+|---------|---------|--------|
+| `rust-sqlx` | `rust-sqlx` | PostgreSQL |
+| `rust-sqlx-nested-json` | `rust-sqlx` with nested aggregates | PostgreSQL |
+| `rust-sqlx-sqlite` | `rust-sqlx` | SQLite |
+| `rust-tokio-postgres` | `rust-tokio-postgres` | PostgreSQL |
+| `typescript-bun` | `typescript-bun` | PostgreSQL |
+
+Each harness applies its own schema from `sql/pg/schema.sql` or `sql/sqlite/schema.sql`.
+`sql/torture/` is a wider PostgreSQL schema for stress-testing the generators.
+
+## Running them
+
+```bash
+devenv tasks run scythe:integration
+```
+
+The task starts devenv's PostgreSQL (port 5433, database `scythe_test`, user and password `scythe`)
+and runs every project; the SQLite project uses a temporary database file.
 
 ## How these directories are produced
 
-Two generators feed this tree, run via `mise run generate:all`:
+`tools/integration-test-generator` renders the `rust-sqlx`, `rust-sqlx-sqlite` and
+`rust-tokio-postgres` scaffolding (`scythe.toml`, the harness and `Cargo.toml`) from
+`tools/integration-test-generator/templates/`; `rust-sqlx-nested-json` and `typescript-bun` are kept
+by hand. `scythe generate` then writes each project's query code. Never hand-edit generated files:
+change the generator or the templates, run `devenv tasks run scythe:generate` and commit the result.
 
-1. `tools/integration-test-generator` renders each backend's scaffolding (`scythe.toml`, the
-   test harness, and the dependency manifest) from `tools/integration-test-generator/templates/`.
-   The full backend list is defined once, in `build_backends()`
-   (`tools/integration-test-generator/src/main.rs`); run
-   `cargo run --quiet -p integration-test-generator -- --list` to print it. Do not hand-maintain
-   a copy of this list elsewhere — `integration_tests/mise.toml`'s `generate` task consumes
-   it directly so the two can't drift.
-2. `scythe generate`, run inside each backend directory, renders the `generated/` (or
-   language-equivalent) query code from `sql/*/schema.sql` and `sql/*/queries/*.sql`.
+## Coverage is enforced
 
-Both are generated output. Never hand-edit files under a backend's `generated/` directory, or
-`scythe.toml`/dependency manifests for a backend that `build_backends()` owns — fix the
-generator or the jinja templates instead, then run `mise run generate:all` and commit the result.
-
-## Coverage completeness is enforced, not audited
-
-`tools/integration-test-generator/tests/coverage_completeness.rs` (run by
-`cargo test --workspace`) cross-checks three lists that used to be maintained independently:
-
-1. every backend manifest under `crates/scythe-codegen/manifests/` resolves to an integration
-   project here;
-2. every integration project has a `test:<project>` task in `mise.toml`;
-3. every integration project is run by a step in `.github/workflows/integration.yml`.
-
-A project's `(backend, engine)` is mapped onto the manifest it selects by calling the real
-resolver, not by re-deriving the engine-fallback table — `csharp-mysqlconnector` on `mariadb`
-resolves to the `mysql` manifest, and a second copy of that rule would just be another thing to
-drift.
-
-Gaps live in `tools/integration-test-generator/coverage-exemptions.txt`, one line per gap with a
-written reason. The list ratchets both ways: an uncovered entry that is not listed fails the
-build, and a listed entry that has since been covered also fails the build as stale. There is no
-percentage and no tolerance, so it can only shrink. Adding a backend manifest without an
-integration project now fails on the commit that adds the manifest.
-
-## Redshift and Snowflake are substitutes, not the engines they are named for
-
-Two engines have no runnable local or CI target and are exercised against stand-ins. Both are
-defensible, but the job names and the backend matrix read as real coverage, so state it here:
-
-- **Redshift runs on stock PostgreSQL 16.** CI's `integration-redshift` job and the local
-  `redshift-pg-compat` compose service both apply `sql/redshift/schema_pg_compat.sql`, in which
-  `IDENTITY` became `SERIAL` and `GETDATE()` became `NOW()`. The real `sql/redshift/schema.sql` —
-  what codegen is pointed at in a deployment — runs nowhere. Redshift forked PostgreSQL 8.0, so
-  this leg cannot show: `SERIAL`/`IDENTITY` differences on `RETURNING`; `JSONB` and array types
-  (Redshift has neither); `CREATE TYPE ... AS ENUM` (Redshift has none — the PG schema uses a
-  `user_status` enum where the Redshift schema uses `VARCHAR(50)`); `ON CONFLICT`; CTE
-  materialization; or the `information_schema` column-type OIDs introspection reads to pick host
-  types. 13 projects.
-- **Snowflake runs on fakesnow**, which is DuckDB behind a Snowflake REST facade. The harnesses do
-  load the *real* `sql/snowflake/schema.sql`, so `VARIANT`, `NUMBER(10,2)`, `TIMESTAMP_NTZ`,
-  `TIMESTAMP_TZ` and `AUTOINCREMENT` are genuinely exercised. Being DuckDB, it still cannot show:
-  unquoted identifiers normalizing to UPPERCASE; `NUMBER(38,0)` default precision exceeding
-  `i64`; or `TIMESTAMP_LTZ` session-timezone resolution. Two wire formats (Arrow for JDBC, JSON
-  for the rest) are hand-implemented in the emulator, so divergence between that encoder and
-  Snowflake's own is invisible by construction. 7 projects.
-
-`sql/snowflake/schema_emu.sql` was deleted: nothing referenced it, and it substituted
-`NUMBER(10,2)` → `FLOAT` and `VARIANT` → `VARCHAR`, so re-pointing a harness at it would have
-silently deleted the decimal-precision assertion.
-
-## Directories outside the generator
-
-Three tracked directories are not produced by `tools/integration-test-generator` and are
-intentionally absent from `build_backends()`. They are the hand-maintained ones below.
-
-You may also see other directories under `integration_tests/` that this README does not mention.
-Anything without a `scythe.toml` and a git-tracked file is not one of these three — it is local
-build detritus (`bin/`, `obj/`, `_build/`, `deps/`, `Cargo.lock`, and similar gitignored output)
-left behind by a driver/engine combination that was renamed or removed. `git log --all --
-integration_tests/<dir>` returns nothing for such a directory. It is harmless (git ignores it and
-CI never sees it) and safe to delete locally with `rm -rf`; do not add it to this file or to
-`HAND_MAINTAINED`.
-
-### Hand-maintained by design
-
-The `HAND_MAINTAINED` list in `mise.toml` is the source of truth for this group — this section
-must list exactly what it lists.
-
-- `kotlin-jdbc-ext` — exercises the `extension_functions = "true"` codegen option for the
-  `kotlin-jdbc` backend. Kept out of the generated matrix because it's a one-off option
-  combination, not a distinct language/driver/engine axis.
-- `php-pdo-namespace` — exercises the configurable PHP `namespace` codegen option for the
-  `php-pdo` backend, for the same reason.
-- `rust-sqlx-nested-json` — pins a schema and dependency set the generator has no template for
-  (nested JSON aggregation), so it owns its `scythe.toml` and `Cargo.toml` by hand.
-
-  All three have their own hand-written `scythe.toml` and dependency manifest, but their
-  `generated/` output is still produced by `scythe generate` and drifts like any other generated
-  output, so `mise run generate` regenerates them too — via the explicit `HAND_MAINTAINED` list in
-  `mise.toml`, since they are absent from `build_backends()`. Only their scaffolding is
-  hand-written; their query code is gated like everything else. If you add another directory of
-  this kind, add it to `HAND_MAINTAINED` as well or its output will silently rot.
-
-Losing track of which hand-maintained directories are load-bearing test coverage versus inert
-local cruft is exactly how the Oracle LOB regression coverage was destroyed during 0.12.0. Keep
-this section accurate: if you add a new hand-maintained directory outside the generator, add it
-to `HAND_MAINTAINED` in `mise.toml` and list it above in the same change. Never add an
-untracked, gitignored-only directory to this list — see the note above the hand-maintained group.
+`tools/integration-test-generator/tests/coverage_completeness.rs` (part of `cargo test --workspace`)
+checks that every backend manifest is exercised by a project here and that every project is run by
+the `scythe:integration` task. Gaps go in `tools/integration-test-generator/coverage-exemptions.txt`,
+one line per gap with a reason; the list fails both on an unlisted gap and on a stale entry.

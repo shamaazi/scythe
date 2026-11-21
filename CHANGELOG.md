@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - `scythe migrate`, the sqlc importer.
+- The documentation website (`website/`) and its snippet validator
+  (`tools/snippet-runner`). The README now carries the configuration reference
+  for the kept backends, and CONTRIBUTING.md the fork's branch, devenv and
+  upstreaming workflow.
 
 ### Added
 

@@ -48,19 +48,10 @@ body:
     attributes:
       label: Backend
       options:
+        - typescript-bun
+        - typescript-postgres
         - rust-sqlx
         - rust-tokio-postgres
-        - python-psycopg3
-        - python-asyncpg
-        - typescript-postgres
-        - typescript-pg
-        - go-pgx
-        - java-jdbc
-        - kotlin-jdbc
-        - csharp-npgsql
-        - elixir-postgrex
-        - ruby-pg
-        - php-pdo
         - N/A
     validations:
       required: true
@@ -70,7 +61,6 @@ body:
       label: Database
       options:
         - PostgreSQL
-        - MySQL
         - SQLite
     validations:
       required: true

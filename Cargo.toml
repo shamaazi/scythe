@@ -10,7 +10,6 @@ members = [
     "crates/scythe-lint",
     "tools/integration-test-generator",
     "tools/migrate-fixtures",
-    "tools/snippet-runner",
     "tools/test-generator",
 ]
 

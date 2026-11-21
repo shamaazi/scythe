@@ -1,167 +1,64 @@
-<div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Goldziher/scythe/main/logo.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/Goldziher/scythe/main/logo-dark.svg">
-    <img width="400" alt="Scythe" src="https://raw.githubusercontent.com/Goldziher/scythe/main/logo-dark.svg" />
-  </picture>
+# scythe (shamaazi fork)
 
-**Write SQL. Get type-safe code. In ten languages.**
+**Write SQL. Get type-safe TypeScript for Bun, or Rust.**
 
-Scythe compiles annotated `.sql` files into database access code — row types, query functions and
-type mappings — that stays in sync with your schema. It reads your SQL statically, so generation
-needs no database connection and no network: it runs in a pre-commit hook.
+This is Shamaazi's fork of [Scythe](https://github.com/Goldziher/scythe), trimmed to what we use:
+PostgreSQL (and SQLite), generating TypeScript for [Bun's built-in SQL client](https://bun.com/docs/runtime/sql)
+and Rust for [sqlx](https://github.com/launchbadge/sqlx) or
+[tokio-postgres](https://github.com/sfackler/rust-postgres). It compiles annotated `.sql` files into
+database access code (row types, query functions and type mappings) that stays in sync with the
+schema. It reads SQL statically, so generation needs no database connection.
 
-10 languages · 10 databases · 56 backends · 59 lint and audit rules · nullability inferred through
-JOINs, CTEs and window functions
-
-[![crates.io](https://img.shields.io/crates/v/scythe-cli?label=crates.io&color=007ec6)](https://crates.io/crates/scythe-cli)
-[![Homebrew](https://img.shields.io/badge/Homebrew-tap-007ec6)](https://github.com/Goldziher/homebrew-tap)
-[![CI](https://img.shields.io/github/actions/workflow/status/Goldziher/scythe/ci.yml?label=CI&color=007ec6)](https://github.com/Goldziher/scythe/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-007ec6)](https://github.com/Goldziher/scythe/blob/main/LICENSE)
-[![Docs](https://img.shields.io/badge/docs-online-blue)](https://goldziher.github.io/scythe)
-[![Discord](https://img.shields.io/badge/Discord-Join%20our%20community-7289da?logo=discord&logoColor=white)](https://discord.gg/xt9WY3GnKR)
-
-[Docs](https://goldziher.github.io/scythe) · [Install](#installation) · [What you get](#what-you-get) · [Quick start](#quick-start) · [Commands](#commands) · [Compare](https://goldziher.github.io/scythe/comparisons/alternatives/)
-
-</div>
-
----
-
-## Why scythe
-
-Every application that talks to a database needs glue: code that maps parameters in, maps result
-rows out, and keeps the types aligned. It is tedious, easy to get subtly wrong, and it changes every
-time the schema does.
-
-Scythe deletes that layer. You keep writing SQL — the language your database already optimizes and
-your team already knows — and the mapping code is compiled from it. The generated code is readable,
-has no runtime dependency beyond your driver, and carries a provenance header so `scythe check` can
-tell you when it has drifted from the schema it came from.
-
-**Where an ORM still wins:** if your users choose the database, an ORM abstracts dialect differences
-at runtime and scythe does not. Scythe targets one engine per configuration block, which is what
-buys you engine-specific features and a real query planner. If you control the database, that trade
-is worth making.
+Upstream supports ten languages and ten databases; this fork keeps three backends and two engines,
+and adds Bun support, per-file output, schema type modules and other PostgreSQL work. The internal
+crates keep upstream's names and layout so PostgreSQL fixes can still be sent upstream.
 
 ## What you get
 
-| | What it does | Docs |
-|---|---|---|
-| **Type inference that reads the query** | Nullability propagated through `LEFT`/`RIGHT`/`FULL` joins, `COALESCE`, `CASE WHEN`, aggregates and window functions — not just column constraints. CTEs (including recursive), `RETURNING`, enums, composites, arrays and JSON map to language-native types. | [Type inference](https://goldziher.github.io/scythe/guide/type-inference/) |
-| **59 built-in rules** | 24 lint rules (`UPDATE` without `WHERE`, `NULL` compared with `=`, leading-wildcard `LIKE`, `SELECT *`) and 35 audit rules, plus sqruff's style rules through `scythe fmt`. | [Lint rules](https://goldziher.github.io/scythe/reference/lint-rules/) · [Linting](https://goldziher.github.io/scythe/guide/linting/) |
-| **`scythe audit`** | Security and migration-safety scanning: dangerous functions, `GRANT` to `PUBLIC`, literal passwords, `SELECT *` over PII, plus 19 migration rules for locking `ALTER`s and destructive DDL. Human, SARIF or JSON. | [Audit](https://goldziher.github.io/scythe/guide/audit/) |
-| **`scythe check`** | Verifies committed code still matches the SQL it was generated from, via 11 provenance rules. Given `--database-url` it adds 7 schema-drift rules against a live PostgreSQL catalog. | [CLI reference](https://goldziher.github.io/scythe/guide/cli-reference/) |
-| **`scythe inspect`** | Live-database health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. PostgreSQL (13 checks) and MySQL/MariaDB (4 checks). | [Inspect](https://goldziher.github.io/scythe/guide/inspect/) |
-| **Output you can shape** | Row types as Pydantic, msgspec, dataclasses, Zod schemas or plain interfaces, depending on backend; `structs_only` (TypeScript and `rust-sqlx`) for a types-only package; type overrides for `ltree`, `citext` or PostGIS. | [Configuration](https://goldziher.github.io/scythe/guide/configuration/) · [Custom types](https://goldziher.github.io/scythe/guide/custom-types/) |
-| **Annotations beyond `:one` / `:many`** | `@optional` compiles a parameter into a conditional filter, `:batch` for bulk operations, `@returns :grouped` with `@group_by` for nested results. | [Annotations](https://goldziher.github.io/scythe/guide/annotations/) |
-| **Coming from sqlc?** | `scythe migrate` converts an existing `sqlc.yaml` into a `scythe.toml`. | [Migration from sqlc](https://goldziher.github.io/scythe/getting-started/migration-from-sqlc/) |
+| | What it does |
+|---|---|
+| **Type inference that reads the query** | Nullability propagated through `LEFT`/`RIGHT`/`FULL` joins, `COALESCE`, `CASE WHEN`, aggregates, window functions and SQL functions, not just column constraints. CTEs (including recursive), `RETURNING`, enums, domains, composites, arrays and JSON map to native types. |
+| **`scythe check`** | Verifies committed code still matches the SQL it was generated from, through the provenance header every generated file carries. Given `--database-url`, it also compares the schema with a live PostgreSQL catalog. |
+| **`scythe lint`** | Correctness and performance rules (`UPDATE` without `WHERE`, `NULL` compared with `=`, leading-wildcard `LIKE`, query naming), plus sqruff's style rules. |
+| **`scythe audit`** | Security and migration-safety rules: dangerous functions, `GRANT` to `PUBLIC`, literal passwords, `SECURITY DEFINER` misuse, locking `ALTER`s and destructive DDL. Human, SARIF or JSON output. |
+| **`scythe fmt`** | SQL formatting through sqruff. |
+| **`scythe inspect`** | Live PostgreSQL health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. |
+| **Annotations** | `@name` and `@returns` (`:one`, `:opt`, `:many`, `:exec`, `:batch`, `:grouped` with `@group_by`), `@param` names and nullability, `@optional` filters. |
 
 ## Installation
 
-```bash
-cargo install scythe-cli
-cargo binstall scythe-cli              # prebuilt binary, no compile
-brew install Goldziher/tap/scythe
+Through Nix, building the `scythe-cli` package with only the features a project needs
+(PostgreSQL and TypeScript here):
+
+```nix
+scythe = pkgs.rustPlatform.buildRustPackage (final: {
+  pname = "scythe";
+  version = "0.20.3";
+  src = pkgs.fetchFromGitHub {
+    owner = "shamaazi";
+    repo = "scythe";
+    rev = "<commit on the shamaazi branch>";
+    hash = "<nix flake prefetch --json github:shamaazi/scythe/<commit>>";
+  };
+  cargoLock.lockFile = "${final.src}/Cargo.lock";
+  cargoBuildFlags = [ "--package" "scythe-cli" ];
+  buildNoDefaultFeatures = true;
+  buildFeatures = [ "postgres" "lang-typescript" ];
+  doCheck = false;
+  meta.mainProgram = "scythe";
+});
 ```
 
-Building from source, compile only the engines and languages you use, for example
-`cargo install scythe-cli --no-default-features --features postgres,lang-typescript`. See
-[Choosing engines and languages](https://goldziher.github.io/scythe/getting-started/installation/#choosing-engines-and-languages).
+Or with Cargo from a checkout: `cargo install --path crates/scythe-cli`.
 
-No Rust toolchain required — both wrappers download the prebuilt binary for your platform and verify
-its checksum:
-
-```bash
-pnpm add --save-dev scythe-cli
-pip install scythe-sql
-```
-
-Install scythe in a GitHub Actions workflow with the moving major-version action:
-
-```yaml
-- name: Install scythe
-  id: scythe
-  uses: Goldziher/scythe@v0
-- run: scythe --version
-```
-
-`v0` tracks the latest compatible action. Pin the downloaded CLI independently with
-`version: 0.20.1`, or set `cache: false` to disable the version-and-platform cache. The action
-verifies the release SHA-256 checksum, adds `scythe` to `PATH`, and exposes `version`, `target`, and
-`install-dir` outputs.
-
-See [Installation](https://goldziher.github.io/scythe/getting-started/installation/) for supported
-platforms, proxy configuration and cache control.
-
-<details>
-<summary><strong>Release archives</strong></summary>
-
-Every release publishes five archives and a `scythe_<version>_checksums.txt` file holding the
-SHA-256 of each:
-
-| Archive | Platform |
-|---|---|
-| `scythe-x86_64-unknown-linux-gnu.tar.gz` | Linux x64, glibc 2.28 or newer |
-| `scythe-aarch64-unknown-linux-gnu.tar.gz` | Linux arm64, glibc 2.28 or newer |
-| `scythe-x86_64-apple-darwin.tar.gz` | macOS x64 |
-| `scythe-aarch64-apple-darwin.tar.gz` | macOS Apple silicon |
-| `scythe-x86_64-pc-windows-msvc.zip` | Windows x64 |
-
-Each archive is built on its own runner for its own target, with no cross-compilation.
-
-```bash
-version=0.20.1
-base="https://github.com/Goldziher/scythe/releases/download/v${version}"
-curl -fsSLO "${base}/scythe-x86_64-unknown-linux-gnu.tar.gz"
-curl -fsSLO "${base}/scythe_${version}_checksums.txt"
-# --ignore-missing: the checksum file covers all five archives, only one was downloaded
-sha256sum --check --ignore-missing "scythe_${version}_checksums.txt"
-tar -xzf scythe-x86_64-unknown-linux-gnu.tar.gz
-./scythe --version
-```
-
-The Linux and macOS archives contain, flat at the root: `scythe`, `scythe-pg15-parser`,
-`scythe-pg18-parser`, `pg-parser-manifest.json`, `THIRD_PARTY_LICENSES.txt`, `PARSER_PROTOCOL.md`,
-`CHANGELOG.md`, `LICENSE` and `README.md`. The two parser helpers are the pinned PostgreSQL grammars
-that `scythe audit --cluster-scope` executes, so keep them in the same directory as `scythe`.
-
-The Windows zip carries `scythe.exe` and, in place of the two helpers, a
-`PARSER_HELPERS_UNAVAILABLE.txt` notice: upstream libpg_query needs POSIX socket headers Windows does
-not provide. Everything except `scythe audit --cluster-scope` works there; that command fails with a
-missing-helper error rather than passing the gate. Point `SCYTHE_PG_PARSER_DIR` at helpers you built
-yourself to run it.
-
-</details>
-
-<details>
-<summary><strong>Pre-commit / prek hooks</strong></summary>
-
-```yaml
-repos:
-  - repo: https://github.com/Goldziher/scythe
-    rev: v0.20.3
-    hooks:
-      - id: scythe-fmt        # format SQL
-      - id: scythe-lint       # lint with auto-fix
-      - id: scythe-audit      # SC-SEC*/SC-RLS*/SC-MIG*/SC-CHK*
-      - id: scythe-inspect    # live-DB checks, needs a configured database URL
-      - id: scythe-generate   # regenerate on SQL changes
-      - id: scythe-check      # validate without generating
-```
-
-The hooks declare `language: rust`, so pre-commit compiles scythe from source on first use — a few
-minutes. If you already have the binary on `PATH` (via `brew`, `npm` or `pip` above), add
-`language: system` to a hook to use it directly instead.
-
-See [Pre-commit hooks](https://goldziher.github.io/scythe/guide/pre-commit-hooks/) for the full
-table, native Poly producer setup, and per-hook configuration.
-
-</details>
+Cargo features: `postgres` and `sqlite` select the engines (and their live drivers for `inspect`,
+`check --database-url` and `schema_source = "execute"`), `lang-typescript` and `lang-rust` the
+backends. The default build has all four.
 
 ## Quick start
 
-**1. Annotate a query.** `status` is an enum column; `o.total` and `o.notes` sit on the right side of
-a `LEFT JOIN`.
+**1. Annotate a query.** `status` is an enum column; `o.total` and `o.notes` sit on the nullable
+side of a `LEFT JOIN`.
 
 ```sql
 -- @name GetUserOrders
@@ -185,54 +82,16 @@ schema = ["sql/schema.sql"]
 queries = ["sql/queries.sql"]
 
 [[sql.gen]]
-backend = "python-psycopg3"
+backend = "typescript-bun"
 output = "src/generated"
+field_case = "camelCase"
+params = "object"
 ```
 
-**3. Generate.**
+**3. Generate** with `scythe generate`.
 
-```bash
-scythe generate
-```
-
-**4. Use it.** `total` and `notes` are `| None` because the join can fail to match; `id` and `name`
-are not. The enum became a real `UserStatus`, and the parameter is typed with it.
-
-```python
-@dataclass(frozen=True, slots=True)
-class GetUserOrdersRow:
-    """Row type for GetUserOrders query."""
-
-    id: int
-    name: str
-    total: decimal.Decimal | None
-    notes: str | None
-
-
-async def get_user_orders(conn: AsyncConnection, *, status: UserStatus) -> list[GetUserOrdersRow]:
-    """Execute GetUserOrders query."""
-```
-
-<details>
-<summary><strong>The same row type in all ten languages</strong></summary>
-
-Every block below is real output for the query above, taken from the projects scythe's CI compiles
-on every run. Note where each language expresses "nullable" differently, and how `NUMERIC` lands on
-the right native decimal type in each.
-
-**Rust** (`rust-sqlx`)
-
-```rust
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct GetUserOrdersRow {
-    pub id: i32,
-    pub name: String,
-    pub total: Option<rust_decimal::Decimal>,
-    pub notes: Option<String>,
-}
-```
-
-**TypeScript** (`typescript-pg`)
+**4. Use it.** `total` and `notes` are nullable because the join can fail to match; `id` and `name`
+are not, and the enum parameter is typed with the generated union.
 
 ```typescript
 export interface GetUserOrdersRow {
@@ -241,168 +100,79 @@ export interface GetUserOrdersRow {
 	total: string | null;
 	notes: string | null;
 }
-```
 
-**Go** (`go-pgx`)
-
-```go
-type GetUserOrdersRow struct {
-	Id int32 `json:"id"`
-	Name string `json:"name"`
-	Total *decimal.Decimal `json:"total"`
-	Notes *string `json:"notes"`
+export interface GetUserOrdersParams {
+	status: UserStatus;
 }
+
+export async function getUserOrders(
+	sql: SQL,
+	params: GetUserOrdersParams,
+): Promise<GetUserOrdersRow[]> {
 ```
 
-**Java** (`java-jdbc`)
+## Backends
 
-```java
-public record GetUserOrdersRow(
-    int id,
-    String name,
-    @Nullable java.math.BigDecimal total,
-    @Nullable String notes
-) {}
-```
+| Backend | Language | Engines | Driver |
+|---------|----------|---------|--------|
+| `typescript-bun` | TypeScript | PostgreSQL | Bun's built-in `SQL` |
+| `rust-sqlx` | Rust | PostgreSQL, SQLite | sqlx |
+| `rust-tokio-postgres` | Rust | PostgreSQL | tokio-postgres |
 
-**Kotlin** (`kotlin-jdbc`)
+`typescript-bun` is a driver mode of upstream's postgres.js generator, so `typescript-postgres`
+(postgres.js) and the JSDoc variants `javascript-bun` and `javascript-postgres` are also available,
+though only `typescript-bun` has an integration project here.
 
-```kotlin
-data class GetUserOrdersRow(
-    val id: Int,
-    val name: String,
-    val total: java.math.BigDecimal?,
-    val notes: String?,
-)
-```
+`typescript-bun` and `typescript-postgres` options, set as keys of a `[[sql.gen]]` table:
 
-**C#** (`csharp-npgsql`)
+| Option | Values | Effect |
+|--------|--------|--------|
+| `output` | path, or a path containing `{dir}` | Output directory; with `{dir}`, one module per query file, written beside it |
+| `field_case` | `snake_case` (default), `camelCase` | Property names of rows and parameters |
+| `row_keys` | `remap` (default), `driver` | With `camelCase`, `driver` trusts the client to return camel-cased keys (e.g. Bun's `SQL.camel` transform) instead of remapping rows |
+| `params` | `positional` (default), `object` | Query functions take positional arguments or one parameter object |
+| `row_type` | `interface` (default), `zod` | Plain interfaces or Zod schemas |
+| `validation` | `none` (default), `jsdoc` | Document translated `CHECK` constraints on parameters |
+| `constraints` | `ignore`, `warn`, `error` | What to do with a constraint that cannot be translated |
+| `column_types` | module specifier | Declare row and parameter properties through a `Column<...>` type from that module |
+| `schema_types`, `schema_types_import` | path, specifier | Write the schema's enums and domains once, to one module, and import them |
+| `structs_only` | `true`/`false` | Emit types only, no query functions |
+| `outer_join_unions` | `true`/`false` | Model outer-joined columns as unions of present and absent shapes |
 
-```csharp
-public record GetUserOrdersRow(
-    int Id,
-    string Name,
-    decimal? Total,
-    string? Notes
-);
-```
-
-**Elixir** (`elixir-postgrex`)
-
-```elixir
-defmodule GetUserOrdersRow do
-  @moduledoc "Row type for GetUserOrders queries."
-
-  @type t :: %__MODULE__{
-    id: integer(),
-    name: String.t(),
-    total: Decimal.t() | nil,
-    notes: String.t() | nil
-  }
-  defstruct [:id, :name, :total, :notes]
-end
-```
-
-**Ruby** (`ruby-pg`)
-
-```ruby
-GetUserOrdersRow = Data.define(:id, :name, :total, :notes)
-```
-
-**PHP** (`php-pdo`)
-
-```php
-readonly class GetUserOrdersRow {
-    public function __construct(
-        public int $id,
-        public string $name,
-        public ?string $total,
-        public ?string $notes,
-    ) {}
-}
-```
-
-Plain JavaScript is available too: the four `javascript-*` backends emit ESM `.js` with the types
-carried in JSDoc, checkable under `tsc --checkJs --strict` with no build step.
-
-The [quickstart](https://goldziher.github.io/scythe/getting-started/quickstart/) walks the whole
-flow with full function bodies for every language.
-
-</details>
+`rust-sqlx` takes `structs_only`, `serde` and `derive`; `rust-tokio-postgres` takes `serde` and
+`derive`.
 
 ## Commands
 
 ```bash
 scythe generate                       # compile SQL to code
 scythe check                          # is the committed code still in sync?
-scythe lint sql/                      # 24 correctness and performance rules
-scythe audit sql/ --format sarif      # 35 security and migration-safety rules
+scythe lint sql/                      # lint rules
+scythe audit sql/ --format sarif      # security and migration-safety rules
 scythe fmt sql/                       # format via sqruff
-scythe inspect $DATABASE_URL          # live-database health checks
-scythe migrate sqlc.yaml              # convert an sqlc config
+scythe inspect $DATABASE_URL          # live PostgreSQL health checks
 ```
 
-`check` and `audit` exit `2` on error-severity findings and `1` on operational failure, so CI can
-tell the two apart. Full flags and exit codes are in the
-[CLI reference](https://goldziher.github.io/scythe/guide/cli-reference/).
+`check`, `lint` and `audit` exit `2` on error-severity findings and `1` on operational failure, so
+CI can tell the two apart. `scythe <command> --help` lists every flag.
 
-## Language and database support
+## Development
 
-Ten languages — Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby and PHP, plus plain
-JavaScript via the four `javascript-*` backends — across PostgreSQL, MySQL, MariaDB, SQLite, DuckDB,
-CockroachDB, MSSQL, Oracle, Redshift and Snowflake. **Coverage is not uniform**: not every language
-has a driver for every engine.
+The development environment and every task live in [devenv.nix](devenv.nix): run `devenv shell`,
+then `devenv tasks run <task>`.
 
-<details>
-<summary><strong>Driver matrix</strong></summary>
+| Task | What it runs |
+|------|--------------|
+| `scythe:build` | Debug build of the CLI |
+| `scythe:test` | Workspace tests, then the core and codegen tests on the `postgres,lang-typescript` build |
+| `scythe:lint` | `cargo fmt --check` and clippy on the full and minimal builds |
+| `scythe:generate` | Regenerate the fixture tests and the integration projects' generated code |
+| `scythe:generated-fresh` | Fail if regeneration changes anything |
+| `scythe:integration` | The rust-sqlx, rust-tokio-postgres, SQLite and Bun projects against devenv's PostgreSQL |
+| `scythe:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` controls |
 
-| Language | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB | MSSQL | Oracle | MariaDB | Redshift | Snowflake |
-|----------|-----------|-------|--------|--------|-------------|-------|--------|---------|----------|-----------|
-| Rust | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx, tokio-postgres | tiberius | sibyl | sqlx | sqlx, tokio-postgres | -- |
-| Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3, asyncpg | pyodbc | oracledb | aiomysql | psycopg3, asyncpg | snowflake-connector |
-| TypeScript | postgres.js, pg, Kysely | mysql2, Kysely | better-sqlite3, Kysely, node:sqlite, wasm-sqlite | duckdb-node | postgres.js, pg, Kysely | mssql, Kysely | oracledb | mysql2, Kysely | postgres.js, pg, Kysely | snowflake-sdk |
-| JavaScript | postgres.js, pg | mysql2 | better-sqlite3 | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | -- |
-| Go | pgx | database/sql | database/sql | database/sql | pgx | database/sql | godror | database/sql | pgx | gosnowflake |
-| Java | JDBC, R2DBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
-| Kotlin | JDBC, R2DBC, Exposed | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
-| C# | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | Npgsql | Microsoft.Data.SqlClient | ODP.NET | MySqlConnector | Npgsql | Snowflake.Data |
-| Elixir | Postgrex, Ecto | MyXQL | Exqlite | -- | Postgrex, Ecto | tds | jamdb_oracle | MyXQL | Postgrex | -- |
-| Ruby | pg | mysql2, trilogy | sqlite3 | -- | pg | tiny_tds | ruby-oci8 | mysql2, trilogy | pg | -- |
-| PHP | PDO, AMPHP | PDO, AMPHP | PDO | -- | PDO, AMPHP | PDO | -- | PDO, AMPHP | PDO | PDO |
-
-The CockroachDB column matches PostgreSQL by construction: `normalize_engine` folds `cockroachdb`
-into `postgresql` before a backend's engine support is consulted. Redshift does not fold that way —
-it needs a per-backend `*.redshift.toml` manifest, which is why its column is narrower.
-
-See the [backend overview](https://goldziher.github.io/scythe/backends/overview/) for per-backend
-options and emitted-code notes.
-
-</details>
-
-## Documentation
-
-Full documentation at [goldziher.github.io/scythe](https://goldziher.github.io/scythe).
-
-- [Quickstart](https://goldziher.github.io/scythe/getting-started/quickstart/) — zero to generated code, in every language
-- [Philosophy](https://goldziher.github.io/scythe/philosophy/) — why compile SQL instead of using an ORM
-- [Alternatives](https://goldziher.github.io/scythe/comparisons/alternatives/) — scythe against sqlc, SQLDelight, jOOQ and ORMs
-- [Configuration](https://goldziher.github.io/scythe/guide/configuration/) — the full `scythe.toml` reference
-- [Annotations](https://goldziher.github.io/scythe/guide/annotations/) — `@name`, `@returns`, `@optional`, `@nullable`, `@json`
-- [Type inference](https://goldziher.github.io/scythe/guide/type-inference/) — how nullability and types are derived
-- [Custom types](https://goldziher.github.io/scythe/guide/custom-types/) — overrides for extension and domain types
-- [CLI reference](https://goldziher.github.io/scythe/guide/cli-reference/) — every command, flag and exit code
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, architecture, and how to add backends, engines or
-lint rules.
+CI runs the same tasks. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
 
 ## License
 
-[MIT](LICENSE)
-
-## Coding-agent plugins
-
-Installable Scythe skills and eleven runtime plugin formats are documented in
-[the plugin guide](plugin/assets/README.md). The plugin carries SQL development
-instructions and references; install the Scythe CLI and application database drivers separately.
+[MIT](LICENSE). Scythe is by Na'aman Hirschfeld and contributors; see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
