@@ -24,6 +24,7 @@ fn address_composite() -> CompositeInfo {
 
 fn composite_param(name: &str, position: i64) -> AnalyzedParam {
     AnalyzedParam {
+        constraints: None,
         name: name.to_string(),
         neutral_type: "composite::address".to_string(),
         nullable: true,
@@ -104,6 +105,7 @@ fn ruby_pg_encodes_composite_fields_in_multi_param_batches() {
         query.sql = "INSERT INTO widgets (kind, home_address) VALUES ($1, $2)".to_string();
         query.params = vec![
             AnalyzedParam {
+                constraints: None,
                 name: "kind".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,

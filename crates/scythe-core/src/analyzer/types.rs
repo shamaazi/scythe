@@ -1,3 +1,5 @@
+use crate::catalog::ColumnOrigin;
+use crate::constraints::ValueConstraints;
 use crate::parser::{CustomAnnotation, QueryCommand};
 
 // ---------------------------------------------------------------------------
@@ -236,6 +238,14 @@ pub struct AnalyzedColumn {
     /// requires every field to be visible at the call site.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub untyped_literal: bool,
+    /// The catalog column this column reads unchanged -- through aliases, views,
+    /// CTEs, derived tables and outer joins -- or `None` for any computed value.
+    /// Internal bookkeeping for [`Self::constraints`], so not serialized.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub origin: Option<ColumnOrigin>,
+    /// What the schema declares about the values of [`Self::origin`].
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
+    pub constraints: Option<ValueConstraints>,
 }
 
 impl AnalyzedColumn {
@@ -258,6 +268,8 @@ impl AnalyzedColumn {
             sql_type,
             source_relation: type_info.source_relation,
             untyped_literal: type_info.untyped_literal,
+            origin: type_info.origin,
+            constraints: None,
         }
     }
 }
@@ -287,6 +299,12 @@ pub struct AnalyzedParam {
     /// serialized `AnalyzedQuery`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub source_relation: Option<String>,
+    /// What the schema declares about the values of the column this parameter
+    /// is written into directly (`INSERT ... VALUES`, `UPDATE ... SET`, `ON
+    /// CONFLICT DO UPDATE SET`). A comparison does not constrain a parameter:
+    /// a value no row holds simply matches nothing.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
+    pub constraints: Option<ValueConstraints>,
 }
 
 #[derive(Debug, Clone)]
@@ -311,6 +329,8 @@ pub(super) struct ScopeColumn {
     /// `jsonb_each`'s `key`/`value`) never originate a bare literal, so both
     /// leave this `false`.
     pub(super) untyped_literal: bool,
+    /// See [`AnalyzedColumn::origin`].
+    pub(super) origin: Option<ColumnOrigin>,
 }
 
 impl ScopeColumn {
@@ -325,6 +345,7 @@ impl ScopeColumn {
             neutral_type,
             base_nullable,
             untyped_literal: false,
+            origin: None,
         }
     }
 
@@ -342,7 +363,17 @@ impl ScopeColumn {
             neutral_type: neutral_type.into(),
             base_nullable,
             untyped_literal: false,
+            origin: None,
         }
+    }
+
+    /// Mark this scope column as reading `relation.column` of the catalog.
+    pub(super) fn with_origin(mut self, relation: &str) -> Self {
+        self.origin = Some(ColumnOrigin {
+            relation: relation.to_string(),
+            column: self.name.clone(),
+        });
+        self
     }
 
     /// Build a scope column from an already-analyzed output column, carrying
@@ -360,6 +391,7 @@ impl ScopeColumn {
             neutral_type: col.neutral_type.clone(),
             base_nullable: col.nullable,
             untyped_literal: col.untyped_literal,
+            origin: col.origin.clone(),
         }
     }
 }
@@ -378,6 +410,9 @@ pub(super) struct ParamInfo {
     pub(super) nullable: bool,
     /// See [`AnalyzedParam::source_relation`]; carried through unchanged into the public type.
     pub(super) source_relation: Option<String>,
+    /// Catalog columns this parameter is written into directly; their
+    /// constraints become [`AnalyzedParam::constraints`].
+    pub(super) written_to: Vec<ColumnOrigin>,
 }
 
 /// Result of inferring an expression's type
@@ -416,6 +451,9 @@ pub(super) struct TypeInfo {
     /// typed wrapper (`CAST`, a comparison, `COALESCE`, `widen_type_info`, ...)
     /// clears it the moment it builds a fresh `TypeInfo` around the value.
     pub(super) untyped_literal: bool,
+    /// See [`AnalyzedColumn::origin`]: set only for a value read unchanged from
+    /// a column in scope.
+    pub(super) origin: Option<ColumnOrigin>,
 }
 
 impl TypeInfo {
@@ -429,6 +467,7 @@ impl TypeInfo {
             nullable_before_join: nullable,
             source_relation: None,
             untyped_literal: false,
+            origin: None,
         }
     }
 
@@ -444,23 +483,17 @@ impl TypeInfo {
     /// projected out of a derived table or CTE (see
     /// [`ScopeColumn::from_analyzed_column`]) is still flagged one scope level
     /// up rather than resetting to `false` the moment it crosses that boundary.
-    pub(super) fn from_scope_column(
-        sql_type: impl Into<String>,
-        neutral_type: impl Into<String>,
-        base_nullable: bool,
-        source_alias: &str,
-        nullable_from_join: bool,
-        source_table: &str,
-        untyped_literal: bool,
-    ) -> Self {
+    /// It also carries the column's catalog origin, for its constraints.
+    pub(super) fn from_scope_column(col: &ScopeColumn, source: &ScopeSource) -> Self {
         Self {
-            sql_type: Some(sql_type.into()),
-            neutral_type: neutral_type.into(),
-            nullable: base_nullable || nullable_from_join,
-            join_group: nullable_from_join.then(|| source_alias.to_string()),
-            nullable_before_join: base_nullable,
-            source_relation: Some(source_table.to_string()),
-            untyped_literal,
+            sql_type: Some(col.sql_type.clone()),
+            neutral_type: col.neutral_type.clone(),
+            nullable: col.base_nullable || source.nullable_from_join,
+            join_group: source.nullable_from_join.then(|| source.alias.clone()),
+            nullable_before_join: col.base_nullable,
+            source_relation: Some(source.table_name.clone()),
+            untyped_literal: col.untyped_literal,
+            origin: col.origin.clone(),
         }
     }
 

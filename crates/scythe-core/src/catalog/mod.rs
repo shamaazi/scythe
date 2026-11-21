@@ -1,4 +1,5 @@
 mod builder;
+mod constraints;
 mod fingerprint;
 mod function_body;
 pub(crate) mod type_normalizer;
@@ -6,8 +7,8 @@ mod view_resolver;
 
 use ahash::AHashMap;
 use sqlparser::ast::{
-    AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ArgMode, ColumnOption, CreateFunction, DataType,
-    Expr, FunctionCalledOnNull, FunctionReturnType, ObjectName, Statement, TableConstraint,
+    AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ArgMode, ColumnOption, CommentObject,
+    CreateFunction, DataType, Expr, FunctionCalledOnNull, FunctionReturnType, ObjectName, Statement, TableConstraint,
     UserDefinedTypeRepresentation,
 };
 use sqlparser::parser::Parser;
@@ -16,6 +17,9 @@ use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
 use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key, object_name_to_raw_name};
+
+use constraints::attach_check;
+pub use constraints::{CheckConstraint, ColumnConstraints, ColumnOrigin};
 
 pub use builder::{
     CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
@@ -122,6 +126,7 @@ pub struct Function {
 pub(crate) struct DomainDef {
     pub(crate) base_type: String,
     pub(crate) not_null: bool,
+    pub(crate) constraints: ColumnConstraints,
 }
 
 #[derive(Debug, Clone)]
@@ -163,6 +168,9 @@ pub struct Column {
     pub nullable: bool,
     pub default: Option<String>,
     pub primary_key: bool,
+    /// What the schema declares about the column's values. See
+    /// [`Catalog::column_constraints`] for the resolved rules.
+    pub constraints: ColumnConstraints,
 }
 
 #[derive(Debug, Clone)]
@@ -855,9 +863,16 @@ impl Catalog {
         // named `CONSTRAINT <name> CHECK (...)` between the type and the
         // check body, and without this the constraint name and keyword were
         // folded into the reported base type. See #166.
+        // Any whitespace may separate the type from its constraints (`pg_dump`
+        // puts each constraint on its own indented line); ASCII whitespace
+        // maps to a space byte for byte, so offsets stay valid for `rest`.
+        let rest_spaced: String = rest_upper
+            .chars()
+            .map(|c| if c.is_ascii_whitespace() { ' ' } else { c })
+            .collect();
         let end_pos = [" NOT NULL", " CHECK", " DEFAULT", " CONSTRAINT "]
             .iter()
-            .filter_map(|kw| rest_upper.find(kw))
+            .filter_map(|kw| rest_spaced.find(kw))
             .min()
             .unwrap_or(rest.len());
         let base_type_raw = rest[..end_pos].trim();
@@ -873,6 +888,7 @@ impl Catalog {
         // keyword. See #166.
         let not_null = top_level_contains_keyword(rest_upper, "NOT NULL");
 
+        let mut constraints = ColumnConstraints::default();
         let parser_dialect = dialect.to_sqlparser_dialect();
         let normalized = match Parser::parse_sql(
             parser_dialect.as_ref(),
@@ -881,6 +897,7 @@ impl Catalog {
             Ok(stmts) => {
                 if let Some(Statement::CreateTable(ct)) = stmts.into_iter().next() {
                     if let Some(col) = ct.columns.first() {
+                        constraints = ColumnConstraints::from_type(&col.data_type, &self.domains);
                         let (t, _) = normalize_data_type(&col.data_type, &self.domains, *dialect);
                         t
                     } else {
@@ -893,11 +910,27 @@ impl Catalog {
             Err(_) => base_type_raw.to_lowercase(),
         };
 
+        for (name, body) in constraints::domain_checks(&rest[end_pos..]) {
+            let body = if *dialect == SqlDialect::PostgreSQL {
+                crate::parser::spell_out_default_trim_characters(&body)
+            } else {
+                body
+            };
+            let parsed = Parser::new(parser_dialect.as_ref())
+                .try_with_sql(&body)
+                .and_then(|mut parser| parser.parse_expr());
+            constraints.checks.push(match parsed {
+                Ok(expr) => CheckConstraint::new(name, &expr, "value"),
+                Err(_) => CheckConstraint::unparsed(name, &body),
+            });
+        }
+
         self.domains.insert(
             domain_name,
             DomainDef {
                 base_type: normalized,
                 not_null,
+                constraints,
             },
         );
         true
@@ -923,7 +956,48 @@ impl Catalog {
                 self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized, dialect)
             }
             Statement::CreateFunction(function) => self.process_create_function(function, dialect),
+            Statement::Comment {
+                object_type,
+                object_name,
+                comment,
+                ..
+            } => {
+                self.process_comment(object_type, &object_name, comment);
+                Ok(())
+            }
             _ => Ok(()),
+        }
+    }
+
+    /// Record `COMMENT ON COLUMN` and `COMMENT ON DOMAIN` text; other comments
+    /// carry nothing the catalog uses.
+    fn process_comment(&mut self, object_type: CommentObject, object_name: &ObjectName, comment: Option<String>) {
+        match object_type {
+            CommentObject::Column => {
+                let Some((relation, column)) = constraints::comment_column_target(object_name) else {
+                    return;
+                };
+                if let Some(table) = get_table_mut(&mut self.tables, &relation)
+                    && let Some(target) = table.columns.iter_mut().find(|c| c.name == column)
+                {
+                    target.constraints.comment = comment;
+                }
+            }
+            CommentObject::Domain => {
+                let key = object_name_to_key(object_name);
+                let key = if self.domains.contains_key(&key) {
+                    Some(key)
+                } else {
+                    let suffix = format!(".{key}");
+                    let mut candidates: Vec<&String> = self.domains.keys().filter(|k| k.ends_with(&suffix)).collect();
+                    candidates.sort();
+                    candidates.first().map(|k| (*k).clone())
+                };
+                if let Some(domain) = key.and_then(|key| self.domains.get_mut(&key)) {
+                    domain.constraints.comment = comment;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1026,11 +1100,23 @@ impl Catalog {
                 // the same analyzer path an ordinary annotated query uses,
                 // rather than silently registering a zero-column table. See
                 // issue #183.
-                Some(query) => self.resolve_select_columns(*query)?,
+                // A table copies the query's column types but none of its
+                // sources' constraints, so its columns keep no origin.
+                Some(query) => self
+                    .resolve_select_columns(*query)?
+                    .into_iter()
+                    .map(|column| Column {
+                        constraints: ColumnConstraints::default(),
+                        ..column
+                    })
+                    .collect(),
                 None => Vec::new(),
             }
         } else {
             let mut columns: Vec<Column> = Vec::new();
+            // Checks on one column, column-level or not, attached once every
+            // column exists: a column-level check may name another column.
+            let mut pending_checks: Vec<(Option<String>, Expr)> = Vec::new();
 
             for col_def in &ct.columns {
                 let col_name = ident_to_lower(&col_def.name);
@@ -1059,8 +1145,13 @@ impl Catalog {
                 let mut default: Option<String> = None;
                 let mut primary_key = false;
                 let mut is_auto_increment = false;
+                let constraints = ColumnConstraints::from_type(&col_def.data_type, &self.domains);
 
                 for opt_def in &col_def.options {
+                    if let ColumnOption::Check(check) = &opt_def.option {
+                        let name = check.name.as_ref().or(opt_def.name.as_ref()).map(ident_to_lower);
+                        pending_checks.push((name, (*check.expr).clone()));
+                    }
                     match &opt_def.option {
                         ColumnOption::Null => {
                             nullable = true;
@@ -1115,10 +1206,14 @@ impl Catalog {
                     nullable,
                     default,
                     primary_key,
+                    constraints,
                 });
             }
 
             for constraint in &ct.constraints {
+                if let TableConstraint::Check(check) = constraint {
+                    pending_checks.push((check.name.as_ref().map(ident_to_lower), (*check.expr).clone()));
+                }
                 if let TableConstraint::PrimaryKey(pk_constraint) = constraint {
                     // The rowid-alias escape hatch only exists for a
                     // *single*-column primary key (SQLite has no composite
@@ -1153,6 +1248,10 @@ impl Catalog {
                         }
                     }
                 }
+            }
+
+            for (name, expr) in pending_checks {
+                attach_check(&mut columns, name, &expr);
             }
 
             columns
@@ -1223,7 +1322,14 @@ impl Catalog {
                         nullable,
                         default,
                         primary_key,
+                        constraints: ColumnConstraints::from_type(&column_def.data_type, &self.domains),
                     });
+                    for opt_def in &column_def.options {
+                        if let ColumnOption::Check(check) = &opt_def.option {
+                            let name = check.name.as_ref().or(opt_def.name.as_ref()).map(ident_to_lower);
+                            attach_check(&mut table.columns, name, &check.expr);
+                        }
+                    }
                 }
                 AlterTableOperation::DropColumn { column_names, .. } => {
                     let Some(table) = get_table_mut(&mut self.tables, &table_key) else {
@@ -1295,6 +1401,7 @@ impl Catalog {
                             AlterColumnOperation::SetDataType { data_type, .. } => {
                                 let (new_type, _) = normalize_data_type(&data_type, &self.domains, *dialect);
                                 col.sql_type = new_type;
+                                col.constraints.retype(&data_type, &self.domains);
                             }
                             AlterColumnOperation::SetDefault { value } => {
                                 col.default = Some(value.to_string());
@@ -1310,6 +1417,9 @@ impl Catalog {
                     let Some(table) = get_table_mut(&mut self.tables, &table_key) else {
                         return Err(ScytheError::unknown_table(&table_key));
                     };
+                    if let TableConstraint::Check(check) = &constraint {
+                        attach_check(&mut table.columns, check.name.as_ref().map(ident_to_lower), &check.expr);
+                    }
                     if let TableConstraint::PrimaryKey(pk_constraint) = &constraint {
                         // SQLite supports neither `ADD CONSTRAINT` nor
                         // adding a primary key to an existing table, so
@@ -1333,6 +1443,16 @@ impl Catalog {
                                     col.nullable = false;
                                 }
                             }
+                        }
+                    }
+                }
+                AlterTableOperation::DropConstraint { name, .. } => {
+                    let name = ident_to_lower(&name);
+                    if let Some(table) = get_table_mut(&mut self.tables, &table_key) {
+                        for col in &mut table.columns {
+                            col.constraints
+                                .checks
+                                .retain(|check| check.name.as_deref() != Some(name.as_str()));
                         }
                     }
                 }

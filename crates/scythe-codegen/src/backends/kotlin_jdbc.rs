@@ -1589,6 +1589,7 @@ mod tests {
             // `resolved_param_for_position` (#149's occurrence-based bind
             // lookup has no position to resolve `$1` against).
             q.params = vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,

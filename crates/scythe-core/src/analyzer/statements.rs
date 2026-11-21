@@ -350,15 +350,7 @@ impl<'a> Analyzer<'a> {
                         for col in &source.columns {
                             columns.push(AnalyzedColumn::from_type_info(
                                 col.name.clone(),
-                                TypeInfo::from_scope_column(
-                                    col.sql_type.clone(),
-                                    col.neutral_type.clone(),
-                                    col.base_nullable,
-                                    &source.alias,
-                                    source.nullable_from_join,
-                                    &source.table_name,
-                                    col.untyped_literal,
-                                ),
+                                TypeInfo::from_scope_column(col, source),
                             ));
                         }
                     }
@@ -375,15 +367,7 @@ impl<'a> Analyzer<'a> {
                             for col in &source.columns {
                                 columns.push(AnalyzedColumn::from_type_info(
                                     col.name.clone(),
-                                    TypeInfo::from_scope_column(
-                                        col.sql_type.clone(),
-                                        col.neutral_type.clone(),
-                                        col.base_nullable,
-                                        &source.alias,
-                                        source.nullable_from_join,
-                                        &source.table_name,
-                                        col.untyped_literal,
-                                    ),
+                                    TypeInfo::from_scope_column(col, source),
                                 ));
                             }
                         }
@@ -502,6 +486,7 @@ impl<'a> Analyzer<'a> {
                     for (i, expr) in row.iter().enumerate() {
                         if let Some((col_name, col_type, nullable)) = effective_cols.get(i).and_then(|c| c.as_ref()) {
                             self.collect_param_from_expr_with_type_nullable(expr, col_type, col_name, *nullable);
+                            self.bind_written_param(expr, table_name, col_name);
                         } else {
                             let ti = self.infer_expr_type(expr, &Scope { sources: Vec::new() });
                             let name = target_cols.get(i).cloned().unwrap_or_else(|| expr_to_name(expr));
@@ -529,6 +514,7 @@ impl<'a> Analyzer<'a> {
             if let Some(col_type) = self.get_column_type(table_name, &col_name) {
                 let nullable = self.is_column_nullable(table_name, &col_name);
                 self.collect_param_from_expr_with_type_nullable(&assign.value, &col_type, &col_name, nullable);
+                self.bind_written_param(&assign.value, table_name, &col_name);
             }
         }
     }

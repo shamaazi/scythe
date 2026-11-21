@@ -1356,6 +1356,7 @@ mod tests {
             aq.sql = "DELETE FROM users WHERE id = $1".to_string();
             aq.columns = vec![];
             aq.params = vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1514,6 +1515,7 @@ mod tests {
             "INSERT INTO user_account_record (name, email) VALUES ($1, $2)",
             vec![
                 AnalyzedParam {
+                    constraints: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1521,6 +1523,7 @@ mod tests {
                     source_relation: None,
                 },
                 AnalyzedParam {
+                    constraints: None,
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1560,6 +1563,7 @@ mod tests {
             "CreateUserAccountRecordPayload",
             "INSERT INTO user_account_record_payload (payload) VALUES ($1)",
             vec![AnalyzedParam {
+                constraints: None,
                 name: "payload".to_string(),
                 neutral_type: "json".to_string(),
                 nullable: false,
@@ -1703,6 +1707,7 @@ mod tests {
             aq.sql = "DELETE FROM users WHERE id = $1".to_string();
             aq.columns = vec![];
             aq.params = vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1742,6 +1747,7 @@ mod tests {
             aq.columns = vec![];
             aq.params = vec![
                 AnalyzedParam {
+                    constraints: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1749,6 +1755,7 @@ mod tests {
                     source_relation: None,
                 },
                 AnalyzedParam {
+                    constraints: None,
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -1782,6 +1789,7 @@ mod tests {
             "INSERT INTO users (id, name) VALUES ($1, $2)",
             vec![
                 AnalyzedParam {
+                    constraints: None,
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -1789,6 +1797,7 @@ mod tests {
                     source_relation: None,
                 },
                 AnalyzedParam {
+                    constraints: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,

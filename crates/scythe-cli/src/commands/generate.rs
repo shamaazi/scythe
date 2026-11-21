@@ -3454,6 +3454,7 @@ SELECT * FROM users WHERE id = $1;
         let query = AnalyzedQuery::build(|q| {
             q.name = "GetUserByEmail".to_string();
             q.params = vec![AnalyzedParam {
+                constraints: None,
                 name: "email".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
@@ -3483,6 +3484,7 @@ SELECT * FROM users WHERE id = $1;
         let query = AnalyzedQuery::build(|q| {
             q.name = "GetUserByEmail".to_string();
             q.params = vec![AnalyzedParam {
+                constraints: None,
                 name: "email".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,

@@ -765,6 +765,7 @@ mod tests {
                 nullable: false,
                 position: 2,
                 source_relation: None,
+                constraints: None,
             }];
         });
         let ctx = LintContext {

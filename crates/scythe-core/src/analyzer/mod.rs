@@ -83,6 +83,13 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
+    for col in &mut columns {
+        col.constraints = col
+            .origin
+            .as_ref()
+            .and_then(|origin| catalog.column_constraints(&origin.relation, &origin.column));
+    }
+
     // ~keep Phase 2 of nested-struct naming (see `types::PendingNestedStruct`):
     // columns now have their final names (aliases and overrides applied),
     // so each `__nested__{id}` placeholder pushed during expression
@@ -118,6 +125,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
                 nullable: p.nullable || doc.is_some_and(|doc| doc.nullable),
                 position: p.position,
                 source_relation: p.source_relation.clone(),
+                constraints: written_constraints(catalog, &p.written_to),
             }
         })
         .collect();
@@ -339,6 +347,22 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
 /// typo), and would otherwise be dropped without a word. Completeness is only
 /// demanded of the declaration form: `@param $N name` has always named a
 /// subset, and `scythe migrate` relies on that.
+/// The constraints a parameter written into `columns` must satisfy: every
+/// column's, when it is written into several.
+fn written_constraints(
+    catalog: &Catalog,
+    columns: &[crate::catalog::ColumnOrigin],
+) -> Option<crate::constraints::ValueConstraints> {
+    let mut resolved = columns
+        .iter()
+        .filter_map(|origin| catalog.column_constraints(&origin.relation, &origin.column));
+    let mut constraints = resolved.next()?;
+    for other in resolved {
+        constraints.intersect(&other);
+    }
+    Some(constraints)
+}
+
 fn check_param_names(query: &Query, params: &[AnalyzedParam]) -> Result<(), ScytheError> {
     let docs = &query.annotations.positional_param_docs;
     if let Some(doc) = docs

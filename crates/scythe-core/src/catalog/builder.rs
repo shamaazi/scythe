@@ -4,7 +4,7 @@ use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
 use super::{
-    Catalog, Column, CompositeField, CompositeType, DomainDef, EnumType, Function, FunctionArgument,
+    Catalog, Column, ColumnConstraints, CompositeField, CompositeType, DomainDef, EnumType, Function, FunctionArgument,
     FunctionArgumentMode, FunctionResultColumn, FunctionReturn, Table,
 };
 
@@ -504,6 +504,7 @@ fn add_relations(catalog: &mut Catalog, definitions: Vec<RelationDefinition>) ->
                 nullable: column.nullable,
                 default: column.default,
                 primary_key: column.primary_key,
+                constraints: ColumnConstraints::default(),
             });
         }
 
@@ -581,6 +582,7 @@ fn add_domains(catalog: &mut Catalog, definitions: Vec<DomainDefinition>) -> Res
             DomainDef {
                 base_type,
                 not_null: definition.not_null,
+                constraints: ColumnConstraints::default(),
             },
         );
         catalog.domain_names.insert(key.clone(), definition.name);

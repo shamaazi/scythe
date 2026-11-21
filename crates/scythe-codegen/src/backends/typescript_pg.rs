@@ -1925,6 +1925,7 @@ mod tests {
             "INSERT INTO user_account_record (name, email) VALUES ($1, $2)",
             vec![
                 AnalyzedParam {
+                    constraints: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1932,6 +1933,7 @@ mod tests {
                     source_relation: None,
                 },
                 AnalyzedParam {
+                    constraints: None,
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1971,6 +1973,7 @@ mod tests {
             "CreateUserAccountRecordPayload",
             "INSERT INTO user_account_record_payload (payload) VALUES ($1)",
             vec![AnalyzedParam {
+                constraints: None,
                 name: "payload".to_string(),
                 neutral_type: "json".to_string(),
                 nullable: false,
@@ -2019,6 +2022,7 @@ mod tests {
                 },
             ];
             q.params = vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -2181,6 +2185,7 @@ mod tests {
         query.sql = "UPDATE users SET bio = $1 WHERE id = $2".to_string();
         query.params = vec![
             AnalyzedParam {
+                constraints: None,
                 name: "bio".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: true,
@@ -2188,6 +2193,7 @@ mod tests {
                 source_relation: None,
             },
             AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -2215,6 +2221,7 @@ mod tests {
         let mut query = query_with_nullable_and_non_nullable_columns(QueryCommand::ExecResult);
         query.sql = "DELETE FROM users WHERE id = $1".to_string();
         query.params = vec![AnalyzedParam {
+            constraints: None,
             name: "id".to_string(),
             neutral_type: "int32".to_string(),
             nullable: false,
@@ -2306,6 +2313,7 @@ mod tests {
             "INSERT INTO user_account_record (name, email) VALUES ($1, $2)",
             vec![
                 AnalyzedParam {
+                    constraints: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -2313,6 +2321,7 @@ mod tests {
                     source_relation: None,
                 },
                 AnalyzedParam {
+                    constraints: None,
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,

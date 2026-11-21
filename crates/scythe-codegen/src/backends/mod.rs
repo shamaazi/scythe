@@ -1388,6 +1388,7 @@ mod tests {
 
     fn param(name: &str, position: i64) -> AnalyzedParam {
         AnalyzedParam {
+            constraints: None,
             name: name.to_string(),
             neutral_type: "string".to_string(),
             nullable: true,

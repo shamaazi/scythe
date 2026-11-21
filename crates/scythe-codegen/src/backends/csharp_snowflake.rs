@@ -622,6 +622,7 @@ mod tests {
             aq.columns = vec![];
             aq.params = vec![
                 scythe_core::analyzer::AnalyzedParam {
+                    constraints: None,
                     name: "user_id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -629,6 +630,7 @@ mod tests {
                     source_relation: None,
                 },
                 scythe_core::analyzer::AnalyzedParam {
+                    constraints: None,
                     name: "total".to_string(),
                     neutral_type: "decimal".to_string(),
                     nullable: false,
@@ -636,6 +638,7 @@ mod tests {
                     source_relation: None,
                 },
                 scythe_core::analyzer::AnalyzedParam {
+                    constraints: None,
                     name: "notes".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: true,

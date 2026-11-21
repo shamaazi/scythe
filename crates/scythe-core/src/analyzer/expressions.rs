@@ -452,30 +452,14 @@ impl<'a> Analyzer<'a> {
                 if (source.alias == qual || source.table_name == qual)
                     && let Some(col) = source.columns.iter().find(|c| c.name == col_name)
                 {
-                    return TypeInfo::from_scope_column(
-                        col.sql_type.clone(),
-                        col.neutral_type.clone(),
-                        col.base_nullable,
-                        &source.alias,
-                        source.nullable_from_join,
-                        &source.table_name,
-                        col.untyped_literal,
-                    );
+                    return TypeInfo::from_scope_column(col, source);
                 }
             }
         } else {
             let mut found: Option<TypeInfo> = None;
             for source in &scope.sources {
                 if let Some(col) = source.columns.iter().find(|c| c.name == col_name) {
-                    let ti = TypeInfo::from_scope_column(
-                        col.sql_type.clone(),
-                        col.neutral_type.clone(),
-                        col.base_nullable,
-                        &source.alias,
-                        source.nullable_from_join,
-                        &source.table_name,
-                        col.untyped_literal,
-                    );
+                    let ti = TypeInfo::from_scope_column(col, source);
                     if found.is_some() {
                         return TypeInfo::new(format!("{AMBIGUOUS_COLUMN_MARKER}{col_name}"), false);
                     }
@@ -500,15 +484,7 @@ impl<'a> Analyzer<'a> {
                     .map(|col| (source, col))
             })
         {
-            return TypeInfo::from_scope_column(
-                col.sql_type.clone(),
-                col.neutral_type.clone(),
-                col.base_nullable,
-                &source.alias,
-                source.nullable_from_join,
-                &source.table_name,
-                col.untyped_literal,
-            );
+            return TypeInfo::from_scope_column(col, source);
         }
 
         let has_sources = scope.sources.iter().any(|s| !s.columns.is_empty());

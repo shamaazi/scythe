@@ -152,6 +152,7 @@ fn one_param_query(param_neutral_type: &str) -> AnalyzedQuery {
             ..Default::default()
         }];
         aq.params = vec![AnalyzedParam {
+            constraints: None,
             name: "status".to_string(),
             neutral_type: param_neutral_type.to_string(),
             nullable: false,
@@ -237,6 +238,7 @@ fn many_param_query() -> AnalyzedQuery {
             ..Default::default()
         }];
         aq.params = vec![AnalyzedParam {
+            constraints: None,
             name: "status".to_string(),
             neutral_type: "string".to_string(),
             nullable: false,
@@ -253,6 +255,7 @@ fn batch_query() -> AnalyzedQuery {
         aq.sql = "INSERT INTO users (name) VALUES ($1)".to_string();
         aq.columns = vec![];
         aq.params = vec![AnalyzedParam {
+            constraints: None,
             name: "name".to_string(),
             neutral_type: "string".to_string(),
             nullable: false,
@@ -406,6 +409,7 @@ fn exqlite_query(command: QueryCommand) -> AnalyzedQuery {
         };
         aq.params = vec![
             AnalyzedParam {
+                constraints: None,
                 name: "name".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
@@ -413,6 +417,7 @@ fn exqlite_query(command: QueryCommand) -> AnalyzedQuery {
                 source_relation: None,
             },
             AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,

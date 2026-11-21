@@ -59,6 +59,7 @@ fn composite_param_query() -> AnalyzedQuery {
         query.sql = "INSERT INTO widgets (home_address) VALUES ($1)".to_string();
         query.columns = vec![];
         query.params = vec![AnalyzedParam {
+            constraints: None,
             name: "home_address".to_string(),
             neutral_type: "composite::address".to_string(),
             nullable: true,
@@ -211,6 +212,7 @@ fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
     query.sql = "INSERT INTO widgets (kind, home_address) VALUES ($1, $2)".to_string();
     query.params = vec![
         AnalyzedParam {
+            constraints: None,
             name: "kind".to_string(),
             neutral_type: "string".to_string(),
             nullable: false,
@@ -218,6 +220,7 @@ fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
             source_relation: None,
         },
         AnalyzedParam {
+            constraints: None,
             name: "home_address".to_string(),
             neutral_type: "composite::address".to_string(),
             nullable: true,

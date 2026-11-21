@@ -1,6 +1,8 @@
 use sqlparser::ast::{BinaryOperator, Expr, UnaryOperator};
 use sqlparser::tokenizer::Span;
 
+use crate::catalog::ColumnOrigin;
+
 use super::helpers::*;
 use super::type_conversion::datatype_to_neutral;
 use super::types::*;
@@ -79,7 +81,36 @@ impl<'a> Analyzer<'a> {
                 neutral_type,
                 nullable,
                 source_relation,
+                written_to: Vec::new(),
             });
+        }
+    }
+
+    /// Record that the placeholder `expr` is -- bare, parenthesised or cast --
+    /// the value written into `relation.column`, so the parameter takes that
+    /// column's constraints. Call after the placeholder is registered.
+    pub(super) fn bind_written_param(&mut self, expr: &Expr, relation: &str, column: &str) {
+        let mut operand = expr;
+        while let Expr::Nested(inner) | Expr::Cast { expr: inner, .. } = operand {
+            operand = inner;
+        }
+        let Expr::Value(vws) = operand else {
+            return;
+        };
+        let Some(p) = value_is_placeholder(vws) else {
+            return;
+        };
+        let Some(pos) = self.resolve_placeholder_position(p, vws.span) else {
+            return;
+        };
+        let origin = ColumnOrigin {
+            relation: relation.to_string(),
+            column: column.to_string(),
+        };
+        if let Some(param) = self.params.iter_mut().find(|param| param.position == pos)
+            && !param.written_to.contains(&origin)
+        {
+            param.written_to.push(origin);
         }
     }
 

@@ -109,6 +109,7 @@ impl<'a> Analyzer<'a> {
                                 sql_type_to_neutral(&c.sql_type, self.catalog).into_owned(),
                                 c.nullable,
                             )
+                            .with_origin(&table_name)
                         })
                         .collect()
                 } else if let Some(function_args) = args
@@ -375,6 +376,7 @@ impl<'a> Analyzer<'a> {
                         sql_type_to_neutral(&c.sql_type, self.catalog).into_owned(),
                         c.nullable,
                     )
+                    .with_origin(table_name)
                 })
                 .collect();
             let bare = table_name

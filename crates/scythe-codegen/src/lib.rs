@@ -1067,6 +1067,7 @@ mod tests {
                 },
             ],
             vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1093,6 +1094,7 @@ mod tests {
             "DELETE FROM users WHERE id = $1",
             vec![],
             vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1133,6 +1135,7 @@ mod tests {
                 },
             ],
             vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1561,6 +1564,7 @@ mod tests {
                 ..Default::default()
             }],
             vec![AnalyzedParam {
+                constraints: None,
                 name: "customer_id".to_string(),
                 neutral_type: "uuid".to_string(),
                 nullable: false,
@@ -1606,6 +1610,7 @@ mod tests {
                 },
             ],
             vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,

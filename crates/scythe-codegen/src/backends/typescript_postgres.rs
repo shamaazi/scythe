@@ -1780,6 +1780,7 @@ mod tests {
         let query = make_one_query(
             "SELECT id FROM users WHERE name = 'literal ${not_a_binding}' AND id = $1",
             vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -2064,6 +2065,7 @@ mod tests {
             "INSERT INTO user_account_record (name, email) VALUES ($1, $2)",
             vec![
                 AnalyzedParam {
+                    constraints: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -2071,6 +2073,7 @@ mod tests {
                     source_relation: None,
                 },
                 AnalyzedParam {
+                    constraints: None,
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -2114,6 +2117,7 @@ mod tests {
             "CreateUserAccountRecordPayload",
             "INSERT INTO user_account_record_payload (payload) VALUES ($1)",
             vec![AnalyzedParam {
+                constraints: None,
                 name: "payload".to_string(),
                 neutral_type: "json".to_string(),
                 nullable: false,
@@ -2194,6 +2198,7 @@ mod tests {
             "UPDATE prices SET a = $1, note = 'cost is $1 today' WHERE id = $2",
             vec![
                 AnalyzedParam {
+                    constraints: None,
                     name: "a".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -2201,6 +2206,7 @@ mod tests {
                     source_relation: None,
                 },
                 AnalyzedParam {
+                    constraints: None,
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -2239,6 +2245,7 @@ mod tests {
             "UpdateItemAmount",
             "UPDATE prices SET amount = $1 WHERE note = 'the ${amount} field'",
             vec![AnalyzedParam {
+                constraints: None,
                 name: "amount".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -2421,6 +2428,7 @@ mod tests {
                 },
             ];
             q.params = vec![AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,

@@ -527,6 +527,7 @@ mod tests {
                 },
             ];
             aq.params = vec![AnalyzedParam {
+                constraints: None,
                 name: param_name.to_string(),
                 neutral_type: neutral_type.to_string(),
                 nullable: false,

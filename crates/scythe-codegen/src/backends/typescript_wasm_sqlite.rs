@@ -1295,6 +1295,7 @@ mod tests {
             aq.sql = "DELETE FROM users WHERE id = ?".to_string();
             aq.columns = vec![];
             aq.params = vec![scythe_core::analyzer::AnalyzedParam {
+                constraints: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1336,6 +1337,7 @@ mod tests {
             aq.columns = vec![];
             aq.params = vec![
                 scythe_core::analyzer::AnalyzedParam {
+                    constraints: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1343,6 +1345,7 @@ mod tests {
                     source_relation: None,
                 },
                 scythe_core::analyzer::AnalyzedParam {
+                    constraints: None,
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -1388,6 +1391,7 @@ mod tests {
             aq.columns = vec![];
             aq.params = vec![
                 scythe_core::analyzer::AnalyzedParam {
+                    constraints: None,
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -1395,6 +1399,7 @@ mod tests {
                     source_relation: None,
                 },
                 scythe_core::analyzer::AnalyzedParam {
+                    constraints: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1587,6 +1592,7 @@ mod tests {
             "INSERT INTO user_account_record (name, email) VALUES (?, ?)",
             vec![
                 AnalyzedParam {
+                    constraints: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1594,6 +1600,7 @@ mod tests {
                     source_relation: None,
                 },
                 AnalyzedParam {
+                    constraints: None,
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1634,6 +1641,7 @@ mod tests {
             "CreateUserAccountRecordPayload",
             "INSERT INTO user_account_record_payload (payload) VALUES (?)",
             vec![AnalyzedParam {
+                constraints: None,
                 name: "payload".to_string(),
                 neutral_type: "json".to_string(),
                 nullable: false,

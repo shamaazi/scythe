@@ -4,7 +4,7 @@ use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
 use super::type_normalizer::{ident_to_lower, normalize_data_type, object_name_to_key, object_name_to_raw_name};
-use super::{Catalog, Column, Table};
+use super::{Catalog, Column, ColumnConstraints, Table};
 
 /// The analyzer's neutral-type vocabulary spellings that never appear as a
 /// genuine catalog `sql_type` string (`normalize_data_type` always emits
@@ -100,6 +100,7 @@ impl Catalog {
                         nullable: analyzed.nullable,
                         default: None,
                         primary_key: false,
+                        constraints: analyzed.constraints,
                     }
                 })
                 .collect();
@@ -168,6 +169,10 @@ impl Catalog {
                 nullable: c.nullable,
                 default: None,
                 primary_key: false,
+                constraints: ColumnConstraints {
+                    origin: c.origin,
+                    ..ColumnConstraints::default()
+                },
             })
             .collect())
     }
