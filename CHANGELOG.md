@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `schema_types = "<path>"` with `schema_types_import = "<specifier>"` for
+  `typescript-bun` and `typescript-postgres`: the schema's enums and domains are
+  written once per target to one module, each `CREATE DOMAIN` as an alias of
+  its base type (or of its `IN (...)` literal union) documented with its
+  comment and translated checks. Generated query modules import them instead
+  of declaring enums per module, and declare result columns and written
+  parameters of a domain type by its alias, inside `Column<...>` under
+  `column_types`. An untranslatable domain check follows `constraints`.
+  `Catalog::domain_names` lists the schema's domains.
 - Inferred parameter names for more shapes: an array placeholder that is cast
   (`id = ANY($1::text[])`, `email <> ALL($1::text[])`) takes the pluralized
   column name instead of `p1`; a comparison with a function that keeps its

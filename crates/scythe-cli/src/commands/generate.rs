@@ -773,6 +773,27 @@ fn run_generate_inner(
                     .to_string(),
             );
         }
+
+        // A target's `schema_types` module declares the whole schema's types, so it is
+        // written once per target, however many modules `{dir}` makes.
+        for (target, backend, _) in &backends {
+            let Some(path) = target.options.get("schema_types") else {
+                continue;
+            };
+            let path = resolve_contained_output(base_dir, path, &target.backend, allow_output_escape)?;
+            let module = scythe_codegen::schema_types::generate_schema_types(&catalog, backend.as_ref())
+                .map_err(|e| format!("[{}] {}: {e}", sql_config.name, target.backend))?;
+            for warning in &module.warnings {
+                eprintln!("[{}] warning: {warning}", sql_config.name);
+            }
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("failed to create directory '{}': {e}", parent.display()))?;
+            }
+            std::fs::write(&path, module.code)
+                .map_err(|e| format!("failed to write schema types '{}': {e}", path.display()))?;
+            written.push(path.display().to_string());
+        }
     }
 
     Ok(())
@@ -1597,11 +1618,16 @@ fn generate_for_backend(
         // degraded away would add an unused definition that did not exist
         // before nested-aggregate inference, breaking the byte-identity
         // guarantee the degradation pass exists to provide.
+        // A backend importing the schema types module declares no enum itself.
+        let imports_schema_types = backend.schema_types_import().is_some();
         let mut nested_enum_names: Vec<String> = Vec::new();
         let enums: Vec<EnumInfo> = analyzed
             .enums
             .iter()
             .filter(|info| {
+                if imports_schema_types {
+                    return false;
+                }
                 let from_nested = scythe_codegen::nested_type_is_emitted(
                     analyzed,
                     &code.nested_struct_defs,

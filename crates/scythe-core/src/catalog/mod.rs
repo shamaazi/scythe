@@ -309,6 +309,11 @@ impl Catalog {
         self.composites.iter()
     }
 
+    /// The lookup name of every domain the schema declares, in no particular order.
+    pub fn domain_names(&self) -> impl Iterator<Item = &String> {
+        self.domains.keys()
+    }
+
     /// Look up a domain's resolved base type by name.
     pub fn get_domain_base_type(&self, name: &str) -> Option<&str> {
         lookup_qualified(&self.domains, name, self.search_path.as_deref()).map(|d| d.base_type.as_str())

@@ -15,11 +15,12 @@ use crate::backends::typescript_common::{
     generate_grouped_interface_structs, generate_js_grouped_typedef_structs, generate_js_typedef,
     generate_js_typedef_row_struct, generate_jsdoc_fn_header, generate_ts_grouped_fold_body,
     generate_ts_interface_row_struct, generate_ts_json_composite_interface, generate_ts_many_row_remap,
-    generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum,
-    generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line,
-    js_type_cast, parse_bool_option, ts_column_type, ts_column_types_import, ts_column_types_option,
-    ts_constrained_type, ts_index_access, ts_inexpressible_rules, ts_member_access, ts_own_type, ts_property_key,
-    ts_query_doc, ts_row_not_found_throw, ts_with_own_type,
+    generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_schema_types, generate_ts_union_row_struct,
+    generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct,
+    js_fn_signature_line, js_type_cast, parse_bool_option, ts_column_type, ts_column_types_import,
+    ts_column_types_option, ts_constrained_type, ts_index_access, ts_inexpressible_rules, ts_member_access,
+    ts_own_type, ts_property_key, ts_query_doc, ts_row_not_found_throw, ts_schema_type, ts_schema_types_import,
+    ts_schema_types_options, ts_with_own_type,
 };
 use crate::constraints::ConstraintPolicy;
 use scythe_core::constraints::{Rules, ValueConstraints};
@@ -536,6 +537,10 @@ pub struct TypescriptPostgresBackend {
     /// `column_types`: the module whose `Column<Name, Own>` declares each value read
     /// from or written to a table column -- see [`ts_column_type`].
     column_types: Option<String>,
+    /// `schema_types_import`: the module declaring the schema's enums and domains
+    /// (see [`crate::schema_types`]), which query modules import instead of
+    /// declaring enums themselves and inlining a domain's base type.
+    schema_types_import: Option<String>,
     /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
     /// `javascript-postgres` registry name (#81). See
     /// `TypescriptPgBackend::js_mode` for the shared rationale, including why
@@ -578,6 +583,7 @@ impl TypescriptPostgresBackend {
             constraint_policy: ConstraintPolicy::default(),
             driver_keys: false,
             column_types: None,
+            schema_types_import: None,
             js_mode: false,
             driver: TemplateDriver::PostgresJs,
         })
@@ -616,6 +622,7 @@ impl TypescriptPostgresBackend {
             constraint_policy: ConstraintPolicy::default(),
             driver_keys: false,
             column_types: None,
+            schema_types_import: None,
             js_mode: false,
             driver: TemplateDriver::Bun,
         })
@@ -780,6 +787,24 @@ impl CodegenBackend for TypescriptPostgresBackend {
         Some(ts_column_type(column, lang_type, nullable))
     }
 
+    fn schema_types_import(&self) -> Option<&str> {
+        self.schema_types_import.as_deref()
+    }
+
+    fn schema_type(&self, sql_name: &str, nullable: bool) -> Option<(String, String)> {
+        self.schema_types_import.as_ref()?;
+        Some(ts_schema_type(sql_name, &self.manifest.naming, nullable))
+    }
+
+    fn generate_schema_types(&self, types: &crate::schema_types::SchemaTypes) -> Option<Result<String, ScytheError>> {
+        if self.js_mode || self.row_type == TsRowType::Zod {
+            return None;
+        }
+        Some(generate_ts_schema_types(types, &self.manifest.naming, |enum_info| {
+            self.generate_enum_def(enum_info)
+        }))
+    }
+
     fn supported_engines(&self) -> &[&str] {
         match self.driver {
             TemplateDriver::PostgresJs => &["postgresql", "redshift"],
@@ -828,6 +853,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
             self.bun_header_for_results(generated)
         };
         header.push_str(&ts_column_types_import(self.column_types.as_deref(), generated));
+        header.push_str(&ts_schema_types_import(self.schema_types_import.as_deref(), generated));
         header
     }
 
@@ -1397,6 +1423,8 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 "constraints",
                 "row_keys",
                 "column_types",
+                "schema_types",
+                "schema_types_import",
             ],
             options,
         )?;
@@ -1441,6 +1469,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
         if let Some(value) = options.get("column_types") {
             self.column_types = Some(ts_column_types_option(value, self.row_type)?);
         }
+        self.schema_types_import = ts_schema_types_options(options, self.row_type, self.js_mode)?;
 
         // ~keep See `TypescriptPgBackend::apply_options` for why these are
         // rejected outright in JSDoc mode rather than silently ignored.
