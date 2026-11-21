@@ -3294,4 +3294,17 @@ SELECT id, moods FROM t WHERE id = $1;",
             ]
         );
     }
+
+    #[test]
+    fn should_analyze_an_insert_select_list_that_ends_at_on_conflict() {
+        let catalog = reminder_catalog();
+        let query = parse_query(
+            "-- @name AddReminders\n-- @returns :exec\n\
+             INSERT INTO reminders (\"userId\", topic) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the select list binds the target columns");
+        assert_eq!(param_types(&result), [(1, "string"), (2, "array<string>")]);
+        assert!(!result.sql.contains("WHERE true"), "codegen keeps the original SQL");
+    }
 }
