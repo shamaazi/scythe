@@ -1421,6 +1421,7 @@ mod tests {
             vec![
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1429,6 +1430,7 @@ mod tests {
                 },
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1471,6 +1473,7 @@ mod tests {
             "INSERT INTO user_account_record_payload (payload) VALUES ($1)",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "payload".to_string(),
                 neutral_type: "json".to_string(),
                 nullable: false,
@@ -1606,6 +1609,7 @@ mod tests {
             "INSERT INTO users (name) VALUES ($1)",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "name".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,

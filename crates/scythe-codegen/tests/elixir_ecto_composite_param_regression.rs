@@ -30,6 +30,7 @@ fn elixir_ecto_binds_composites_as_postgrex_tuples() {
         query.sql = "INSERT INTO widgets (home_address) VALUES ($1)".to_string();
         query.params = vec![AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: "home_address".to_string(),
             neutral_type: "composite::address".to_string(),
             nullable: true,

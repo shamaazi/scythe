@@ -246,6 +246,11 @@ pub struct AnalyzedColumn {
     /// What the schema declares about the values of [`Self::origin`].
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub constraints: Option<ValueConstraints>,
+    /// [`Self::origin`] followed through views to the table column it reads,
+    /// or the view column itself where the view computes it: what a backend
+    /// keys per-column types on. Like `origin`, not serialized.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub base_column: Option<ColumnOrigin>,
 }
 
 impl AnalyzedColumn {
@@ -270,6 +275,7 @@ impl AnalyzedColumn {
             untyped_literal: type_info.untyped_literal,
             origin: type_info.origin,
             constraints: None,
+            base_column: None,
         }
     }
 }
@@ -305,6 +311,11 @@ pub struct AnalyzedParam {
     /// a value no row holds simply matches nothing.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub constraints: Option<ValueConstraints>,
+    /// The table column this parameter is written into directly, resolved
+    /// through views like [`AnalyzedColumn::base_column`]; `None` when it is
+    /// written into none, or into several different ones. Not serialized.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub base_column: Option<ColumnOrigin>,
 }
 
 #[derive(Debug, Clone)]

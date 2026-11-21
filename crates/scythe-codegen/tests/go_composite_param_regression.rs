@@ -40,6 +40,7 @@ fn go_pgx_encodes_nullable_composite_params_as_text() {
         query.sql = "INSERT INTO widgets (home_address) VALUES ($1)".to_string();
         query.params = vec![AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: "home_address".to_string(),
             neutral_type: "composite::address".to_string(),
             nullable: true,

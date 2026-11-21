@@ -3458,6 +3458,7 @@ SELECT * FROM users WHERE id = $1;
             q.name = "GetUserByEmail".to_string();
             q.params = vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "email".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
@@ -3488,6 +3489,7 @@ SELECT * FROM users WHERE id = $1;
             q.name = "GetUserByEmail".to_string();
             q.params = vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "email".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,

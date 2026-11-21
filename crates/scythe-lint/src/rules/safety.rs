@@ -766,6 +766,7 @@ mod tests {
                 position: 2,
                 source_relation: None,
                 constraints: None,
+                base_column: None,
             }];
         });
         let ctx = LintContext {

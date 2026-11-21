@@ -50,6 +50,7 @@ fn two_param_query(sql: &str, optional_params: Vec<String>) -> AnalyzedQuery {
         q.params = vec![
             AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "a".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -58,6 +59,7 @@ fn two_param_query(sql: &str, optional_params: Vec<String>) -> AnalyzedQuery {
             },
             AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "b".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
@@ -78,6 +80,7 @@ fn one_param_query(sql: &str, optional_params: Vec<String>) -> AnalyzedQuery {
         q.columns = vec![];
         q.params = vec![AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: "name".to_string(),
             neutral_type: "string".to_string(),
             nullable: false,

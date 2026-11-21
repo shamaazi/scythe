@@ -244,3 +244,30 @@ fn should_require_every_column_a_parameter_is_written_into() {
     assert_eq!(rules.max_length, Some(4));
     assert_eq!(rules.pattern, s("[^ ]"));
 }
+
+#[test]
+fn should_name_the_base_column_of_columns_and_written_parameters() {
+    let name = |column: Option<&scythe_core::catalog::ColumnOrigin>| column.map(|c| c.name());
+    let query = analyzed(
+        "-- @name Live\n-- @returns :many\n\
+         WITH named AS (SELECT name, rank FROM live_causes)\n\
+         SELECT n.name, n.rank, s.goal, length(n.name) AS size FROM named n LEFT JOIN (SELECT goal FROM causes) s ON true;",
+    );
+    let columns: Vec<_> = query.columns.iter().map(|c| name(c.base_column.as_ref())).collect();
+    assert_eq!(
+        columns,
+        [s("causes.title"), s("live_causes.rank"), s("causes.goal"), None],
+        "views resolve to their table column, a computed view column stays the view's"
+    );
+
+    let insert = analyzed(
+        "-- @name Add\n-- @returns :exec\n\
+         INSERT INTO causes (slug, title, status) VALUES ($1, $2, coalesce($3, 'draft')) RETURNING id;",
+    );
+    let params: Vec<_> = insert.params.iter().map(|p| name(p.base_column.as_ref())).collect();
+    assert_eq!(params, [s("causes.slug"), s("causes.title"), None]);
+
+    let two = analyzed("-- @name Two\n-- @returns :exec\nUPDATE causes SET title = $1, code = $1 WHERE id = $2;");
+    assert_eq!(two.params[0].base_column, None, "written into two columns");
+    assert_eq!(two.params[1].base_column, None, "a comparison is not a write");
+}

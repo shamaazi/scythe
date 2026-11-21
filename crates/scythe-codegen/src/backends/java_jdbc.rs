@@ -1541,6 +1541,7 @@ mod tests {
             // lookup has no position to resolve `$1` against).
             q.params = vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,

@@ -1298,6 +1298,7 @@ mod tests {
             aq.columns = vec![];
             aq.params = vec![scythe_core::analyzer::AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1340,6 +1341,7 @@ mod tests {
             aq.params = vec![
                 scythe_core::analyzer::AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1348,6 +1350,7 @@ mod tests {
                 },
                 scythe_core::analyzer::AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -1394,6 +1397,7 @@ mod tests {
             aq.params = vec![
                 scythe_core::analyzer::AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -1402,6 +1406,7 @@ mod tests {
                 },
                 scythe_core::analyzer::AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1595,6 +1600,7 @@ mod tests {
             vec![
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1603,6 +1609,7 @@ mod tests {
                 },
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1644,6 +1651,7 @@ mod tests {
             "INSERT INTO user_account_record_payload (payload) VALUES (?)",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "payload".to_string(),
                 neutral_type: "json".to_string(),
                 nullable: false,

@@ -393,6 +393,7 @@ mod tests {
     fn test_param(name: &str, position: i64) -> AnalyzedParam {
         AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: name.to_string(),
             neutral_type: "string".to_string(),
             nullable: false,
@@ -408,6 +409,7 @@ mod tests {
     fn test_param_with_relation(name: &str, position: i64, relation: &str) -> AnalyzedParam {
         AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: name.to_string(),
             neutral_type: "string".to_string(),
             nullable: false,

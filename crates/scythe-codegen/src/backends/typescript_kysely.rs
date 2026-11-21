@@ -1188,6 +1188,7 @@ mod tests {
             "SELECT id, name FROM users WHERE id = $1",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1270,6 +1271,7 @@ mod tests {
                 "SELECT id, name FROM users WHERE id = ?",
                 vec![AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -1313,6 +1315,7 @@ mod tests {
             "SELECT id FROM users WHERE name = 'literal ${not_a_binding}' AND id = $1",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1356,6 +1359,7 @@ mod tests {
             "DELETE FROM orders WHERE user_id = $1",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "user_id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1379,6 +1383,7 @@ mod tests {
             "INSERT INTO users (name) VALUES ($1)",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "name".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
@@ -1418,6 +1423,7 @@ mod tests {
             vec![
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1426,6 +1432,7 @@ mod tests {
                 },
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -1453,6 +1460,7 @@ mod tests {
             "INSERT INTO users (name) VALUES ($1)",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "name".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,

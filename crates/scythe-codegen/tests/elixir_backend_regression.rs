@@ -153,6 +153,7 @@ fn one_param_query(param_neutral_type: &str) -> AnalyzedQuery {
         }];
         aq.params = vec![AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: "status".to_string(),
             neutral_type: param_neutral_type.to_string(),
             nullable: false,
@@ -239,6 +240,7 @@ fn many_param_query() -> AnalyzedQuery {
         }];
         aq.params = vec![AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: "status".to_string(),
             neutral_type: "string".to_string(),
             nullable: false,
@@ -256,6 +258,7 @@ fn batch_query() -> AnalyzedQuery {
         aq.columns = vec![];
         aq.params = vec![AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: "name".to_string(),
             neutral_type: "string".to_string(),
             nullable: false,
@@ -410,6 +413,7 @@ fn exqlite_query(command: QueryCommand) -> AnalyzedQuery {
         aq.params = vec![
             AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "name".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
@@ -418,6 +422,7 @@ fn exqlite_query(command: QueryCommand) -> AnalyzedQuery {
             },
             AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,

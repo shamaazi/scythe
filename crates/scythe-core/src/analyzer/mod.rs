@@ -88,6 +88,10 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
             .origin
             .as_ref()
             .and_then(|origin| catalog.column_constraints(&origin.relation, &origin.column));
+        col.base_column = col
+            .origin
+            .as_ref()
+            .map(|origin| catalog.base_column(&origin.relation, &origin.column));
     }
 
     // ~keep Phase 2 of nested-struct naming (see `types::PendingNestedStruct`):
@@ -126,6 +130,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
                 position: p.position,
                 source_relation: p.source_relation.clone(),
                 constraints: written_constraints(catalog, &p.written_to),
+                base_column: written_base_column(catalog, &p.written_to),
             }
         })
         .collect();
@@ -340,13 +345,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
     })
 }
 
-/// Reject a parameter name that names no parameter, and -- once the query
-/// declares its parameters with `-- $N: name` -- a parameter left unnamed.
-///
-/// A name for an absent position is always a mistake (a renumbered query, a
-/// typo), and would otherwise be dropped without a word. Completeness is only
-/// demanded of the declaration form: `@param $N name` has always named a
-/// subset, and `scythe migrate` relies on that.
 /// The constraints a parameter written into `columns` must satisfy: every
 /// column's, when it is written into several.
 fn written_constraints(
@@ -363,6 +361,26 @@ fn written_constraints(
     Some(constraints)
 }
 
+/// The one table column a parameter written into `columns` is written into,
+/// through views; `None` when there is none or they differ.
+fn written_base_column(
+    catalog: &Catalog,
+    columns: &[crate::catalog::ColumnOrigin],
+) -> Option<crate::catalog::ColumnOrigin> {
+    let mut bases = columns
+        .iter()
+        .map(|origin| catalog.base_column(&origin.relation, &origin.column));
+    let base = bases.next()?;
+    bases.all(|other| other == base).then_some(base)
+}
+
+/// Reject a parameter name that names no parameter, and -- once the query
+/// declares its parameters with `-- $N: name` -- a parameter left unnamed.
+///
+/// A name for an absent position is always a mistake (a renumbered query, a
+/// typo), and would otherwise be dropped without a word. Completeness is only
+/// demanded of the declaration form: `@param $N name` has always named a
+/// subset, and `scythe migrate` relies on that.
 fn check_param_names(query: &Query, params: &[AnalyzedParam]) -> Result<(), ScytheError> {
     let docs = &query.annotations.positional_param_docs;
     if let Some(doc) = docs

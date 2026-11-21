@@ -1082,6 +1082,7 @@ mod tests {
             ],
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1109,6 +1110,7 @@ mod tests {
             vec![],
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1150,6 +1152,7 @@ mod tests {
             ],
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -1579,6 +1582,7 @@ mod tests {
             }],
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "customer_id".to_string(),
                 neutral_type: "uuid".to_string(),
                 nullable: false,
@@ -1625,6 +1629,7 @@ mod tests {
             ],
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,

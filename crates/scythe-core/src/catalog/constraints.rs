@@ -14,6 +14,14 @@ pub struct ColumnOrigin {
     pub column: String,
 }
 
+impl ColumnOrigin {
+    /// `table.column`, the relation without its schema -- how the schema
+    /// constraints name a column, and the key a per-column type is looked up by.
+    pub fn name(&self) -> String {
+        format!("{}.{}", super::type_normalizer::bare_name(&self.relation), self.column)
+    }
+}
+
 /// What the schema declares about a column's (or a domain's) values.
 #[derive(Debug, Clone, Default)]
 pub struct ColumnConstraints {
@@ -129,6 +137,26 @@ impl Catalog {
         let mut out = ValueConstraints::default();
         self.resolve_column(relation, column, &mut out, 0);
         (!out.is_empty()).then_some(out)
+    }
+
+    /// The column `relation.column` reads unchanged, following views to the
+    /// table column underneath; the column itself when it is a table's, or a
+    /// view's that computes its value.
+    pub fn base_column(&self, relation: &str, column: &str) -> ColumnOrigin {
+        let mut base = ColumnOrigin {
+            relation: relation.to_string(),
+            column: column.to_string(),
+        };
+        for _ in 0..MAX_DEPTH {
+            match self
+                .column_constraint_facts(&base.relation, &base.column)
+                .and_then(|facts| facts.origin.as_ref())
+            {
+                Some(origin) => base = origin.clone(),
+                None => break,
+            }
+        }
+        base
     }
 
     /// The constraints a domain declares on its values, including its parent

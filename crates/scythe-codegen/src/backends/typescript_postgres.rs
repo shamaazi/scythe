@@ -1851,6 +1851,7 @@ mod tests {
             "SELECT id FROM users WHERE name = 'literal ${not_a_binding}' AND id = $1",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -2136,6 +2137,7 @@ mod tests {
             vec![
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -2144,6 +2146,7 @@ mod tests {
                 },
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
@@ -2188,6 +2191,7 @@ mod tests {
             "INSERT INTO user_account_record_payload (payload) VALUES ($1)",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "payload".to_string(),
                 neutral_type: "json".to_string(),
                 nullable: false,
@@ -2269,6 +2273,7 @@ mod tests {
             vec![
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "a".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -2277,6 +2282,7 @@ mod tests {
                 },
                 AnalyzedParam {
                     constraints: None,
+                    base_column: None,
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
@@ -2316,6 +2322,7 @@ mod tests {
             "UPDATE prices SET amount = $1 WHERE note = 'the ${amount} field'",
             vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "amount".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
@@ -2546,6 +2553,7 @@ mod tests {
             ];
             q.params = vec![AnalyzedParam {
                 constraints: None,
+                base_column: None,
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,

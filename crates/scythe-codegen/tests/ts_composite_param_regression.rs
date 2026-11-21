@@ -60,6 +60,7 @@ fn composite_param_query() -> AnalyzedQuery {
         query.columns = vec![];
         query.params = vec![AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: "home_address".to_string(),
             neutral_type: "composite::address".to_string(),
             nullable: true,
@@ -213,6 +214,7 @@ fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
     query.params = vec![
         AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: "kind".to_string(),
             neutral_type: "string".to_string(),
             nullable: false,
@@ -221,6 +223,7 @@ fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
         },
         AnalyzedParam {
             constraints: None,
+            base_column: None,
             name: "home_address".to_string(),
             neutral_type: "composite::address".to_string(),
             nullable: true,
