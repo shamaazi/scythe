@@ -166,7 +166,10 @@ fn many_wraps_an_enum_array_param_in_sql_array() {
         f.contains("ANY(${sql.array("),
         "Bun cannot tell an enum array is an array: {f}"
     );
-    assert!(f.contains("return rows;"), "{f}");
+    assert!(
+        f.contains("return [...rows];"),
+        "a plain array, not Bun's result array: {f}"
+    );
 }
 
 #[test]

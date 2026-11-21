@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolve to the table column they read; the file imports `Column` once, only
   when used. Result columns and written parameters carry the column as
   `AnalyzedColumn::base_column` and `AnalyzedParam::base_column`.
+- `typescript-bun` `:many` functions return a plain array copy of Bun's result
+  array, which also carries `count` and `command`, so callers compare and pass
+  rows on like any other array.
 - `row_keys = "driver"` for `typescript-postgres` and `typescript-bun`: with
   `field_case = "camelCase"`, generated functions trust a client that already
   returns camelCase keys (`transform: postgres.camel` or `transform: SQL.camel`)

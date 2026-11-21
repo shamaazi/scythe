@@ -59,6 +59,15 @@ impl TemplateDriver {
         }
     }
 
+    /// What a `:many` function returns from the driver's `rows`. Bun's result array carries
+    /// `count` and `command`; a plain copy is what callers pass on and compare like any other.
+    fn many_rows(self) -> &'static str {
+        match self {
+            Self::PostgresJs => "rows",
+            Self::Bun => "[...rows]",
+        }
+    }
+
     /// The handle's type in a JSDoc `@param` tag.
     fn js_handle_type(self) -> &'static str {
         match self {
@@ -1073,7 +1082,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     let _ = writeln!(out, "  `;");
                     let overrides = ts_composite_field_overrides(columns, "row");
                     if overrides.is_empty() {
-                        let _ = writeln!(out, "\treturn rows;");
+                        let _ = writeln!(out, "\treturn {};", self.driver.many_rows());
                     } else {
                         let _ = writeln!(out, "\treturn rows.map((row) => ({{");
                         let _ = writeln!(out, "\t\t...row,");
@@ -1609,7 +1618,7 @@ impl TypescriptPostgresBackend {
                     "\tconst rows = {};",
                     js_type_cast(&format!("Array<{struct_name}>"), &query_expr)
                 );
-                let _ = writeln!(out, "\treturn rows;");
+                let _ = writeln!(out, "\treturn {};", self.driver.many_rows());
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
