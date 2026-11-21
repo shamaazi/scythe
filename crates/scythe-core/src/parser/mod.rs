@@ -410,7 +410,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
         let parse_sql = preprocess_mssql_sql(&sql);
         (codegen_sql, parse_sql)
     } else if *dialect == SqlDialect::PostgreSQL {
-        let parse_sql = preprocess_postgres_sql(&sql);
+        let parse_sql = spell_out_default_trim_characters(&preprocess_postgres_sql(&sql));
         (sql.clone(), parse_sql)
     } else {
         (sql.clone(), sql)
@@ -537,6 +537,78 @@ fn preprocess_postgres_sql(sql: &str) -> String {
     }
     result.push_str(std::str::from_utf8(&bytes[last..]).unwrap_or(""));
     result
+}
+
+/// Spell out the implicit `' '` in `TRIM([BOTH | LEADING | TRAILING] FROM x)`.
+///
+/// PostgreSQL accepts a trim specification with no characters to remove, and
+/// emits exactly that form when it deparses a constraint or view (`pg_dump`
+/// writes `btrim(title)` back as `TRIM(BOTH FROM title)`). sqlparser 0.63 parses
+/// the token after the specification as the characters expression, so it reads
+/// `FROM` as an identifier and then fails on the operand. The characters
+/// default to a single space, so inserting `' '` before `FROM` gives the same
+/// expression in a form sqlparser parses. Comments and string literals are
+/// skipped; every other byte is copied unchanged.
+pub(crate) fn spell_out_default_trim_characters(sql: &str) -> String {
+    let mask = mask_postgres_for_scan(sql);
+    let mask_bytes = mask.as_bytes();
+    let sql_bytes = sql.as_bytes();
+    let mut result = String::with_capacity(sql.len());
+    let mut last = 0;
+    let mut search_from = 0;
+    while let Some(relative) = find_word(&mask[search_from..], "TRIM") {
+        let trim_end = search_from + relative + "TRIM".len();
+        search_from = trim_end;
+        let open = skip_blank(mask_bytes, sql_bytes, trim_end);
+        if mask_bytes.get(open) != Some(&b'(') {
+            continue;
+        }
+        let mut cursor = skip_blank(mask_bytes, sql_bytes, open + 1);
+        if let Some(specification) = ["BOTH", "LEADING", "TRAILING"]
+            .into_iter()
+            .find(|keyword| word_at(&mask, cursor, keyword))
+        {
+            cursor = skip_blank(mask_bytes, sql_bytes, cursor + specification.len());
+        }
+        if word_at(&mask, cursor, "FROM") {
+            result.push_str(&sql[last..cursor]);
+            result.push_str("' ' ");
+            last = cursor;
+        }
+    }
+    result.push_str(&sql[last..]);
+    result
+}
+
+/// Skip whitespace and comments (blank in `mask`), stopping at a string
+/// literal's opening quote: the mask blanks a literal too, but it is an operand.
+fn skip_blank(mask: &[u8], sql: &[u8], mut index: usize) -> usize {
+    while mask.get(index).is_some_and(u8::is_ascii_whitespace) && sql[index] != b'\'' {
+        index += 1;
+    }
+    index
+}
+
+fn is_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
+}
+
+/// Whether the uppercase `mask` holds the whole word `word` at `index`.
+fn word_at(mask: &str, index: usize, word: &str) -> bool {
+    let bytes = mask.as_bytes();
+    mask.get(index..).is_some_and(|rest| rest.starts_with(word))
+        && (index == 0 || !is_word_byte(bytes[index - 1]))
+        && !bytes.get(index + word.len()).copied().is_some_and(is_word_byte)
+}
+
+/// The byte offset of the first whole word `word` in the uppercase `haystack`.
+/// Unlike [`find_keyword`], `_` and `$` count as word characters, so `my_trim`
+/// is not `TRIM`.
+fn find_word(haystack: &str, word: &str) -> Option<usize> {
+    haystack
+        .match_indices(word)
+        .map(|(index, _)| index)
+        .find(|index| word_at(haystack, *index, word))
 }
 
 /// Build an ASCII-uppercase, fixed-byte-offset mask of `sql` where `--` line
@@ -1294,6 +1366,46 @@ SELECT id FROM users WHERE id = $1";
     fn test_preprocess_postgres_ignores_text_inside_string_literals() {
         let sql = "SELECT 'ON CONFLICT (a) WHERE a IS NOT NULL DO NOTHING' AS s";
         assert_eq!(preprocess_postgres_sql(sql), sql);
+    }
+
+    #[test]
+    fn test_spell_out_default_trim_characters_inserts_space_before_from() {
+        assert_eq!(
+            spell_out_default_trim_characters("CHECK ((length(TRIM(BOTH FROM title)) > 0))"),
+            "CHECK ((length(TRIM(BOTH ' ' FROM title)) > 0))"
+        );
+        assert_eq!(
+            spell_out_default_trim_characters("SELECT trim( leading\n from name), trim(FROM a) FROM t"),
+            "SELECT trim( leading\n ' ' from name), trim(' ' FROM a) FROM t"
+        );
+        assert_eq!(
+            spell_out_default_trim_characters("SELECT TRIM(TRAILING /* none */ FROM a)"),
+            "SELECT TRIM(TRAILING /* none */ ' ' FROM a)"
+        );
+    }
+
+    #[test]
+    fn test_spell_out_default_trim_characters_leaves_other_forms_alone() {
+        for sql in [
+            "SELECT trim(name) FROM t",
+            "SELECT trim(BOTH 'x' FROM name) FROM t",
+            "SELECT trim(BOTH ' ' FROM name) FROM t",
+            "SELECT my_trim(FROM_x) FROM t",
+            "SELECT 'trim(BOTH FROM x)' -- trim(FROM y)\nFROM t",
+            "SELECT trim FROM t",
+        ] {
+            assert_eq!(spell_out_default_trim_characters(sql), sql);
+        }
+    }
+
+    #[test]
+    fn test_trim_without_characters_parses_and_keeps_original_sql() {
+        let query = parse_query("-- @name Trimmed\n-- @returns :many\nSELECT TRIM(LEADING FROM name) AS name FROM t")
+            .expect("TRIM with a specification and no characters should parse");
+        assert!(
+            query.sql.contains("TRIM(LEADING FROM name)"),
+            "codegen keeps the original SQL"
+        );
     }
 
     #[test]

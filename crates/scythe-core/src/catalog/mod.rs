@@ -200,7 +200,10 @@ impl Catalog {
 
         for sql in schema_sql {
             let filtered = Self::strip_psql_meta_commands(sql);
-            let cleaned = catalog.extract_unsupported_statements(&filtered, dialect);
+            let mut cleaned = catalog.extract_unsupported_statements(&filtered, dialect);
+            if *dialect == SqlDialect::PostgreSQL {
+                cleaned = crate::parser::spell_out_default_trim_characters(&cleaned);
+            }
 
             let trimmed = cleaned.trim();
             if trimmed.is_empty() {
@@ -2905,6 +2908,17 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
              now succeeds, sqlparser's grammar changed and this test should be updated to assert the new \
              behavior instead of just deleted"
         );
+    }
+
+    #[test]
+    fn should_parse_deparsed_trim_without_characters_in_check_constraint() {
+        // `pg_dump` deparses `btrim(title)` as `TRIM(BOTH FROM title)`.
+        let catalog = Catalog::from_ddl(&["CREATE TABLE articles (
+                title text NOT NULL,
+                CONSTRAINT articles_title CHECK ((length(TRIM(BOTH FROM title)) > 0))
+            );"])
+        .expect("a deparsed TRIM with no characters should parse");
+        assert_eq!(catalog.get_table("articles").unwrap().columns[0].name, "title");
     }
 
     #[test]
