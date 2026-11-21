@@ -872,6 +872,23 @@ INSERT INTO users (bio) VALUES (COALESCE($1, 'unknown'));",
         assert!(result.params[0].nullable, "bio is nullable");
     }
 
+    /// A COALESCE argument may be NULL even when the column written is NOT
+    /// NULL, and a cast does not hide the placeholder.
+    #[test]
+    fn should_infer_coalesce_placeholders_nullable_when_written_or_cast() {
+        let catalog = make_catalog();
+        for sql in [
+            "INSERT INTO users (name, active) VALUES (coalesce($1, 'anonymous'), coalesce($2::boolean, true));",
+            "UPDATE users SET name = coalesce($1, name), active = coalesce($2::boolean, active) WHERE id = $3;",
+        ] {
+            let query = parse_query(&format!("-- @name Write\n-- @returns :exec\n{sql}")).unwrap();
+            let result = analyze(&catalog, &query).unwrap();
+            let nullable: Vec<_> = result.params.iter().map(|p| p.nullable).collect();
+            assert_eq!(nullable[..2], [true, true], "{sql}");
+            assert_eq!(result.params[1].neutral_type, "bool", "{sql}");
+        }
+    }
+
     /// Placeholders inside CASE branches of INSERT VALUES must be collected.
     #[test]
     fn test_insert_case_param_collected() {

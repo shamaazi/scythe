@@ -637,8 +637,14 @@ impl<'a> Analyzer<'a> {
                     }
                 }
 
+                // A placeholder argument, bare or cast (`coalesce($1::boolean, x)`),
+                // may be NULL: that is what the fallback is for.
                 for arg in &args {
-                    if let Expr::Value(vws) = arg
+                    let mut operand = arg;
+                    while let Expr::Nested(inner) | Expr::Cast { expr: inner, .. } = operand {
+                        operand = inner;
+                    }
+                    if let Expr::Value(vws) = operand
                         && let Some(p) = value_is_placeholder(vws)
                         && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                     {

@@ -501,6 +501,9 @@ impl<'a> Analyzer<'a> {
                 self.collect_param_from_expr_with_type_nullable(right, type_str, name, nullable);
             }
             Expr::Function(func) => {
+                // A COALESCE argument may be NULL whatever the column allows:
+                // the fallback stands in for it.
+                let nullable = nullable || object_name_to_string(&func.name).eq_ignore_ascii_case("coalesce");
                 for arg in self.get_function_args(func) {
                     self.collect_param_from_expr_with_type_nullable(&arg, type_str, name, nullable);
                 }

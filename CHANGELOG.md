@@ -98,6 +98,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A `COALESCE` argument placeholder is inferred nullable when it is cast
+  (`coalesce($1::boolean, active)`) and when the `COALESCE` is written into a
+  NOT NULL column by `INSERT ... VALUES`.
 - `RETURNING *` and `RETURNING t.*` columns carry the column they read, so
   `column_types` and schema constraints apply to them as they do to
   `SELECT *`.
