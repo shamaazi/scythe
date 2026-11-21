@@ -57,22 +57,37 @@ pub struct ParamDoc {
     pub description: String,
 }
 
-/// An explicit `-- @param $N name[: description]` annotation that binds a
-/// position number to a human-chosen parameter name, overriding the `pN`
-/// fallback name that the analyzer would otherwise infer.
+/// A name bound to a parameter position, overriding the name the analyzer
+/// would otherwise infer (or its `pN` fallback).
 ///
-/// The positional form (`$N` as first token) is distinct from the existing
-/// docs-only `-- @param name: description` form, which is preserved unchanged
-/// for backward compatibility.
+/// Two spellings produce one:
+///
+/// - `-- @param $N name[?][: description]`, which may name any subset of the
+///   parameters. The positional form (`$N` as first token) is distinct from
+///   the docs-only `-- @param name: description` form, which is preserved
+///   unchanged for backward compatibility.
+/// - `-- $N: name[?]` in the comment header above the SQL: a declaration
+///   list, so a query that declares one parameter this way must declare
+///   every parameter it uses (see [`PositionalParamDoc::declared`]).
+///
+/// In both, a trailing `?` on the name marks the parameter as accepting NULL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PositionalParamDoc {
     /// 1-based parameter position (`$N`).
     pub position: i64,
-    /// Caller-chosen name that replaces the `pN` fallback.
+    /// Caller-chosen name that replaces the inferred or `pN` name.
     pub name: String,
     /// Optional description (everything after the `:` separator).
     pub description: String,
+    /// The name carried a trailing `?`: the parameter accepts NULL even when
+    /// the analyzer infers it as non-null.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub nullable: bool,
+    /// Written as a `-- $N: name` declaration, which obliges the query to
+    /// declare every parameter it uses.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub declared: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -245,6 +260,66 @@ fn validate_query_name(name: &str) -> Result<(), ScytheError> {
     Ok(())
 }
 
+/// Parse a `-- $N: name[?]` parameter declaration from the text after `--`.
+///
+/// `None` when the comment does not start with `$<digits>:` and so is not a
+/// declaration at all (an ordinary header comment); an error when it does but
+/// the rest is not an identifier with an optional trailing `?`, since a
+/// misspelt declaration would otherwise silently stop naming its parameter.
+fn parse_param_declaration(comment: &str) -> Option<Result<PositionalParamDoc, ScytheError>> {
+    let rest = comment.trim_start().strip_prefix('$')?;
+    let (digits, spec) = rest.split_at(rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len()));
+    let spec = spec.strip_prefix(':')?.trim();
+    let position = match digits.parse::<i64>() {
+        Ok(position) if position > 0 => position,
+        _ => {
+            return Some(Err(ScytheError::invalid_annotation(format!(
+                "`-- ${digits}: {spec}` must declare a parameter position from $1 upwards"
+            ))));
+        }
+    };
+    let (name, nullable) = match spec.strip_suffix('?') {
+        Some(name) => (name.trim_end(), true),
+        None => (spec, false),
+    };
+    if !is_identifier(name) {
+        return Some(Err(ScytheError::invalid_annotation(format!(
+            "`-- ${position}: {spec}` must name ${position} with an identifier, followed by `?` when it \
+             accepts NULL (e.g. `-- ${position}: user_id` or `-- ${position}: since?`)"
+        ))));
+    }
+    Some(Ok(PositionalParamDoc {
+        position,
+        name: name.to_string(),
+        description: String::new(),
+        nullable,
+        declared: true,
+    }))
+}
+
+/// An ASCII letter or `_` followed by ASCII letters, digits and `_`: the
+/// identifier shape every target language can spell (see
+/// [`validate_query_name`]).
+fn is_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Reject a parameter position named more than once, in either spelling:
+/// which name won would otherwise depend on line order.
+fn reject_duplicate_param_names(query_name: &str, docs: &[PositionalParamDoc]) -> Result<(), ScytheError> {
+    for (index, doc) in docs.iter().enumerate() {
+        if let Some(earlier) = docs[..index].iter().find(|earlier| earlier.position == doc.position) {
+            return Err(ScytheError::invalid_annotation(format!(
+                "query \"{query_name}\": ${} is named twice (`{}` and `{}`); name each parameter once",
+                doc.position, earlier.name, doc.name
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Parse a single annotated SQL query into a `Query` using the PostgreSQL dialect.
 pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
     parse_query_with_dialect(query_sql, &SqlDialect::PostgreSQL)
@@ -265,17 +340,24 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
     let mut custom: Vec<CustomAnnotation> = Vec::new();
 
     let mut sql_lines = Vec::new();
+    // Still among the comment lines above the first line of SQL, where
+    // `-- $N: name` parameter declarations live.
+    let mut in_header = true;
 
     for (line_idx, line) in query_sql.lines().enumerate() {
         let line_no = line_idx + 1;
         let trimmed = line.trim();
+        let comment = trimmed.strip_prefix("--");
+        if comment.is_none() && !trimmed.is_empty() {
+            in_header = false;
+        }
 
-        let annotation_body = if let Some(rest) = trimmed.strip_prefix("--") {
-            let rest = rest.trim_start();
-            rest.strip_prefix('@')
-        } else {
-            None
-        };
+        if in_header && let Some(declaration) = comment.and_then(parse_param_declaration) {
+            positional_param_docs.push(declaration?);
+            continue;
+        }
+
+        let annotation_body = comment.and_then(|rest| rest.trim_start().strip_prefix('@'));
 
         if let Some(body) = annotation_body {
             let (keyword, value) = match body.find(|c: char| c.is_whitespace()) {
@@ -303,19 +385,21 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
                     {
                         let rest = first_end.map(|p| value[p..].trim()).unwrap_or("").trim();
                         if !rest.is_empty() {
-                            let (param_name, description) = if let Some(colon_pos) = rest.find(':') {
-                                (
-                                    rest[..colon_pos].trim().to_string(),
-                                    rest[colon_pos + 1..].trim().to_string(),
-                                )
-                            } else {
-                                (rest.to_string(), String::new())
+                            let (param_name, description) = match rest.split_once(':') {
+                                Some((param_name, description)) => (param_name.trim(), description.trim()),
+                                None => (rest, ""),
+                            };
+                            let (param_name, nullable) = match param_name.strip_suffix('?') {
+                                Some(param_name) => (param_name.trim_end(), true),
+                                None => (param_name, false),
                             };
                             if !param_name.is_empty() {
                                 positional_param_docs.push(PositionalParamDoc {
                                     position: pos,
-                                    name: param_name,
-                                    description,
+                                    name: param_name.to_string(),
+                                    description: description.to_string(),
+                                    nullable,
+                                    declared: false,
                                 });
                             }
                         }
@@ -388,6 +472,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
 
     let name = name.ok_or_else(|| ScytheError::missing_annotation("name"))?;
     validate_query_name(&name)?;
+    reject_duplicate_param_names(&name, &positional_param_docs)?;
     let command = command.ok_or_else(|| ScytheError::missing_annotation("returns"))?;
 
     if command == QueryCommand::Grouped && group_by.is_none() {
@@ -1207,6 +1292,80 @@ SELECT id FROM users WHERE id = $1";
         assert_eq!(q.annotations.positional_param_docs[0].name, "start_date");
         assert_eq!(q.annotations.positional_param_docs[1].position, 2);
         assert_eq!(q.annotations.positional_param_docs[1].name, "end_date");
+    }
+
+    #[test]
+    fn test_positional_param_trailing_question_mark_marks_nullable() {
+        let input = "-- @name Foo\n-- @returns :one\n-- @param $1 since?: lower bound\n-- @param $2 id\nSELECT 1";
+        let docs = parse(input).unwrap().annotations.positional_param_docs;
+        assert_eq!(docs[0].name, "since");
+        assert_eq!(docs[0].description, "lower bound");
+        assert!(docs[0].nullable);
+        assert!(!docs[0].declared);
+        assert!(!docs[1].nullable);
+    }
+
+    // ---- `-- $N: name` declarations ----
+
+    #[test]
+    fn test_param_declarations_parsed_from_header() {
+        let input = "-- @name Foo\n-- @returns :many\n-- Recent rows.\n-- $1: user_id\n-- $2: since?\nSELECT 1";
+        let q = parse(input).unwrap();
+        let docs = &q.annotations.positional_param_docs;
+        assert_eq!(docs.len(), 2);
+        assert_eq!((docs[0].position, docs[0].name.as_str()), (1, "user_id"));
+        assert!(!docs[0].nullable);
+        assert_eq!((docs[1].position, docs[1].name.as_str()), (2, "since"));
+        assert!(docs[1].nullable);
+        assert!(docs.iter().all(|doc| doc.declared));
+        assert!(q.annotations.custom.is_empty());
+        assert_eq!(
+            q.sql, "-- Recent rows.\nSELECT 1",
+            "declarations leave the SQL, other comments stay"
+        );
+    }
+
+    #[test]
+    fn test_param_declaration_inside_sql_body_is_an_ordinary_comment() {
+        let input = "-- @name Foo\n-- @returns :one\nSELECT 1\n-- $1: user_id\n";
+        let q = parse(input).unwrap();
+        assert!(q.annotations.positional_param_docs.is_empty());
+        assert!(q.sql.contains("-- $1: user_id"));
+    }
+
+    #[test]
+    fn test_header_comment_mentioning_a_placeholder_is_not_a_declaration() {
+        let input = "-- @name Foo\n-- @returns :one\n-- $1 is the user\n-- costs $5: cheap\nSELECT 1";
+        assert!(parse(input).unwrap().annotations.positional_param_docs.is_empty());
+    }
+
+    #[test]
+    fn test_param_declaration_with_invalid_name_errors() {
+        let input = "-- @name Foo\n-- @returns :one\n-- $1: the user id\nSELECT 1";
+        let err = parse(input).unwrap_err().to_string();
+        assert!(err.contains("`-- $1: the user id`"), "{err}");
+        assert!(err.contains("identifier"), "{err}");
+    }
+
+    #[test]
+    fn test_param_declaration_position_zero_errors() {
+        let input = "-- @name Foo\n-- @returns :one\n-- $0: id\nSELECT 1";
+        let err = parse(input).unwrap_err().to_string();
+        assert!(err.contains("from $1 upwards"), "{err}");
+    }
+
+    #[test]
+    fn test_duplicate_param_declaration_errors() {
+        let input = "-- @name Foo\n-- @returns :one\n-- $1: user_id\n-- $1: account_id\nSELECT 1";
+        let err = parse(input).unwrap_err().to_string();
+        assert!(err.contains("$1 is named twice (`user_id` and `account_id`)"), "{err}");
+    }
+
+    #[test]
+    fn test_duplicate_across_param_spellings_errors() {
+        let input = "-- @name Foo\n-- @returns :one\n-- $1: user_id\n-- @param $1 id\nSELECT 1";
+        let err = parse(input).unwrap_err().to_string();
+        assert!(err.contains("$1 is named twice"), "{err}");
     }
 
     #[test]
