@@ -274,7 +274,7 @@ fn every_backend_manifest_has_an_integration_project() {
 }
 
 /// #118/#134/#135: every integration project is run by the `sqlkit:integration` devenv
-/// task, which is both how a project is run locally and what CI runs.
+/// task, which is how the integration projects are run.
 ///
 /// Without this, the manifest check above is satisfiable by committing a
 /// project nothing runs — generated output that the freshness check inspects

@@ -40,14 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `duckdb`, `mssql`, `oracledb` and `snowflake` backends. The `lang-*` Cargo
   features are now `lang-rust` and `lang-typescript`, and the legacy
   `[sql.gen]` table form accepts only `rust` and `typescript`.
-- Development and CI run on devenv instead of mise: `devenv.nix` provides the
+- Development runs on devenv instead of mise: `devenv.nix` provides the
   Rust toolchain, Bun and a PostgreSQL service, and the `scythe:build`,
   `scythe:test`, `scythe:lint`, `scythe:generate`, `scythe:generated-fresh`,
-  `scythe:integration` and `scythe:cluster-scope` tasks; one GitHub workflow
-  runs them. The mise, poly, uv, renovate, dependabot and ai-rulez
-  configuration, the release, publish, docs and plugin workflows, the GitHub
-  Action, the pre-commit hook definition and the coding-agent plugin and
-  skills are gone.
+  `scythe:integration` and `scythe:cluster-scope` tasks. There is no CI any
+  more: every GitHub workflow is gone, with the issue and pull request
+  templates, `deny.toml` (cargo-deny) and the CI-only generated-code scripts
+  under `scripts/`. The mise, poly, uv, renovate, dependabot and ai-rulez
+  configuration, the GitHub Action, the pre-commit hook definition and the
+  coding-agent plugin and skills are gone.
 
 ### Removed
 

@@ -1,5 +1,5 @@
-# The development environment and the task runner: `devenv tasks run <task>` here, and the
-# CI workflow runs the same tasks. Builds are debug builds; nothing here builds --release.
+# The development environment and the task runner: `devenv tasks run <task>`. There is no CI;
+# run these tasks before pushing. Builds are debug builds; nothing here builds --release.
 { pkgs, config, ... }:
 let
   # What mygiving builds through Nix (its overlay pins this repository): the CLI with the

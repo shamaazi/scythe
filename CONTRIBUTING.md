@@ -37,8 +37,8 @@ service for the integration projects. Build in debug only; nothing here needs `-
 | `sqlkit:integration` | Run the integration projects (starts devenv's PostgreSQL on port 5433) |
 | `sqlkit:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` acceptance controls |
 
-The GitHub workflow in `.github/workflows/ci.yml` runs the same tasks. Linking every test binary at
-once can exhaust memory on a small machine; `cargo test --workspace -j1` avoids it.
+There is no CI: run `sqlkit:lint`, `sqlkit:test` and `sqlkit:integration` before pushing. Linking
+every test binary at once can exhaust memory on a small machine; `cargo test --workspace -j1` avoids it.
 
 ## Architecture
 
