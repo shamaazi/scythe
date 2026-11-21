@@ -189,6 +189,27 @@ pub trait CodegenBackend: Send + Sync {
         None
     }
 
+    /// The module the generated code imports the schema's named types from
+    /// (see [`crate::schema_types`]), or `None` when it declares them itself.
+    /// When set, enums are imported rather than rendered per module, and a
+    /// value of a domain type is declared by [`Self::schema_type`].
+    fn schema_types_import(&self) -> Option<&str> {
+        None
+    }
+
+    /// The `(lang_type, full_type)` naming the schema type `sql_name` (a
+    /// domain) from the [`Self::schema_types_import`] module, or `None` to keep
+    /// the value's own type.
+    fn schema_type(&self, _sql_name: &str, _nullable: bool) -> Option<(String, String)> {
+        None
+    }
+
+    /// Render the module declaring the schema's enums and domains as named
+    /// types, or `None` when this backend cannot.
+    fn generate_schema_types(&self, _types: &crate::schema_types::SchemaTypes) -> Option<Result<String, ScytheError>> {
+        None
+    }
+
     /// Emit a row-shaped type declaration under an *already final* name.
     ///
     /// `struct_name` is the exact identifier to declare — this method must

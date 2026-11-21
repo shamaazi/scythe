@@ -3,6 +3,7 @@ use scythe_backend::naming::{NamingConfig, field_name, param_name};
 use scythe_backend::types::resolve_type_pair;
 
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam};
+use scythe_core::constraints::ValueConstraints;
 use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
@@ -134,29 +135,54 @@ pub fn resolve_params(
 /// [`resolve_columns`] and [`resolve_params`] produce them. Runs after
 /// [`crate::constraints::apply_constraint_policy`], so a narrowed type is the
 /// one passed on.
+///
+/// A scalar value of a domain type is first declared by the name the
+/// backend's [`CodegenBackend::schema_type`] gives it, so `column_type` wraps
+/// that name. Returns those names, for the module to import.
 pub fn apply_column_types(
     backend: &dyn CodegenBackend,
     analyzed_columns: &[AnalyzedColumn],
     columns: &mut [ResolvedColumn],
     analyzed_params: &[AnalyzedParam],
     params: &mut [ResolvedParam],
-) {
+) -> Vec<String> {
     let targets = analyzed_columns
         .iter()
-        .map(|c| c.base_column.as_ref())
+        .map(|c| {
+            (
+                c.base_column.as_ref(),
+                domain_of(&c.neutral_type, c.constraints.as_ref()),
+            )
+        })
         .zip(
             columns
                 .iter_mut()
                 .map(|c| (&mut c.lang_type, &mut c.full_type, c.nullable)),
         )
         .chain(
-            analyzed_params.iter().map(|p| p.base_column.as_ref()).zip(
-                params
-                    .iter_mut()
-                    .map(|p| (&mut p.lang_type, &mut p.full_type, p.nullable)),
-            ),
+            analyzed_params
+                .iter()
+                .map(|p| {
+                    (
+                        p.base_column.as_ref(),
+                        domain_of(&p.neutral_type, p.constraints.as_ref()),
+                    )
+                })
+                .zip(
+                    params
+                        .iter_mut()
+                        .map(|p| (&mut p.lang_type, &mut p.full_type, p.nullable)),
+                ),
         );
-    for (base_column, (lang_type, full_type, nullable)) in targets {
+    let mut schema_types = Vec::new();
+    for ((base_column, domain), (lang_type, full_type, nullable)) in targets {
+        if let Some(domain) = domain
+            && let Some((lang, full)) = backend.schema_type(domain, nullable)
+        {
+            schema_types.push(lang.clone());
+            *lang_type = lang;
+            *full_type = full;
+        }
         let Some(base_column) = base_column else {
             continue;
         };
@@ -165,6 +191,16 @@ pub fn apply_column_types(
             *full_type = full;
         }
     }
+    schema_types
+}
+
+/// The domain a scalar value is declared with, from the constraints analysis
+/// attached to it. An array of a domain keeps its element type.
+fn domain_of<'a>(neutral_type: &str, constraints: Option<&'a ValueConstraints>) -> Option<&'a str> {
+    if neutral_type.starts_with("array<") {
+        return None;
+    }
+    constraints?.domain.as_deref()
 }
 
 /// Every `"table.column"` reference actually present across a set of analyzed params, keyed

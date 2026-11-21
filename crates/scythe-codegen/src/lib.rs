@@ -5,6 +5,7 @@ pub mod constraints;
 pub mod overrides;
 pub mod provenance;
 pub mod resolve;
+pub mod schema_types;
 pub mod sql_literal;
 pub mod validation;
 
@@ -76,6 +77,10 @@ pub struct GeneratedCode {
     /// [`degrade_unsupported_nested_structs`]'s doc comment for exactly what
     /// each field means.
     pub degraded_nested_structs: Vec<NestedStructDegradation>,
+    /// The schema types (enums and domains) this query's code names from the
+    /// backend's [`CodegenBackend::schema_types_import`] module, for the file
+    /// to import. Empty unless the backend imports them.
+    pub schema_types: Vec<String>,
 }
 
 impl GeneratedCode {
@@ -269,7 +274,7 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
         &mut params,
         &mut result.constraint_warnings,
     )?;
-    resolve::apply_column_types(
+    result.schema_types = resolve::apply_column_types(
         backend,
         degraded_columns.as_deref().unwrap_or(&analyzed.columns),
         &mut columns,
@@ -292,7 +297,13 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
     // would compare against a name this query never actually declares.
     let declared_struct_name = (needs_row_struct && !analyzed.columns.is_empty()).then_some(struct_name.as_str());
 
-    let enum_def = generate_enum_defs_via_backend(analyzed, backend, &nested_refs, declared_struct_name)?;
+    let enum_def = generate_enum_defs_via_backend(
+        analyzed,
+        backend,
+        &nested_refs,
+        declared_struct_name,
+        &mut result.schema_types,
+    )?;
     if !enum_def.is_empty() {
         result.enum_def = Some(enum_def);
     }
@@ -389,20 +400,19 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
         // Same constraints as the flat columns, already reported above.
         constraints::apply_constraint_policy(backend, &analyzed.name, &mut parent_cols, &mut [], &mut Vec::new())?;
         constraints::apply_constraint_policy(backend, &analyzed.name, &mut child_cols, &mut [], &mut Vec::new())?;
-        resolve::apply_column_types(
-            backend,
-            degraded_parent.as_deref().unwrap_or(&group_by.parent_columns),
-            &mut parent_cols,
-            &[],
-            &mut [],
-        );
-        resolve::apply_column_types(
-            backend,
-            degraded_child.as_deref().unwrap_or(&group_by.child_columns),
-            &mut child_cols,
-            &[],
-            &mut [],
-        );
+        for (analyzed_cols, cols) in [
+            (
+                degraded_parent.as_deref().unwrap_or(&group_by.parent_columns),
+                &mut parent_cols,
+            ),
+            (
+                degraded_child.as_deref().unwrap_or(&group_by.child_columns),
+                &mut child_cols,
+            ),
+        ] {
+            let names = resolve::apply_column_types(backend, analyzed_cols, cols, &[], &mut []);
+            result.schema_types.extend(names);
+        }
 
         // Every `generate_grouped_structs` implementation injects one more
         // field into the parent struct beyond `parent_cols`: `children`
@@ -686,6 +696,7 @@ fn generate_enum_defs_via_backend(
     backend: &dyn CodegenBackend,
     nested_refs: &NestedTypeRefs,
     declared_struct_name: Option<&str>,
+    imported: &mut Vec<String>,
 ) -> Result<String, ScytheError> {
     use ahash::AHashSet;
     use std::fmt::Write;
@@ -759,6 +770,12 @@ fn generate_enum_defs_via_backend(
             variant_names.iter().map(|(source, name)| (*source, name.as_str())),
             sql_name,
         )?;
+
+        // Declared once, in the schema types module this code imports from.
+        if backend.schema_types_import().is_some() {
+            imported.push(scythe_backend::naming::enum_type_name(sql_name, naming));
+            continue;
+        }
 
         if nested_refs.enums.contains(sql_name) {
             out.push_str(&backend.generate_enum_def_for_nested(enum_info)?);
