@@ -81,3 +81,8 @@ AGENTS.md
 CLAUDE.md
 opencode.json
 # END ai-rulez
+
+# devenv (shamaazi branch)
+.devenv*
+devenv.local.nix
+.direnv
