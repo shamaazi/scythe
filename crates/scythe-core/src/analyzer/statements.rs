@@ -704,6 +704,7 @@ mod union_sql_type_tests {
             pending_nested: Vec::new(),
             next_nested_id: 0,
             resolved_placeholders: AHashMap::new(),
+            outer_sources: Vec::new(),
         }
     }
 

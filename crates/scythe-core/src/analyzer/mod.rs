@@ -38,6 +38,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         pending_nested: Vec::new(),
         next_nested_id: 0,
         resolved_placeholders: AHashMap::new(),
+        outer_sources: Vec::new(),
     };
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;
@@ -2516,5 +2517,64 @@ SELECT id, moods FROM t WHERE id = $1;",
         let expanded = analyze(&catalog, &from_query).expect("named composite should expand in FROM");
         assert_eq!(expanded.columns[0].neutral_type, "int64");
         assert_eq!(expanded.columns[1].neutral_type, "string");
+    }
+
+    #[test]
+    fn should_resolve_lateral_derived_table_references_to_preceding_from_items() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TYPE payment_status AS ENUM ('pending', 'succeeded');",
+            "CREATE FUNCTION payment_status(stored character varying) RETURNS payment_status \
+             LANGUAGE sql IMMUTABLE RETURN stored::payment_status;",
+            "CREATE TABLE transactions (id integer PRIMARY KEY, payment_status character varying(255) NOT NULL);",
+        ])
+        .expect("schema should parse");
+        let query = parse_query(
+            "-- @name Statuses\n-- @returns :many\n\
+             SELECT t.id, a.status, a.label FROM transactions t \
+             CROSS JOIN LATERAL (SELECT payment_status(t.payment_status) AS status, t.payment_status AS label) a;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("LATERAL may reference preceding FROM items");
+        assert_eq!(result.columns[1].neutral_type, "enum::payment_status");
+        assert_eq!(result.columns[2].neutral_type, "string");
+        assert!(!result.columns[2].nullable);
+    }
+
+    #[test]
+    fn should_not_resolve_sibling_references_in_a_derived_table_without_lateral() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name Sibling\n-- @returns :many\n\
+             SELECT d.name FROM users u, (SELECT u.name) d;",
+        )
+        .expect("query should parse");
+        let error = analyze(&catalog, &query).expect_err("a plain derived table cannot see its siblings");
+        assert!(error.message.contains("name"), "got: {}", error.message);
+    }
+
+    #[test]
+    fn should_resolve_correlated_scalar_subquery_references_to_the_enclosing_query() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name LatestTitle\n-- @returns :many\n\
+             SELECT u.id, (SELECT u.score FROM posts p WHERE p.user_id = u.id LIMIT 1) AS latest \
+             FROM users u;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("correlated references should resolve");
+        assert_eq!(result.columns[1].neutral_type, "decimal");
+        assert!(result.columns[1].nullable, "a scalar subquery may match no rows");
+    }
+
+    #[test]
+    fn should_prefer_the_inner_source_when_a_correlated_name_is_shadowed() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name Shadowed\n-- @returns :many\n\
+             SELECT (SELECT id FROM posts WHERE posts.user_id = users.id LIMIT 1) AS post_id FROM users;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the unqualified name resolves to posts.id");
+        assert_eq!(result.columns[0].neutral_type, "int32");
     }
 }

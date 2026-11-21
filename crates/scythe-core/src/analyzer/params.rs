@@ -191,13 +191,13 @@ impl<'a> Analyzer<'a> {
                 self.collect_param_from_any(right, &left_ti, &expr_to_name(left));
             }
             Expr::InSubquery { subquery, .. } => {
-                let _ = self.analyze_query(subquery);
+                let _ = self.analyze_correlated_query(subquery, scope);
             }
             Expr::Exists { subquery, .. } => {
-                let _ = self.analyze_query(subquery);
+                let _ = self.analyze_correlated_query(subquery, scope);
             }
             Expr::Subquery(subquery) => {
-                let _ = self.analyze_query(subquery);
+                let _ = self.analyze_correlated_query(subquery, scope);
             }
             Expr::Case {
                 conditions,
@@ -439,6 +439,7 @@ mod tests {
             pending_nested: Vec::new(),
             next_nested_id: 0,
             resolved_placeholders: AHashMap::new(),
+            outer_sources: Vec::new(),
         }
     }
 
@@ -564,6 +565,7 @@ mod tests {
             pending_nested: Vec::new(),
             next_nested_id: 0,
             resolved_placeholders: AHashMap::new(),
+            outer_sources: Vec::new(),
         };
         let scope = Scope {
             sources: vec![ScopeSource {
@@ -610,6 +612,7 @@ mod tests {
             pending_nested: Vec::new(),
             next_nested_id: 0,
             resolved_placeholders: AHashMap::new(),
+            outer_sources: Vec::new(),
         };
         let scope = Scope {
             sources: vec![ScopeSource {
@@ -646,6 +649,7 @@ mod tests {
             pending_nested: Vec::new(),
             next_nested_id: 0,
             resolved_placeholders: AHashMap::new(),
+            outer_sources: Vec::new(),
         };
         let scope = Scope {
             sources: vec![ScopeSource {

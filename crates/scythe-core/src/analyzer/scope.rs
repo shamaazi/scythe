@@ -179,7 +179,18 @@ impl<'a> Analyzer<'a> {
                     nullable_from_join,
                 });
             }
-            TableFactor::Derived { subquery, alias, .. } => {
+            TableFactor::Derived {
+                lateral,
+                subquery,
+                alias,
+                ..
+            } => {
+                // Every derived table sees the enclosing query levels; only a
+                // `LATERAL` one also sees the FROM items before it.
+                let mut outer_sources = self.outer_sources.clone();
+                if *lateral {
+                    outer_sources.extend(scope.sources.iter().cloned());
+                }
                 let mut sub_analyzer = Analyzer {
                     catalog: self.catalog,
                     params: Vec::new(),
@@ -189,6 +200,7 @@ impl<'a> Analyzer<'a> {
                     pending_nested: Vec::new(),
                     next_nested_id: self.next_nested_id,
                     resolved_placeholders: AHashMap::new(),
+                    outer_sources,
                 };
                 let sub_cols = sub_analyzer.analyze_query(subquery)?;
 
@@ -489,6 +501,7 @@ mod tests {
             pending_nested: Vec::new(),
             next_nested_id: 0,
             resolved_placeholders: AHashMap::new(),
+            outer_sources: Vec::new(),
         }
     }
 

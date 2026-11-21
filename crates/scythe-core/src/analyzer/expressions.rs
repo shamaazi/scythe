@@ -277,7 +277,7 @@ impl<'a> Analyzer<'a> {
             }
 
             Expr::Subquery(query) => {
-                if let Ok(cols) = self.analyze_query(query)
+                if let Ok(cols) = self.analyze_correlated_query(query, scope)
                     && let Some(first) = cols.first()
                 {
                     // A scalar subquery evaluates to SQL NULL when it matches
@@ -432,6 +432,20 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    /// Analyze a subquery nested in an expression evaluated over `scope`, so
+    /// its correlated references resolve against `scope`'s sources.
+    pub(super) fn analyze_correlated_query(
+        &mut self,
+        query: &ast::Query,
+        scope: &Scope,
+    ) -> Result<Vec<AnalyzedColumn>, crate::errors::ScytheError> {
+        let enclosing = self.outer_sources.len();
+        self.outer_sources.extend(scope.sources.iter().cloned());
+        let result = self.analyze_query(query);
+        self.outer_sources.truncate(enclosing);
+        result
+    }
+
     pub(super) fn resolve_column_in_scope(&self, col_name: &str, qualifier: Option<&str>, scope: &Scope) -> TypeInfo {
         if let Some(qual) = qualifier {
             for source in &scope.sources {
@@ -471,6 +485,30 @@ impl<'a> Analyzer<'a> {
             if let Some(ti) = found {
                 return ti;
             }
+        }
+
+        // A qualifier naming a source of this level does not reach outward,
+        // matching PostgreSQL, which reports the missing column instead.
+        let qualifier_is_local =
+            qualifier.is_some_and(|qual| scope.sources.iter().any(|s| s.alias == qual || s.table_name == qual));
+        if !qualifier_is_local
+            && let Some((source, col)) = self.outer_sources.iter().rev().find_map(|source| {
+                let names_source = qualifier.is_none_or(|qual| source.alias == qual || source.table_name == qual);
+                names_source
+                    .then(|| source.columns.iter().find(|c| c.name == col_name))
+                    .flatten()
+                    .map(|col| (source, col))
+            })
+        {
+            return TypeInfo::from_scope_column(
+                col.sql_type.clone(),
+                col.neutral_type.clone(),
+                col.base_nullable,
+                &source.alias,
+                source.nullable_from_join,
+                &source.table_name,
+                col.untyped_literal,
+            );
         }
 
         let has_sources = scope.sources.iter().any(|s| !s.columns.is_empty());
@@ -1691,6 +1729,7 @@ mod tests {
             pending_nested: Vec::new(),
             next_nested_id: 0,
             resolved_placeholders: AHashMap::new(),
+            outer_sources: Vec::new(),
         }
     }
 

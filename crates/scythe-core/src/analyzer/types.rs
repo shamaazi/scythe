@@ -523,6 +523,11 @@ pub(super) struct Analyzer<'a> {
     /// `pending_nested` is: a subquery's placeholder spans live in a
     /// disjoint region of the source text, so merging can never collide.
     pub(super) resolved_placeholders: AHashMap<Span, i64>,
+    /// Sources a correlated reference can name: the FROM items of every
+    /// enclosing query level and, inside a `LATERAL` derived table, the FROM
+    /// items before it. Innermost last. A column the current scope does not
+    /// hold resolves against these, as PostgreSQL resolves outer references.
+    pub(super) outer_sources: Vec<ScopeSource>,
 }
 
 impl<'a> Analyzer<'a> {
