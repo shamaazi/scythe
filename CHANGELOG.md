@@ -85,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A result column the statement's filters prove non-null is no longer
+  nullable: one the WHERE clause tests `IS NOT NULL` or compares with `=`,
+  `<>`, `<`, `<=`, `>` or `>=` as a top-level conjunct, or an inner join's ON
+  condition compares. A later RIGHT or FULL join, ROLLUP, CUBE or GROUPING
+  SETS, and a whole-table `SELECT *` (which keeps the table model) opt out.
 - Parameters are inferred nullable when the statement tests them with
   `IS NULL`/`IS NOT NULL`, or writes them to a nullable column through
   `UPDATE ... SET` or `ON CONFLICT DO UPDATE SET` (as `INSERT ... VALUES`

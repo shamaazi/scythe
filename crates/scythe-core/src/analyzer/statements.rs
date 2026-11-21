@@ -405,6 +405,47 @@ impl<'a> Analyzer<'a> {
             }
         }
 
+        let proven = filtered_non_null_refs(select, &scope);
+        if !proven.is_empty() {
+            let projected = select.projection.iter().flat_map(|item| match item {
+                SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
+                    vec![scope_column_ref(expr, &scope)]
+                }
+                SelectItem::ExprWithAliases { expr, aliases } => vec![scope_column_ref(expr, &scope); aliases.len()],
+                SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(..) => {
+                    let qualifier = match item {
+                        SelectItem::QualifiedWildcard(ast::SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
+                            Some(object_column_name(name))
+                        }
+                        SelectItem::QualifiedWildcard(ast::SelectItemQualifiedWildcardKind::Expr(expr), _) => {
+                            Some(expr_to_name(expr))
+                        }
+                        _ => None,
+                    };
+                    scope
+                        .sources
+                        .iter()
+                        .filter(|source| {
+                            qualifier
+                                .as_ref()
+                                .is_none_or(|qual| source.alias == *qual || source.table_name == *qual)
+                        })
+                        .flat_map(|source| {
+                            source
+                                .columns
+                                .iter()
+                                .map(|col| Some((source.alias.clone(), col.name.clone())))
+                        })
+                        .collect()
+                }
+            });
+            for (column, reference) in columns.iter_mut().zip(projected) {
+                if reference.is_some_and(|reference| proven.contains(&reference)) {
+                    column.nullable = false;
+                }
+            }
+        }
+
         if let Some(ref selection) = select.selection {
             self.collect_params_from_where(selection, &scope);
         }
@@ -739,6 +780,111 @@ impl<'a> Analyzer<'a> {
 
         Ok(columns)
     }
+}
+
+/// The column of `scope` that `expr` reads unchanged, as its source's alias
+/// and the column's name; `None` for anything computed or ambiguous.
+fn scope_column_ref(expr: &Expr, scope: &Scope) -> Option<(String, String)> {
+    let mut expr = expr;
+    while let Expr::Nested(inner) = expr {
+        expr = inner;
+    }
+    let (qualifier, column) = match expr {
+        Expr::Identifier(ident) => (None, ident_name(ident)),
+        Expr::CompoundIdentifier(parts) if parts.len() >= 2 => (
+            Some(ident_name(&parts[parts.len() - 2])),
+            ident_name(&parts[parts.len() - 1]),
+        ),
+        _ => return None,
+    };
+    let mut sources = scope.sources.iter().filter(|source| {
+        qualifier
+            .as_ref()
+            .is_none_or(|qual| source.alias == *qual || source.table_name == *qual)
+            && source.columns.iter().any(|c| c.name == column)
+    });
+    let source = sources.next()?;
+    sources.next().is_none().then(|| (source.alias.clone(), column))
+}
+
+/// The columns a row must hold a value in to satisfy `condition`: those it
+/// tests `IS NOT NULL`, and those it compares, since a comparison with NULL
+/// is never true. Only conjuncts count, through `AND` and parentheses.
+fn non_null_refs(condition: &Expr, scope: &Scope, refs: &mut Vec<(String, String)>) {
+    match condition {
+        Expr::Nested(inner) => non_null_refs(inner, scope, refs),
+        Expr::BinaryOp {
+            left,
+            op: ast::BinaryOperator::And,
+            right,
+        } => {
+            non_null_refs(left, scope, refs);
+            non_null_refs(right, scope, refs);
+        }
+        Expr::IsNotNull(inner) => refs.extend(scope_column_ref(inner, scope)),
+        Expr::BinaryOp {
+            left,
+            op:
+                ast::BinaryOperator::Eq
+                | ast::BinaryOperator::NotEq
+                | ast::BinaryOperator::Lt
+                | ast::BinaryOperator::LtEq
+                | ast::BinaryOperator::Gt
+                | ast::BinaryOperator::GtEq,
+            right,
+        } => {
+            refs.extend(scope_column_ref(left, scope));
+            refs.extend(scope_column_ref(right, scope));
+        }
+        _ => {}
+    }
+}
+
+/// The columns a SELECT's WHERE clause and inner joins' ON conditions prove
+/// non-null in its rows. An inner join's condition stops counting when a
+/// later RIGHT or FULL join can null-extend its side again, and none counts
+/// under ROLLUP, CUBE or GROUPING SETS, whose subtotal rows null them.
+/// A whole-table `SELECT *` keeps the table's row type, the model every such
+/// query shares.
+fn filtered_non_null_refs(select: &ast::Select, scope: &Scope) -> Vec<(String, String)> {
+    let mut refs = Vec::new();
+    let table_star = select.projection.len() == 1
+        && matches!(select.projection[0], SelectItem::Wildcard(_))
+        && select.from.len() == 1
+        && select.from[0].joins.is_empty()
+        && matches!(select.from[0].relation, ast::TableFactor::Table { .. });
+    if table_star {
+        return refs;
+    }
+    if let ast::GroupByExpr::Expressions(group_by, _) = &select.group_by
+        && group_by
+            .iter()
+            .any(|expr| matches!(expr, Expr::Rollup(_) | Expr::Cube(_) | Expr::GroupingSets(_)))
+    {
+        return refs;
+    }
+    if let Some(selection) = &select.selection {
+        non_null_refs(selection, scope, &mut refs);
+    }
+    for from in &select.from {
+        let reextends = from.joins.iter().any(|join| {
+            matches!(
+                join.join_operator,
+                ast::JoinOperator::Right(_) | ast::JoinOperator::RightOuter(_) | ast::JoinOperator::FullOuter(_)
+            )
+        });
+        if reextends {
+            continue;
+        }
+        for join in &from.joins {
+            if let ast::JoinOperator::Join(ast::JoinConstraint::On(condition))
+            | ast::JoinOperator::Inner(ast::JoinConstraint::On(condition)) = &join.join_operator
+            {
+                non_null_refs(condition, scope, &mut refs);
+            }
+        }
+    }
+    refs
 }
 
 #[cfg(test)]

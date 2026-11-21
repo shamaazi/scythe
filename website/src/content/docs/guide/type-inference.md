@@ -55,6 +55,26 @@ are not projected, but the widening rule is the same as `LEFT JOIN`). `FULL OUTE
 sides -- every column from either table can be NULL, since a row might exist on only one side. This
 also applies inside nested joins (parenthesized `FROM` clauses).
 
+## Nullability from filters
+
+A column the query's filters prove holds a value is non-null, even when the schema or an outer join
+allows NULL: one a top-level `AND` conjunct of `WHERE` tests `IS NOT NULL` or compares with `=`, `<>`,
+`<`, `<=`, `>` or `>=`, or one an inner join's `ON` condition compares.
+
+```sql
+-- @name DonorPhones
+-- @returns :many
+SELECT u.id, u.phone_number, t.daf_account_id
+FROM users u
+JOIN transactions t ON t.user_id = u.id
+JOIN daf_accounts da ON da.id = t.daf_account_id
+WHERE u.phone_number IS NOT NULL;
+```
+
+Both `phone_number` and `daf_account_id` are non-null here. An inner join's condition stops counting
+when a later `RIGHT` or `FULL` join can null-extend its side again, nothing counts under `ROLLUP`,
+`CUBE` or `GROUPING SETS`, and a whole-table `SELECT * FROM t` keeps the table's model type.
+
 ## Nullability from COALESCE
 
 `COALESCE` strips nullability when **any** argument -- not just the last one -- is non-nullable:

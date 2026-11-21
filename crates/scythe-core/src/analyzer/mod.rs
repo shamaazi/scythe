@@ -747,6 +747,55 @@ SELECT u.id, u.name, p.title, p.body FROM users u LEFT JOIN posts p ON u.id = p.
         assert!(result.columns[3].nullable);
     }
 
+    /// A column the WHERE clause tests `IS NOT NULL` or compares, or an inner
+    /// join's ON condition compares, holds a value in every row.
+    #[test]
+    fn should_narrow_columns_the_filters_prove_non_null() {
+        let catalog = make_catalog();
+        let nullable = |sql: &str| -> Vec<bool> {
+            let query = parse_query(&format!("-- @name Q\n-- @returns :many\n{sql}")).unwrap();
+            analyze(&catalog, &query)
+                .unwrap()
+                .columns
+                .iter()
+                .map(|c| c.nullable)
+                .collect()
+        };
+        assert_eq!(
+            nullable("SELECT bio, age, score FROM users WHERE bio IS NOT NULL AND (age > $1)"),
+            [false, false, true]
+        );
+        assert!(!nullable("SELECT u.* FROM users u WHERE u.bio IS NOT NULL")[6]);
+        assert!(
+            nullable("SELECT * FROM users WHERE bio IS NOT NULL")[6],
+            "a whole-table SELECT * keeps the table model"
+        );
+        assert_eq!(
+            nullable("SELECT p.body, u.age FROM posts p JOIN users u ON u.age = p.user_id"),
+            [true, false]
+        );
+        assert_eq!(
+            nullable("SELECT u.bio FROM users u LEFT JOIN posts p ON p.body = u.bio"),
+            [true],
+            "an outer join's condition filters nothing"
+        );
+        assert_eq!(
+            nullable("SELECT bio FROM users WHERE bio IS NOT NULL OR age > 1"),
+            [true],
+            "only conjuncts count"
+        );
+        assert_eq!(
+            nullable("SELECT bio FROM users WHERE bio IS NOT NULL GROUP BY ROLLUP (bio)"),
+            [true],
+            "a subtotal row nulls the grouped column"
+        );
+        assert_eq!(
+            nullable("SELECT u.age FROM users u JOIN posts p ON p.user_id = u.age RIGHT JOIN comments c ON true"),
+            [true],
+            "a later right join null-extends it again"
+        );
+    }
+
     #[test]
     fn test_aggregate_functions() {
         let catalog = make_catalog();
