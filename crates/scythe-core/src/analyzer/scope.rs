@@ -8,7 +8,7 @@ use super::expressions::{catalog_call_arguments_from_args, catalog_function_retu
 use super::helpers::{
     UNRESOLVED_EXPR_MARKER, function_arg_exprs, object_name_to_string, unresolved_type_error, widen_neutral_type,
 };
-use super::type_conversion::sql_type_to_neutral;
+use super::type_conversion::{datatype_to_neutral, sql_type_to_neutral};
 use super::types::*;
 
 impl<'a> Analyzer<'a> {
@@ -111,6 +111,11 @@ impl<'a> Analyzer<'a> {
                             )
                         })
                         .collect()
+                } else if let Some(function_args) = args
+                    && self.catalog.get_functions(&table_name).is_none()
+                    && let Some(columns) = self.column_definition_list(alias.as_ref())
+                {
+                    self.record_function_columns(&table_name, &function_args.args, scope, columns)
                 } else if let Some(function_args) = args
                     && self.catalog.get_functions(&table_name).is_some()
                 {
@@ -270,34 +275,45 @@ impl<'a> Analyzer<'a> {
 
                 let func_name = object_name_to_string(name).to_lowercase();
                 let is_catalog_function = self.catalog.get_functions(&func_name).is_some();
-                let cols = match func_name.as_str() {
-                    "generate_series" => {
-                        let result_type = self.generate_series_result_type(args, &*scope);
-                        vec![ScopeColumn::new("generate_series", result_type, false)]
+                let definition = if is_catalog_function {
+                    None
+                } else {
+                    self.column_definition_list(alias.as_ref())
+                };
+                let has_definition = definition.is_some();
+                let cols = if let Some(columns) = definition {
+                    self.record_function_columns(&func_name, args, scope, columns)
+                } else {
+                    match func_name.as_str() {
+                        "generate_series" => {
+                            let result_type = self.generate_series_result_type(args, &*scope);
+                            vec![ScopeColumn::new("generate_series", result_type, false)]
+                        }
+                        // The element type isn't inspected here (unlike the
+                        // select-list `unnest(...)` arm in `expressions.rs`, which
+                        // does), so there is no type to give this column -- mark
+                        // it rather than leave a bare "unknown" that could reach
+                        // codegen unexplained if it's ever selected (#223).
+                        "unnest" => vec![ScopeColumn::new("unnest", UNRESOLVED_EXPR_MARKER, true)],
+                        "jsonb_array_elements" | "json_array_elements" => vec![ScopeColumn::new("value", "json", true)],
+                        "jsonb_each" | "json_each" => vec![
+                            ScopeColumn::new("key", "string", false),
+                            ScopeColumn::new("value", "json", true),
+                        ],
+                        "jsonb_each_text" | "json_each_text" => vec![
+                            ScopeColumn::new("key", "string", false),
+                            ScopeColumn::new("value", "string", true),
+                        ],
+                        "jsonb_object_keys" | "json_object_keys" => {
+                            vec![ScopeColumn::new("jsonb_object_keys", "string", false)]
+                        }
+                        _ => self.catalog_function_columns(&func_name, args, scope, alias.as_ref())?,
                     }
-                    // The element type isn't inspected here (unlike the
-                    // select-list `unnest(...)` arm in `expressions.rs`, which
-                    // does), so there is no type to give this column -- mark
-                    // it rather than leave a bare "unknown" that could reach
-                    // codegen unexplained if it's ever selected (#223).
-                    "unnest" => vec![ScopeColumn::new("unnest", UNRESOLVED_EXPR_MARKER, true)],
-                    "jsonb_array_elements" | "json_array_elements" => vec![ScopeColumn::new("value", "json", true)],
-                    "jsonb_each" | "json_each" => vec![
-                        ScopeColumn::new("key", "string", false),
-                        ScopeColumn::new("value", "json", true),
-                    ],
-                    "jsonb_each_text" | "json_each_text" => vec![
-                        ScopeColumn::new("key", "string", false),
-                        ScopeColumn::new("value", "string", true),
-                    ],
-                    "jsonb_object_keys" | "json_object_keys" => {
-                        vec![ScopeColumn::new("jsonb_object_keys", "string", false)]
-                    }
-                    _ => self.catalog_function_columns(&func_name, args, scope, alias.as_ref())?,
                 };
 
                 let cols = if let Some(a) = alias
                     && !is_catalog_function
+                    && !has_definition
                 {
                     if !a.columns.is_empty() {
                         // An explicit column-alias list on a table function
@@ -394,6 +410,53 @@ impl<'a> Analyzer<'a> {
         false
     }
 
+    /// The columns a column definition list declares (`AS x(id text, amount
+    /// integer)`), which is how PostgreSQL types a function returning
+    /// `record`, such as `jsonb_to_recordset`. `None` unless the alias gives
+    /// every column a type. The columns are nullable: a record need not hold
+    /// a value for each.
+    fn column_definition_list(&self, alias: Option<&ast::TableAlias>) -> Option<Vec<ScopeColumn>> {
+        let columns = &alias?.columns;
+        if columns.is_empty() {
+            return None;
+        }
+        columns
+            .iter()
+            .map(|column| {
+                let data_type = column.data_type.as_ref()?;
+                Some(ScopeColumn::from_catalog(
+                    column.name.value.to_lowercase(),
+                    data_type.to_string().to_lowercase(),
+                    datatype_to_neutral(data_type, self.catalog),
+                    true,
+                ))
+            })
+            .collect()
+    }
+
+    /// The columns of a function outside the catalog called with a column
+    /// definition list. Its arguments are still analyzed, so their
+    /// parameters register; the `json[b]_to_record[set]` family takes JSON.
+    fn record_function_columns(
+        &mut self,
+        function_name: &str,
+        args: &[ast::FunctionArg],
+        scope: &Scope,
+        columns: Vec<ScopeColumn>,
+    ) -> Vec<ScopeColumn> {
+        let takes_json = matches!(
+            function_name,
+            "json_to_record" | "jsonb_to_record" | "json_to_recordset" | "jsonb_to_recordset"
+        );
+        for (index, argument) in function_arg_exprs(args).iter().enumerate() {
+            if index == 0 && takes_json {
+                self.collect_param_from_expr(argument, "json", "json");
+            }
+            let _ = self.infer_expr_type(argument, scope);
+        }
+        columns
+    }
+
     fn catalog_function_columns(
         &mut self,
         function_name: &str,
@@ -444,6 +507,10 @@ impl<'a> Analyzer<'a> {
                             )
                         })
                         .collect()
+                } else if sql_type.eq_ignore_ascii_case("record")
+                    && let Some(columns) = self.column_definition_list(alias)
+                {
+                    columns
                 } else {
                     let neutral_type = catalog_function_return_neutral(function_name, sql_type, self.catalog);
                     if let Some(error) = unresolved_type_error(&neutral_type, "function result", bare_name) {

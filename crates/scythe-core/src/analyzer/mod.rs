@@ -2622,4 +2622,92 @@ SELECT id, moods FROM t WHERE id = $1;",
         let error = analyze(&catalog, &query).expect_err("ARRAY(subquery) takes one column");
         assert!(error.message.contains("only one column"), "got: {}", error.message);
     }
+
+    fn allocation_catalog() -> Catalog {
+        Catalog::from_ddl(&[
+            "CREATE TABLE schedules (id integer PRIMARY KEY, causes jsonb NOT NULL);",
+            "CREATE TABLE causes (id text PRIMARY KEY, title text NOT NULL);",
+        ])
+        .expect("schema should parse")
+    }
+
+    #[test]
+    fn should_type_record_function_columns_from_a_column_definition_list() {
+        let catalog = allocation_catalog();
+        for sql in [
+            "SELECT s.id, allocation.id AS cause, allocation.amount \
+             FROM schedules s, jsonb_to_recordset(s.causes) AS allocation(id text, amount integer)",
+            "SELECT s.id, allocation.id AS cause, allocation.amount \
+             FROM schedules s JOIN jsonb_to_recordset(s.causes) AS allocation(id text, amount integer) ON true",
+            "SELECT s.id, allocation.id AS cause, allocation.amount \
+             FROM schedules s CROSS JOIN LATERAL json_to_recordset(s.causes::json) AS allocation(id text, amount int)",
+        ] {
+            let query =
+                parse_query(&format!("-- @name Allocations\n-- @returns :many\n{sql};")).expect("query should parse");
+            let result = analyze(&catalog, &query).expect("a column definition list types the record");
+            let types: Vec<_> = result
+                .columns
+                .iter()
+                .map(|c| (c.neutral_type.as_str(), c.nullable))
+                .collect();
+            assert_eq!(
+                types,
+                [("int32", false), ("string", true), ("int32", true)],
+                "for {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_type_json_input_of_a_record_function_parameter() {
+        let catalog = allocation_catalog();
+        let query = parse_query(
+            "-- @name Parse\n-- @returns :many\nSELECT x.id FROM jsonb_to_record($1) AS x(id bigint, note text);",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the parameter takes JSON");
+        assert_eq!(result.params[0].neutral_type, "json");
+        assert_eq!(result.columns[0].neutral_type, "int64");
+        assert!(result.columns[0].nullable);
+    }
+
+    #[test]
+    fn should_type_catalog_record_function_from_a_column_definition_list() {
+        let catalog =
+            Catalog::from_ddl(&["CREATE FUNCTION pairs() RETURNS SETOF record LANGUAGE SQL AS 'SELECT 1, ''a''';"])
+                .expect("record-returning function should be cataloged");
+        let query =
+            parse_query("-- @name Pairs\n-- @returns :many\nSELECT n, label FROM pairs() AS p(n integer, label text);")
+                .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("a column definition list types the record");
+        assert_eq!(result.columns[0].neutral_type, "int32");
+        assert_eq!(result.columns[1].neutral_type, "string");
+    }
+
+    #[test]
+    fn should_require_a_column_definition_list_for_unknown_record_functions() {
+        let catalog = allocation_catalog();
+        let query = parse_query(
+            "-- @name Untyped\n-- @returns :many\nSELECT a.id FROM schedules s, jsonb_to_recordset(s.causes) AS a(id);",
+        )
+        .expect("query should parse");
+        let error = analyze(&catalog, &query).expect_err("columns without types cannot be typed");
+        assert_eq!(error.code, crate::errors::ErrorCode::UnknownTable);
+    }
+
+    #[test]
+    fn should_type_ordered_string_agg_over_a_record_function_in_a_scalar_subquery() {
+        let catalog = allocation_catalog();
+        let query = parse_query(
+            "-- @name CauseTitles\n-- @returns :many\n\
+             SELECT s.id, (SELECT string_agg(ca.title, ', ' ORDER BY ca.id) \
+             FROM jsonb_to_recordset(s.causes) AS allocation(id text, amount integer) \
+             JOIN causes ca ON ca.id = allocation.id) AS titles \
+             FROM schedules s;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the subquery should resolve");
+        assert_eq!(result.columns[1].neutral_type, "string");
+        assert!(result.columns[1].nullable, "string_agg over no rows is NULL");
+    }
 }
