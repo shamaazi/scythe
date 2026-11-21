@@ -349,6 +349,7 @@ export type GetUserOrdersRow = {
 | `outer_join_unions` | `true`, `false` | `false` | Discriminated unions for outer-join nullability instead of independent optionals |
 | `structs_only` | `true`, `false` | `false` | Emit only row types (interfaces/Zod schemas, enums, composites) -- no query functions, no driver import |
 | `field_case` | `snake_case`, `camelCase` | `snake_case` | Case convention for generated row/interface field names and function parameter names |
+| `params` | `positional`, `object` | `positional` | Take one argument per parameter, or one `params` object typed by an exported `<Query>Params` interface (`typescript-bun`, `typescript-postgres`, `typescript-pg`) |
 
 `structs_only` is supported by every TypeScript backend, including `typescript-postgres`, `typescript-pg`, and `typescript-kysely`. Combined with `row_type = "zod"` it produces a types-only package with no driver dependency:
 
@@ -360,7 +361,8 @@ row_type = "zod"
 structs_only = "true"
 ```
 
-Every key besides `row_type`, `outer_join_unions`, `structs_only`, and `field_case` is rejected --
+Every key besides `row_type`, `outer_join_unions`, `structs_only`, `field_case` and (where
+supported) `params` is rejected --
 an unrecognized option aborts generation with a "did you mean" suggestion rather than being
 silently ignored. See [`field_case`](/scythe/guide/configuration/#field_case) in the Configuration
 guide for the runtime-remap behavior it triggers and its collision-detection error.
@@ -378,6 +380,50 @@ export interface GetUserRow {
   userName: string;
 }
 ```
+
+### Parameter objects (`params = "object"`)
+
+`typescript-bun`, `typescript-postgres` and `typescript-pg` can take a query's parameters as one
+object instead of one argument each. The object's type is exported beside the row type as
+`<Query>Params`, its properties named by `field_case`; the function reads them back in placeholder
+order. Name the parameters with [parameter declarations](/scythe/guide/annotations/#parameter-declarations)
+to choose the property names.
+
+```toml
+[[sql.gen]]
+backend = "typescript-bun"
+output = "src/generated"
+field_case = "camelCase"
+params = "object"
+```
+
+```sql
+-- @name RecentOrders
+-- @returns :many
+-- $1: customer_id
+-- $2: since?
+SELECT id, total FROM orders WHERE customer_id = $1 AND placed_at >= $2;
+```
+
+```typescript
+/** Parameters for RecentOrders queries. */
+export interface RecentOrdersParams {
+	customerId: number;
+	since: Date | null;
+}
+
+/** Fetch all RecentOrdersRow rows. */
+export async function recentOrders(sql: SQL, params: RecentOrdersParams): Promise<RecentOrdersRow[]> {
+	const rows = await sql<Record<string, unknown>[]>`
+    SELECT id, total FROM orders WHERE customer_id = ${params.customerId} AND placed_at >= ${params.since}
+  `;
+	// ...
+}
+```
+
+A `:batch` function takes an array of the same interface (`items: RecentOrdersParams[]`), a query
+without parameters takes only the database handle, and `structs_only` keeps the interface. The
+JavaScript (JSDoc) backends reject `params = "object"`.
 
 ## typescript-node-sqlite and typescript-wasm-sqlite
 
@@ -520,7 +566,7 @@ export function listUsers(db, limit_val) {
 
 ### Unsupported options
 
-Three of the TypeScript [option](#options) settings need syntax a plain `.js` file cannot carry, so
+Some of the TypeScript [option](#options) settings need syntax a plain `.js` file cannot carry, so
 they are hard errors here rather than silent downgrades. Each error names the TypeScript backend to
 use instead:
 
@@ -530,6 +576,7 @@ use instead:
 | `outer_join_unions` | Error | The discriminated union is a `type X = A & (B \| C)` alias |
 | `field_case = "camelCase"` | Error | The field remap needs an `as T` assertion |
 | `field_case = "snake_case"` | Supported | The default -- driver rows pass straight through |
+| `params = "object"` | Error | Not implemented for JSDoc output |
 | `structs_only` | Supported | Emits only typedefs; there was no driver import to drop |
 
 Enums always take the `const` object plus derived-type form, spelled `/** @type {const} */` and

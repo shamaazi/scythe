@@ -16,6 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Int32Array`/`Float32Array` or `Array<number>`, and enums as a string union.
   JSON parameters go through `sql.json`, enum and JSON arrays through
   `sql.array`, and `:batch` opens a savepoint when handed a transaction.
+- Parameter declarations: a query's comment header can name its parameters
+  with `-- $1: user_id` lines, and `-- $2: since?` marks one nullable.
+  Declared names replace inferred ones; a query that declares one parameter
+  must declare all of them, and a missing, duplicate or unused position is an
+  error naming it. `@param $N name?` accepts the same `?`.
+- `params = "object"` for `typescript-bun`, `typescript-postgres` and
+  `typescript-pg`: query functions take one `params` argument typed by an
+  exported `<Query>Params` interface whose properties follow `field_case`,
+  and `:batch` functions take an array of it. `positional` stays the default.
+
+### Changed
+
+- Parameters are inferred nullable when the statement tests them with
+  `IS NULL`/`IS NOT NULL`, or writes them to a nullable column through
+  `UPDATE ... SET` or `ON CONFLICT DO UPDATE SET` (as `INSERT ... VALUES`
+  already did). Nullability now holds if any use of the parameter accepts
+  NULL, rather than depending on which use the analyzer visited first: a
+  parameter compared to a column and also passed to `COALESCE` is now
+  nullable.
+- `@param $N name` naming a position the query does not use, or a position
+  already named, is now an error instead of being ignored.
 
 ## [0.20.2] - 2026-10-31
 
