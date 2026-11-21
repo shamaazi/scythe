@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- SC-SEC08 no longer reports a join to a set-returning function
+  (`JOIN jsonb_to_recordset(p.causes) AS a(...) ON true`, `, LATERAL unnest(...)`,
+  `CROSS JOIN LATERAL ...`) or to a LATERAL subquery that references an earlier
+  FROM item as a cartesian product: those expand each row rather than
+  multiplying two independent sets.
+
 ## [0.20.2] - 2026-10-31
 
 ### Changed

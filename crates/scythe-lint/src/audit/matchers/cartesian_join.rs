@@ -21,7 +21,11 @@
 //! `{msg}` as the TOML message template.  This is the cleanest approach that
 //! doesn't require two separate TOML rules.
 
-use sqlparser::ast::{Expr, JoinConstraint, JoinOperator, SetExpr, Statement, Value, ValueWithSpan};
+use std::ops::ControlFlow;
+
+use sqlparser::ast::{
+    Expr, JoinConstraint, JoinOperator, Query, SetExpr, Statement, TableFactor, Value, ValueWithSpan, visit_expressions,
+};
 
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
@@ -40,16 +44,27 @@ pub fn match_cartesian_join(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<M
 fn walk_set_expr(set_expr: &SetExpr, hits: &mut Vec<MatcherHit>) {
     match set_expr {
         SetExpr::Select(select) => {
-            if select.from.len() > 1 && select.selection.is_none() {
-                hits.push(MatcherHit::with_binding("msg", MSG_COMMA_FROM));
-            }
+            // Names of the FROM items seen so far, which a later LATERAL item
+            // may reference.
+            let mut earlier: Vec<String> = Vec::new();
+            let mut independent_items = 0;
+            let mut join_hits = Vec::new();
             for twj in &select.from {
+                if !is_row_expansion(&twj.relation, &earlier) {
+                    independent_items += 1;
+                }
+                earlier.extend(relation_name(&twj.relation));
                 for join in &twj.joins {
-                    if join_is_unconstrained(&join.join_operator) {
-                        hits.push(MatcherHit::with_binding("msg", MSG_UNCONSTRAINED_JOIN));
+                    if join_is_unconstrained(&join.join_operator) && !is_row_expansion(&join.relation, &earlier) {
+                        join_hits.push(MatcherHit::with_binding("msg", MSG_UNCONSTRAINED_JOIN));
                     }
+                    earlier.extend(relation_name(&join.relation));
                 }
             }
+            if independent_items > 1 && select.selection.is_none() {
+                hits.push(MatcherHit::with_binding("msg", MSG_COMMA_FROM));
+            }
+            hits.extend(join_hits);
         }
         SetExpr::Query(q) => walk_set_expr(&q.body, hits),
         SetExpr::SetOperation { left, right, .. } => {
@@ -58,6 +73,61 @@ fn walk_set_expr(set_expr: &SetExpr, hits: &mut Vec<MatcherHit>) {
         }
         _ => {}
     }
+}
+
+/// Whether a FROM item is evaluated per row of the items before it rather
+/// than joined to them as an independent set, so an `ON true`, `CROSS JOIN`
+/// or comma join to it expands rows instead of multiplying them. A function
+/// in FROM is implicitly LATERAL in PostgreSQL; a LATERAL subquery counts
+/// when it references an earlier FROM item.
+fn is_row_expansion(factor: &TableFactor, earlier: &[String]) -> bool {
+    match factor {
+        TableFactor::Table { args: Some(_), .. }
+        | TableFactor::Function { .. }
+        | TableFactor::TableFunction { .. }
+        | TableFactor::UNNEST { .. }
+        | TableFactor::JsonTable { .. }
+        | TableFactor::OpenJsonTable { .. }
+        | TableFactor::XmlTable { .. } => true,
+        TableFactor::Derived {
+            lateral: true,
+            subquery,
+            ..
+        } => references_any(subquery, earlier),
+        _ => false,
+    }
+}
+
+/// The name a FROM item is referenced by: its alias, else its table name.
+fn relation_name(factor: &TableFactor) -> Option<String> {
+    let alias = match factor {
+        TableFactor::Table { alias, name, .. } => {
+            return Some(match alias {
+                Some(alias) => alias.name.value.to_lowercase(),
+                None => name.0.last()?.as_ident()?.value.to_lowercase(),
+            });
+        }
+        TableFactor::Derived { alias, .. }
+        | TableFactor::Function { alias, .. }
+        | TableFactor::TableFunction { alias, .. }
+        | TableFactor::UNNEST { alias, .. }
+        | TableFactor::NestedJoin { alias, .. } => alias.as_ref(),
+        _ => None,
+    };
+    alias.map(|alias| alias.name.value.to_lowercase())
+}
+
+/// Whether `query` uses a column qualified by one of `names`.
+fn references_any(query: &Query, names: &[String]) -> bool {
+    let found = visit_expressions(query, |expr| match expr {
+        Expr::CompoundIdentifier(parts)
+            if parts.len() >= 2 && names.contains(&parts[parts.len() - 2].value.to_lowercase()) =>
+        {
+            ControlFlow::Break(())
+        }
+        _ => ControlFlow::Continue(()),
+    });
+    found.is_break()
 }
 
 fn join_is_unconstrained(op: &JoinOperator) -> bool {
@@ -175,5 +245,54 @@ mod tests {
             hits[0].bindings.get("msg").map(|s| s.as_str()),
             Some(MSG_UNCONSTRAINED_JOIN)
         );
+    }
+
+    fn hits_for(sql: &str) -> Vec<MatcherHit> {
+        let (stmt, analyzed, catalog, annotations) = make_ctx_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        match_cartesian_join(&ctx, &toml::Table::new())
+    }
+
+    /// A join to a set-returning function expands each row; it is not a
+    /// cartesian product, however the join is spelled.
+    #[test]
+    fn no_match_on_join_to_a_lateral_set_returning_function() {
+        for sql in [
+            "SELECT ca.id FROM facts p JOIN jsonb_to_recordset(p.causes) AS allocation(id text, amount integer) ON true \
+             JOIN causes ca ON ca.id = allocation.id",
+            "SELECT ca.id FROM facts p, LATERAL jsonb_to_recordset(p.causes) AS allocation(id text, amount integer) \
+             JOIN causes ca ON ca.id = allocation.id",
+            "SELECT ca.id FROM facts p CROSS JOIN LATERAL jsonb_to_recordset(p.causes) AS allocation(id text, amount integer) \
+             JOIN causes ca ON ca.id = allocation.id",
+            "SELECT p.id, t.tag FROM posts p CROSS JOIN unnest(p.tags) AS t(tag)",
+            "SELECT p.id, x.n FROM posts p, generate_series(1, p.count) AS x(n)",
+        ] {
+            assert!(hits_for(sql).is_empty(), "{sql}: {:?}", hits_for(sql));
+        }
+    }
+
+    #[test]
+    fn no_match_on_lateral_subquery_referencing_an_earlier_item() {
+        let sql = "SELECT u.id, o.id FROM users u CROSS JOIN LATERAL \
+                   (SELECT id FROM orders WHERE orders.user_id = u.id LIMIT 1) o";
+        assert!(hits_for(sql).is_empty(), "{:?}", hits_for(sql));
+    }
+
+    #[test]
+    fn fires_on_lateral_subquery_referencing_nothing_earlier() {
+        let sql = "SELECT u.id, o.id FROM users u CROSS JOIN LATERAL (SELECT id FROM orders) o";
+        let hits = hits_for(sql);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits[0].bindings.get("msg").map(|s| s.as_str()),
+            Some(MSG_UNCONSTRAINED_JOIN)
+        );
+    }
+
+    #[test]
+    fn fires_on_comma_from_with_two_tables_beside_a_function() {
+        let hits = hits_for("SELECT 1 FROM users a, orders b, unnest(a.tags) AS t(tag)");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].bindings.get("msg").map(|s| s.as_str()), Some(MSG_COMMA_FROM));
     }
 }
