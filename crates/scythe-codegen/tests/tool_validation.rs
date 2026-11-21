@@ -630,6 +630,7 @@ backend_test!(test_rust_tokio_postgres, "rust-tokio-postgres");
 backend_test!(test_python_psycopg3, "python-psycopg3");
 backend_test!(test_python_asyncpg, "python-asyncpg");
 backend_test!(test_typescript_postgres, "typescript-postgres");
+backend_test!(test_typescript_bun, "typescript-bun");
 backend_test!(test_typescript_pg, "typescript-pg");
 backend_test!(test_typescript_kysely, "typescript-kysely");
 backend_test!(test_go_pgx, "go-pgx");
@@ -685,6 +686,8 @@ backend_test_with_options!(test_python_asyncpg_pydantic, "python-asyncpg", "row_
 backend_test_with_options!(test_typescript_pg_zod, "typescript-pg", "row_type" => "zod");
 backend_test_with_options!(test_typescript_kysely_zod, "typescript-kysely", "row_type" => "zod");
 backend_test_with_options!(test_typescript_postgres_zod, "typescript-postgres", "row_type" => "zod");
+backend_test_with_options!(test_typescript_bun_zod, "typescript-bun", "row_type" => "zod");
+backend_test_with_options!(test_typescript_bun_camel, "typescript-bun", "field_case" => "camelCase");
 
 const SCHEMA_UUID_JSONB: &str = "CREATE TABLE items (\
     id UUID PRIMARY KEY, \
@@ -970,6 +973,7 @@ fn test_kotlin_r2dbc_extension_functions_header() {
 
 backend_test!(test_javascript_pg, "javascript-pg");
 backend_test!(test_javascript_postgres, "javascript-postgres");
+backend_test!(test_javascript_bun, "javascript-bun");
 mysql_backend_test!(test_javascript_mysql2, "javascript-mysql2");
 sqlite_backend_test!(test_javascript_better_sqlite3, "javascript-better-sqlite3");
 
@@ -1173,6 +1177,28 @@ fn test_javascript_postgres_grouped_and_nullable_pass_real_tools() {
         "expected the grouped parent typedef; got:\n{code}"
     );
     assert_js_mode_tool_validation_passes("javascript-postgres", &code);
+}
+
+#[test]
+fn test_javascript_bun_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-bun",
+        "postgresql",
+        &SqlDialect::PostgreSQL,
+        &JS_MODE_POSTGRES_SCHEMA,
+        JS_MODE_POSTGRES_ONE,
+    );
+    eprintln!("\n=== javascript-bun (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@property {SqlJsonValue} metadata"),
+        "expected the Bun JSON value type; got:\n{code}"
+    );
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-bun", &code);
 }
 
 #[test]

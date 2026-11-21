@@ -174,6 +174,8 @@ const ALL_BACKEND_NAMES: &[&str] = &[
     "python-snowflake",
     "typescript-postgres",
     "javascript-postgres",
+    "typescript-bun",
+    "javascript-bun",
     "typescript-pg",
     "javascript-pg",
     "typescript-mysql2",

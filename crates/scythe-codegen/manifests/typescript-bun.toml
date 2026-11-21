@@ -1,0 +1,109 @@
+[backend]
+name = "typescript-bun"
+language = "typescript"
+file_extension = "ts"
+engine = "postgresql"
+description = "TypeScript code generation targeting Bun's built-in SQL client (Bun.SQL)"
+
+# What Bun's PostgreSQL adapter returns (https://bun.com/docs/runtime/sql), where
+# it differs from postgres.js:
+#   - int8 arrives as a string unless the client sets `bigint: true`; numeric and
+#     money always arrive as strings, to keep precision.
+#   - date, timestamp and timestamptz arrive as Date (timestamp is read as UTC);
+#     time, timetz and interval arrive as text.
+#   - json/jsonb arrive parsed, typed as the `SqlJsonValue` alias the backend
+#     emits in the file header.
+#   - integer[] and real[] can arrive as Int32Array/Float32Array; the backend
+#     widens those two column types itself, since a manifest maps scalars, not
+#     element-specific containers.
+[types.scalars]
+bool = "boolean"
+int16 = "number"
+int32 = "number"
+int64 = "string"
+float32 = "number"
+float64 = "number"
+string = "string"
+bytes = "Buffer"
+uuid = "string"
+decimal = "string"
+date = "Date"
+time = "string"
+time_tz = "string"
+datetime = "Date"
+datetime_tz = "Date"
+interval = "string"
+json = "SqlJsonValue"
+json_array = "SqlJsonValue[]"
+inet = "string"
+
+[types.containers]
+array = "Array<{T}>"
+nullable = "{T} | null"
+range = "string"
+json_typed = "{T}"
+json_nested = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+fn_case = "camelCase"
+enum_variant_case = "PascalCase"
+row_suffix = "Row"
+# Reserved only in a binding position (a parameter name, a `const`, a
+# destructuring target). All of these are legal as property keys, which is
+# why they are not in `reserved`: mangling the column would break the cast
+# of the driver's rows onto the generated row type. Strict-mode words are
+# included because generated modules are ESM, which is always strict, and
+# `arguments`/`eval` because binding either is a SyntaxError there.
+reserved_bindings = [
+  "arguments",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "eval",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "implements",
+  "import",
+  "in",
+  "instanceof",
+  "interface",
+  "let",
+  "new",
+  "null",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "return",
+  "static",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+]
+
+[imports.rules]

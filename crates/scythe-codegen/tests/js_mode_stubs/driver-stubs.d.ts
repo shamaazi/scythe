@@ -1,6 +1,6 @@
 // ~keep Hand-written ambient stubs for the driver packages the `javascript-*`
 // (JSDoc emit mode, #81/#93) backends reference via `import("pkg").Type`
-// JSDoc annotations: `pg`, `postgres`, `mysql2/promise`, `better-sqlite3`,
+// JSDoc annotations: `pg`, `postgres`, `bun`, `mysql2/promise`, `better-sqlite3`,
 // `node:sqlite`, `@sqlite.org/sqlite-wasm`, `snowflake-sdk`, `@duckdb/node-api`,
 // `oracledb`, `mssql`.
 //
@@ -23,6 +23,11 @@
 //     `:one`/`:many` paths fail to type-check without the
 //     `/** @type {Array<T>} */ (...)` cast in
 //     `typescript_postgres.rs::generate_query_fn_js`.
+//   - `bun`'s `SQL` tagged-template call (copied from `bun-types@1.4.4`'s
+//     `sql.d.ts`) defaults its row generic to `any`, so `javascript-bun`'s
+//     row cast is harmless rather than required. `TransactionSQL` extends
+//     `SQL` with `savepoint`, which `javascript-bun`'s `:batch` casts to
+//     when it runs on a transaction's own client.
 //   - `mysql2/promise`'s `execute(...)` returns an untyped `QueryResult`
 //     union that is not directly destructurable, so `javascript-mysql2`
 //     needs the tuple cast in `typescript_mysql2.rs::generate_query_fn_js`
@@ -112,6 +117,21 @@ declare module "postgres" {
   export interface Sql {
     <T extends Row = Row>(strings: TemplateStringsArray, ...values: unknown[]): Promise<RowList<T>>;
     begin<T>(callback: (tx: Sql) => Promise<T>): Promise<T>;
+  }
+}
+
+declare module "bun" {
+  export interface ResultMetadata {
+    count: number;
+  }
+  export interface SQL {
+    <T = any>(strings: TemplateStringsArray, ...values: unknown[]): Promise<T & ResultMetadata>;
+    begin<T>(fn: (sql: TransactionSQL) => Promise<T>): Promise<T>;
+    json(value: unknown): unknown;
+    array(values: unknown[], typeNameOrTypeID?: number | string): unknown;
+  }
+  export interface TransactionSQL extends SQL {
+    savepoint<T>(fn: (sql: TransactionSQL) => Promise<T>): Promise<T>;
   }
 }
 

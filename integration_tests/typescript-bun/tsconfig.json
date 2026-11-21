@@ -1,0 +1,2 @@
+{ "compilerOptions": { "strict": true, "target": "ESNext", "module": "ESNext", "moduleResolution": "Bundler",
+"skipLibCheck": true, "noUncheckedIndexedAccess": true, "exactOptionalPropertyTypes": true, "types": ["bun"] } }

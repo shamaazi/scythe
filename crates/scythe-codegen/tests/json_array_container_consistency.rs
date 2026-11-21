@@ -59,6 +59,10 @@ const JSON_ARRAY_ALLOWLIST: &[(&str, &str)] = &[
         "postgres.js parses json/jsonb by default, giving the same shape guarantee as node-postgres.",
     ),
     (
+        "typescript-bun",
+        "Bun's built-in SQL client parses json/jsonb by default, giving the same shape guarantee as node-postgres.",
+    ),
+    (
         "ruby-pg",
         "ruby_pg.rs's ruby_coercion now emits JSON.parse(...) for a json/jsonb column (GH #147); the pg \
          gem itself does no client-side JSON decoding, so JSON.parse is scythe's own call, applied \
@@ -81,6 +85,7 @@ const JSON_NESTED_BACKENDS: &[&str] = &[
     "python-psycopg3",
     "rust-sqlx",
     "rust-tokio-postgres",
+    "typescript-bun",
     "typescript-kysely",
     "typescript-pg",
     "typescript-postgres",

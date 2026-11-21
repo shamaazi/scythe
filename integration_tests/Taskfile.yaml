@@ -221,6 +221,14 @@ tasks:
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
+  test:typescript-bun:
+    desc: Run typescript-bun integration test
+    dir: typescript-bun
+    cmds:
+      - bun install --frozen-lockfile
+      - bunx tsc --noEmit
+      - bun test.ts
+
   test:typescript-pg:
     desc: Run typescript-pg integration test
     dir: typescript-pg
@@ -1004,6 +1012,7 @@ tasks:
       - task: test:python-psycopg3-msgspec
       - task: test:go-pgx
       - task: test:typescript-postgres
+      - task: test:typescript-bun
       - task: test:typescript-pg
       - task: test:typescript-pg-camel
       - task: test:typescript-pg-zod

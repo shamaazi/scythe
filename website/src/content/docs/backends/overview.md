@@ -71,7 +71,7 @@ rather than preceding it, since nothing may come before that tag.
 
 ## Supported backends
 
-Scythe provides 62 selectable backend names across 10 languages (plus plain JavaScript, emitted by the TypeScript backends' JSDoc mode) and 10 database engines, implemented by 52 `CodegenBackend` types: the ten `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend rather than separate implementations (see [JavaScript output](/scythe/backends/typescript/#javascript-output-jsdoc)). Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
+Scythe provides 64 selectable backend names across 10 languages (plus plain JavaScript, emitted by the TypeScript backends' JSDoc mode) and 10 database engines, implemented by 52 `CodegenBackend` types: the eleven `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend rather than separate implementations (see [JavaScript output](/scythe/backends/typescript/#javascript-output-jsdoc)), and `typescript-bun` is a driver mode of the `typescript-postgres` implementation (see [Bun SQL](/scythe/backends/typescript/#bun-sql)). Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
 
 ### PostgreSQL
 
@@ -85,6 +85,8 @@ Scythe provides 62 selectable backend names across 10 languages (plus plain Java
 | `typescript-pg` | TypeScript | pg (node-postgres) |
 | `typescript-kysely` | TypeScript | Kysely (any dialect) |
 | `javascript-postgres` | JavaScript | postgres.js (JSDoc types) |
+| `typescript-bun` | TypeScript | Bun SQL (`Bun.SQL`, built in) |
+| `javascript-bun` | JavaScript | Bun SQL (JSDoc types) |
 | `javascript-pg` | JavaScript | pg (node-postgres, JSDoc types) |
 | `go-pgx` | Go | pgx v5 |
 | `java-jdbc` | Java | JDBC |
@@ -248,6 +250,8 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 | `typescript-kysely` | TypeScript | Kysely (any dialect) |
 | `javascript-pg` | JavaScript | pg (JSDoc types) |
 | `javascript-postgres` | JavaScript | postgres.js (JSDoc types) |
+| `typescript-bun` | TypeScript | Bun SQL (`Bun.SQL`, built in) |
+| `javascript-bun` | JavaScript | Bun SQL (JSDoc types) |
 | `go-pgx` | Go | pgx v5 |
 | `java-jdbc` | Java | JDBC (PostgreSQL driver) |
 | `kotlin-jdbc` | Kotlin | JDBC (PostgreSQL driver) |
