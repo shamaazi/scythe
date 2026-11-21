@@ -968,13 +968,15 @@ pub fn generate_ts_one_row_remap(
     row_access: impl Fn(&str, &str) -> String,
 ) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "\tif (!row) {{");
     if matches!(command, QueryCommand::One) {
-        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(query_name));
+        // One line, so a statement that always returns a row (an aggregate,
+        // `INSERT ... RETURNING`) leaves no unreachable line for coverage.
+        let _ = writeln!(out, "\tif (!row) {}", ts_row_not_found_throw(query_name));
     } else {
+        let _ = writeln!(out, "\tif (!row) {{");
         let _ = writeln!(out, "\t\treturn null;");
+        let _ = writeln!(out, "\t}}");
     }
-    let _ = writeln!(out, "\t}}");
     let _ = writeln!(out, "\treturn {{");
     out.push_str(&generate_ts_row_object_literal(columns, "\t\t", shape, row_access));
     let _ = writeln!(out, "\t}};");
@@ -2267,9 +2269,7 @@ mod tests {
         });
         assert_eq!(
             out,
-            "\tif (!row) {\n\
-             \t\tthrow new Error(\"no row found for query: GetUser\");\n\
-             \t}\n\
+            "\tif (!row) throw new Error(\"no row found for query: GetUser\");\n\
              \treturn {\n\
              \t\tid: row['id'] as number,\n\
              \t};\n"

@@ -63,9 +63,7 @@ export async function createOrder(
 		[userId, total, notes],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: CreateOrder");
-	}
+	if (!row) throw new Error("no row found for query: CreateOrder");
 	return {
 		id: row.id as number,
 		userId: row.user_id as number,
@@ -115,9 +113,7 @@ export async function getOrderTotal(
 		[userId],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (!row) throw new Error("no row found for query: GetOrderTotal");
 	return {
 		totalSum: row.total_sum as string | null,
 	};
@@ -138,9 +134,7 @@ export async function getOrderWeightTotal(
 		[userId],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: GetOrderWeightTotal");
-	}
+	if (!row) throw new Error("no row found for query: GetOrderWeightTotal");
 	return {
 		weightTotal: row.weight_total as number | null,
 	};
@@ -177,9 +171,7 @@ export async function getUserById(
 		[id],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (!row) throw new Error("no row found for query: GetUserById");
 	return {
 		id: row.id as number,
 		name: row.name as string,
@@ -233,9 +225,7 @@ export async function createUser(
 		[name, email, status],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: CreateUser");
-	}
+	if (!row) throw new Error("no row found for query: CreateUser");
 	return {
 		id: row.id as number,
 		name: row.name as string,
@@ -309,9 +299,7 @@ export async function countUsersByStatus(
 		[status],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: CountUsersByStatus");
-	}
+	if (!row) throw new Error("no row found for query: CountUsersByStatus");
 	return {
 		status: row.status as UserStatus,
 		userCount: row.user_count as number,
@@ -482,9 +470,7 @@ export async function getUserProfile(
 		[id],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: GetUserProfile");
-	}
+	if (!row) throw new Error("no row found for query: GetUserProfile");
 	return {
 		id: row.id as number,
 		secondaryStatus: row.secondary_status as UserStatus | null,
@@ -509,9 +495,7 @@ RETURNING address`,
 		[encodeUserAddress(address)],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: RoundTripUserAddress");
-	}
+	if (!row) throw new Error("no row found for query: RoundTripUserAddress");
 	return {
 		address: parseUserAddress(row.address) as UserAddress | null,
 	};
@@ -532,9 +516,7 @@ export async function getUserAsJson(
 		[id],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: GetUserAsJson");
-	}
+	if (!row) throw new Error("no row found for query: GetUserAsJson");
 	return {
 		payload: row.payload as GetUserAsJsonRowPayload | null,
 	};
@@ -553,9 +535,7 @@ export async function getUsersAsJson(
 		`SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u`,
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: GetUsersAsJson");
-	}
+	if (!row) throw new Error("no row found for query: GetUsersAsJson");
 	return {
 		payload: row.payload as Array<GetUsersAsJsonRowPayload> | null,
 	};
@@ -580,9 +560,7 @@ GROUP BY u.id`,
 		[id],
 	);
 	const row = rows[0];
-	if (!row) {
-		throw new Error("no row found for query: GetUserOrdersAsJson");
-	}
+	if (!row) throw new Error("no row found for query: GetUserOrdersAsJson");
 	return {
 		payload: row.payload as Array<GetUserOrdersAsJsonRowPayload | null> | null,
 	};

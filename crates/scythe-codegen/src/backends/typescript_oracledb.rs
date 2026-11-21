@@ -366,9 +366,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
                     "\tconst result = await conn.execute(\"{}\", {});",
                     full_sql, all_binds
                 );
-                let _ = writeln!(out, "\tif (!result.outBinds) {{");
-                let _ = writeln!(out, "\t\t{}", missing_stmt);
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tif (!result.outBinds) {}", missing_stmt);
                 let _ = writeln!(out, "\tconst outBinds = result.outBinds as unknown[][];");
                 let _ = writeln!(out, "\treturn {{");
                 for (i, col) in columns.iter().enumerate() {
@@ -388,9 +386,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
                     "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
                     sql, bind_array
                 );
-                let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {{");
-                let _ = writeln!(out, "\t\t{}", missing_stmt);
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {}", missing_stmt);
                 let _ = writeln!(out, "\tconst row = result.rows[0] as Record<string, unknown>;");
                 let _ = writeln!(out, "\treturn {{");
                 for col in columns {
@@ -772,9 +768,7 @@ impl TypescriptOracledbBackend {
                     "\tconst result = await conn.execute(\"{}\", {});",
                     full_sql, all_binds
                 );
-                let _ = writeln!(out, "\tif (!result.outBinds) {{");
-                let _ = writeln!(out, "\t\t{}", missing_stmt);
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tif (!result.outBinds) {}", missing_stmt);
                 let _ = writeln!(
                     out,
                     "\tconst outBinds = {};",
@@ -797,9 +791,7 @@ impl TypescriptOracledbBackend {
                     "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
                     sql, bind_array
                 );
-                let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {{");
-                let _ = writeln!(out, "\t\t{}", missing_stmt);
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {}", missing_stmt);
                 let _ = writeln!(
                     out,
                     "\tconst row = {};",

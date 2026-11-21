@@ -337,9 +337,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 match self.field_case {
                     TsFieldCase::Snake => {
                         let _ = writeln!(out, "\tconst row = firstRow<{}>(rows);", struct_name);
-                        let _ = writeln!(out, "\tif (row === null) {{");
-                        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(out, "\tif (row === null) {}", ts_row_not_found_throw(&analyzed.name));
                         let _ = writeln!(out, "\treturn row;");
                     }
                     TsFieldCase::Camel => {
@@ -773,9 +771,11 @@ impl TypescriptDuckdbBackend {
                     "\tconst row = {};",
                     js_type_cast(&format!("{struct_name} | undefined"), "rows[0]")
                 );
-                let _ = writeln!(out, "\tif (row === undefined) {{");
-                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(
+                    out,
+                    "\tif (row === undefined) {}",
+                    ts_row_not_found_throw(&analyzed.name)
+                );
                 let _ = writeln!(out, "\treturn row;");
                 let _ = write!(out, "}}");
             }
@@ -1694,7 +1694,7 @@ mod tests {
         );
         assert!(
             query_fn.contains(
-                "if (row === undefined) {\n\t\tthrow new Error(\"no row found for query: GetSession\");\n\t}\n\t\
+                "if (row === undefined) throw new Error(\"no row found for query: GetSession\");\n\t\
                  return row;"
             ),
             "`:one` must throw on a missing row, not return null; got:\n{query_fn}"

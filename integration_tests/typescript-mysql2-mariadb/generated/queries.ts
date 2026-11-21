@@ -28,9 +28,7 @@ export async function createOrder(
 		`INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at`, [user_id, total, notes],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateOrder");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateOrder");
 	return row;
 }
 
@@ -67,9 +65,7 @@ export async function getOrderTotal(
 		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`, [user_id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -102,9 +98,7 @@ export async function getUserById(
 		`SELECT id, name, email, status, created_at FROM users WHERE id = ?`, [id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
@@ -144,9 +138,7 @@ export async function createUser(
 		`INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email`, [name, email, status],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateUser");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateUser");
 	return row;
 }
 

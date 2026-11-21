@@ -68,9 +68,7 @@ export async function createOrder(
 		[user_id, total, notes],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateOrder");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateOrder");
 	return row;
 }
 
@@ -113,9 +111,7 @@ export async function getOrderTotal(
 		[user_id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -136,9 +132,7 @@ export async function getOrderWeightTotal(
 		[user_id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderWeightTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderWeightTotal");
 	return row;
 }
 
@@ -175,9 +169,7 @@ export async function getUserById(
 		[id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
@@ -225,9 +217,7 @@ export async function createUser(
 		[name, email, status],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateUser");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateUser");
 	return row;
 }
 
@@ -292,9 +282,7 @@ export async function countUsersByStatus(
 		[status],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CountUsersByStatus");
-	}
+	if (row === undefined) throw new Error("no row found for query: CountUsersByStatus");
 	return row;
 }
 
@@ -460,9 +448,7 @@ export async function getUserProfile(
 		[id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserProfile");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserProfile");
 	return {
 		...row,
 		address: parseUserAddress(row.address) as UserAddress | null,
@@ -488,9 +474,7 @@ RETURNING address`,
 		[encodeUserAddress(address)],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: RoundTripUserAddress");
-	}
+	if (row === undefined) throw new Error("no row found for query: RoundTripUserAddress");
 	return {
 		...row,
 		address: parseUserAddress(row.address) as UserAddress | null,
@@ -514,9 +498,7 @@ export async function getUserAsJson(
 		[id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserAsJson");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserAsJson");
 	return row;
 }
 
@@ -535,9 +517,7 @@ export async function getUsersAsJson(
 		`SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u`,
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUsersAsJson");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUsersAsJson");
 	return row;
 }
 
@@ -562,8 +542,6 @@ GROUP BY u.id`,
 		[id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserOrdersAsJson");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserOrdersAsJson");
 	return row;
 }

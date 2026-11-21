@@ -243,9 +243,11 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                 match self.field_case {
                     TsFieldCase::Snake => {
                         emit_execute(&mut out, &sql, &binds, "rows");
-                        let _ = writeln!(out, "\tif (rows.length === 0) {{");
-                        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(
+                            out,
+                            "\tif (rows.length === 0) {}",
+                            ts_row_not_found_throw(&analyzed.name)
+                        );
                         let _ = writeln!(out, "\treturn rows[0] as {};", struct_name);
                     }
                     TsFieldCase::Camel => {
@@ -724,9 +726,11 @@ impl TypescriptSnowflakeBackend {
                     &format!("Promise<{}>", struct_name),
                 );
                 emit_execute(&mut out, &sql, &binds, "rows");
-                let _ = writeln!(out, "\tif (rows.length === 0) {{");
-                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(
+                    out,
+                    "\tif (rows.length === 0) {}",
+                    ts_row_not_found_throw(&analyzed.name)
+                );
                 let _ = writeln!(out, "\treturn {};", js_type_cast(struct_name, "rows[0]"));
                 let _ = write!(out, "}}");
             }
@@ -1685,7 +1689,7 @@ mod tests {
             "binds must route through the unknown hop, even with no params; got:\n{query_fn}"
         );
         assert!(
-            query_fn.contains("if (rows.length === 0) {\n\t\tthrow new Error(\"no row found for query: GetSession\");"),
+            query_fn.contains("if (rows.length === 0) throw new Error(\"no row found for query: GetSession\");"),
             "`:one` must throw on a missing row; got:\n{query_fn}"
         );
         assert!(

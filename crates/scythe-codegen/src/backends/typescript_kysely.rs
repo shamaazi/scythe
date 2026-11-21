@@ -525,9 +525,11 @@ impl CodegenBackend for TypescriptKyselyBackend {
                     struct_name, sql_text
                 );
                 let _ = writeln!(out, "\tconst row = result.rows[0];");
-                let _ = writeln!(out, "\tif (row === undefined) {{");
-                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(
+                    out,
+                    "\tif (row === undefined) {}",
+                    ts_row_not_found_throw(&analyzed.name)
+                );
                 let overrides = ts_composite_field_overrides(columns, "row", self.field_case);
                 if overrides.is_empty() {
                     let _ = writeln!(out, "\treturn row;");
@@ -1231,7 +1233,7 @@ mod tests {
         );
         assert!(
             query_fn.contains(
-                "const row = result.rows[0];\n\tif (row === undefined) {\n\t\tthrow new Error(\"no row found for query: GetUserById\");\n\t}\n\treturn row;"
+                "const row = result.rows[0];\n\tif (row === undefined) throw new Error(\"no row found for query: GetUserById\");\n\treturn row;"
             ),
             "`:one` must throw on a missing row, not return null; got:\n{query_fn}"
         );

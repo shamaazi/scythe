@@ -25,9 +25,7 @@ RETURNING id, user_id, total, notes, created_at`,
 		[user_id, total, notes],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateOrder");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateOrder");
 	return row;
 }
 
@@ -66,9 +64,7 @@ export async function getOrderTotal(
 		[user_id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -105,9 +101,7 @@ WHERE id = $1`,
 		[id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
@@ -155,9 +149,7 @@ RETURNING id, name, email, status, created_at`,
 		[name, email, status],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateUser");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateUser");
 	return row;
 }
 

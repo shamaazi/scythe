@@ -146,7 +146,10 @@ fn one_binds_through_the_tagged_template_and_throws_when_missing() {
     );
     assert!(f.contains("await sql<GetDonationRow[]>`"), "{f}");
     assert!(f.contains("WHERE id = ${id}"), "{f}");
-    assert!(f.contains("if (row === undefined) {"), "{f}");
+    assert!(
+        f.contains("if (row === undefined) throw new Error(\"no row found for query: GetDonation\");"),
+        "{f}"
+    );
 }
 
 #[test]

@@ -11,9 +11,7 @@ export interface CreateAttachmentRow {
 
 export async function createAttachment(conn: oracledb.Connection, order_id: number, filename: string, payload: Buffer, description: string | null): Promise<CreateAttachmentRow> {
 	const result = await conn.execute("INSERT INTO attachments (order_id, filename, payload, description) VALUES (:1, :2, :3, :4) RETURNING id, order_id, filename INTO :5, :6, :7", [order_id, filename, payload, description, { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }, { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }, { dir: oracledb.BIND_OUT, type: oracledb.STRING }]);
-	if (!result.outBinds) {
-		throw new Error("no row found for query: CreateAttachment");
-	}
+	if (!result.outBinds) throw new Error("no row found for query: CreateAttachment");
 	const outBinds = result.outBinds as unknown[][];
 	return {
 		id: (outBinds[0] ?? [])[0] as number,
@@ -59,9 +57,7 @@ export interface GetAttachmentByIdRow {
 
 export async function getAttachmentById(conn: oracledb.Connection, id: number): Promise<GetAttachmentByIdRow | null> {
 	const result = await conn.execute("SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1", [id], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-	if (!result.rows || result.rows.length === 0) {
-		return null;
-	}
+	if (!result.rows || result.rows.length === 0) return null;
 	const row = result.rows[0] as Record<string, unknown>;
 	return {
 		id: row["ID"] as number,
@@ -88,9 +84,7 @@ export interface CreateOrderRow {
 
 export async function createOrder(conn: oracledb.Connection, user_id: number, total: number, notes: string | null): Promise<CreateOrderRow> {
 	const result = await conn.execute("INSERT INTO orders (user_id, total, notes) VALUES (:1, :2, :3) RETURNING id, user_id, total, notes, created_at INTO :4, :5, :6, :7, :8", [user_id, total, notes, { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }, { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }, { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }, { dir: oracledb.BIND_OUT, type: oracledb.STRING }, { dir: oracledb.BIND_OUT, type: oracledb.DATE }]);
-	if (!result.outBinds) {
-		throw new Error("no row found for query: CreateOrder");
-	}
+	if (!result.outBinds) throw new Error("no row found for query: CreateOrder");
 	const outBinds = result.outBinds as unknown[][];
 	return {
 		id: (outBinds[0] ?? [])[0] as number,
@@ -132,9 +126,7 @@ export interface GetOrderTotalRow {
 
 export async function getOrderTotal(conn: oracledb.Connection, user_id: number): Promise<GetOrderTotalRow> {
 	const result = await conn.execute("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :1", [user_id], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-	if (!result.rows || result.rows.length === 0) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (!result.rows || result.rows.length === 0) throw new Error("no row found for query: GetOrderTotal");
 	const row = result.rows[0] as Record<string, unknown>;
 	return {
 		total_sum: row["TOTAL_SUM"] as number | null,
@@ -157,9 +149,7 @@ export interface GetUserByIdRow {
 
 export async function getUserById(conn: oracledb.Connection, id: number): Promise<GetUserByIdRow> {
 	const result = await conn.execute("SELECT id, name, email, active, created_at FROM users WHERE id = :1", [id], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-	if (!result.rows || result.rows.length === 0) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (!result.rows || result.rows.length === 0) throw new Error("no row found for query: GetUserById");
 	const row = result.rows[0] as Record<string, unknown>;
 	return {
 		id: row["ID"] as number,
@@ -203,9 +193,7 @@ export interface CreateUserRow {
 
 export async function createUser(conn: oracledb.Connection, name: string, email: string | null, active: number): Promise<CreateUserRow> {
 	const result = await conn.execute("INSERT INTO users (name, email, active) VALUES (:1, :2, :3) RETURNING id, name, email, active, created_at INTO :4, :5, :6, :7, :8", [name, email, active, { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }, { dir: oracledb.BIND_OUT, type: oracledb.STRING }, { dir: oracledb.BIND_OUT, type: oracledb.STRING }, { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }, { dir: oracledb.BIND_OUT, type: oracledb.DATE }]);
-	if (!result.outBinds) {
-		throw new Error("no row found for query: CreateUser");
-	}
+	if (!result.outBinds) throw new Error("no row found for query: CreateUser");
 	const outBinds = result.outBinds as unknown[][];
 	return {
 		id: (outBinds[0] ?? [])[0] as number,

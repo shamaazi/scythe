@@ -41,9 +41,7 @@ export async function getOrderTotal(
 ): Promise<GetOrderTotalRow> {
 	const result = await sql<GetOrderTotalRow>`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ${user_id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -72,9 +70,7 @@ export async function getUserById(
 ): Promise<GetUserByIdRow> {
 	const result = await sql<GetUserByIdRow>`SELECT id, name, email, status, created_at FROM users WHERE id = ${id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
