@@ -239,9 +239,11 @@ impl CodegenBackend for TypescriptMssqlBackend {
                     TsFieldCase::Snake => {
                         let _ = writeln!(out, "\tconst result = await request.query<{}>(`{}`);", struct_name, sql);
                         let _ = writeln!(out, "\tconst row = result.recordset[0];");
-                        let _ = writeln!(out, "\tif (row === undefined) {{");
-                        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(
+                            out,
+                            "\tif (row === undefined) {}",
+                            ts_row_not_found_throw(&analyzed.name)
+                        );
                         let _ = writeln!(out, "\treturn row;");
                     }
                     TsFieldCase::Camel => {

@@ -62,9 +62,7 @@ export async function getOrderTotal(
 	const result = await stmt.run();
 	const rows = await result.getRowObjects();
 	const row = firstRow<GetOrderTotalRow>(rows);
-	if (row === null) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === null) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -100,9 +98,7 @@ export async function getUserById(
 	const result = await stmt.run();
 	const rows = await result.getRowObjects();
 	const row = firstRow<GetUserByIdRow>(rows);
-	if (row === null) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === null) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 

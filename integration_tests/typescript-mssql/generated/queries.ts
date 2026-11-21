@@ -28,9 +28,7 @@ export async function createOrder(
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
 VALUES (@p1, @p2, @p3, @p4)`);
 	const row = result.recordset[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateOrder");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateOrder");
 	return row;
 }
 
@@ -67,9 +65,7 @@ export async function getOrderTotal(
 	request.input("p1", sql.Int, user_id);
 	const result = await request.query<GetOrderTotalRow>(`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1`);
 	const row = result.recordset[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -102,9 +98,7 @@ export async function getUserById(
 	request.input("p1", sql.Int, id);
 	const result = await request.query<GetUserByIdRow>(`SELECT id, name, email, active, created_at FROM users WHERE id = @p1`);
 	const row = result.recordset[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
@@ -150,9 +144,7 @@ export async function createUser(
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
 VALUES (@p1, @p2, @p3, @p4)`);
 	const row = result.recordset[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateUser");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateUser");
 	return row;
 }
 

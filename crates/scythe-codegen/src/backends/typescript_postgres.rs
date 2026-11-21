@@ -497,9 +497,11 @@ impl CodegenBackend for TypescriptPostgresBackend {
                         let _ = writeln!(out, "    {}", sql_template);
                         let _ = writeln!(out, "  `;");
                         let _ = writeln!(out, "\tconst row = rows[0];");
-                        let _ = writeln!(out, "\tif (row === undefined) {{");
-                        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(
+                            out,
+                            "\tif (row === undefined) {}",
+                            ts_row_not_found_throw(&analyzed.name)
+                        );
                         let overrides = ts_composite_field_overrides(columns, "row");
                         if overrides.is_empty() {
                             let _ = writeln!(out, "\treturn row;");
@@ -1044,9 +1046,11 @@ impl TypescriptPostgresBackend {
                     js_type_cast(&format!("Array<{struct_name}>"), &query_expr)
                 );
                 let _ = writeln!(out, "\tconst row = rows[0];");
-                let _ = writeln!(out, "\tif (row === undefined) {{");
-                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(
+                    out,
+                    "\tif (row === undefined) {}",
+                    ts_row_not_found_throw(&analyzed.name)
+                );
                 let _ = writeln!(out, "\treturn row;");
                 let _ = write!(out, "}}");
             }
@@ -2144,7 +2148,7 @@ mod tests {
         );
         assert!(
             query_fn.contains(
-                "const row = rows[0];\n\tif (row === undefined) {\n\t\tthrow new Error(\"no row found for query: GetUserById\");\n\t}\n\treturn row;"
+                "const row = rows[0];\n\tif (row === undefined) throw new Error(\"no row found for query: GetUserById\");\n\treturn row;"
             ),
             "`:one` must throw on a missing row, not return null; got:\n{query_fn}"
         );

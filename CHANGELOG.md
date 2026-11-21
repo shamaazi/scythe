@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- TypeScript and JavaScript `:one` functions guard a missing row in one line
+  (`if (row === undefined) throw new Error(...);`) instead of a three-line
+  block. A statement that always returns a row (an aggregate, `INSERT ...
+  RETURNING`) never takes the branch, and the block's throw line was
+  unreachable, failing line-coverage gates on generated code. The oracledb
+  backend's shared `:one`/`:opt` guard is one line for both.
+
 ## [0.20.2] - 2026-10-31
 
 ### Changed

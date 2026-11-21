@@ -60,9 +60,7 @@ export async function createOrder(
 ): Promise<CreateOrderRow> {
 	const result = await sql<CreateOrderRow>`INSERT INTO orders (user_id, total, notes) VALUES (${user_id}, ${total}, ${notes}) RETURNING id, user_id, total, notes, created_at`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateOrder");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateOrder");
 	return row;
 }
 
@@ -95,9 +93,7 @@ export async function getOrderTotal(
 ): Promise<GetOrderTotalRow> {
 	const result = await sql<GetOrderTotalRow>`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ${user_id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -113,9 +109,7 @@ export async function getOrderWeightTotal(
 ): Promise<GetOrderWeightTotalRow> {
 	const result = await sql<GetOrderWeightTotalRow>`SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ${user_id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderWeightTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderWeightTotal");
 	return row;
 }
 
@@ -144,9 +138,7 @@ export async function getUserById(
 ): Promise<GetUserByIdRow> {
 	const result = await sql<GetUserByIdRow>`SELECT id, name, email, status, created_at FROM users WHERE id = ${id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
@@ -184,9 +176,7 @@ export async function createUser(
 ): Promise<CreateUserRow> {
 	const result = await sql<CreateUserRow>`INSERT INTO users (name, email, status) VALUES (${name}, ${email}, ${status}) RETURNING id, name, email, status, created_at`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateUser");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateUser");
 	return row;
 }
 
@@ -240,9 +230,7 @@ export async function countUsersByStatus(
 ): Promise<CountUsersByStatusRow> {
 	const result = await sql<CountUsersByStatusRow>`SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ${status}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CountUsersByStatus");
-	}
+	if (row === undefined) throw new Error("no row found for query: CountUsersByStatus");
 	return row;
 }
 
@@ -389,9 +377,7 @@ export async function getUserProfile(
 ): Promise<GetUserProfileRow> {
 	const result = await sql<GetUserProfileRow>`SELECT id, secondary_status, address FROM users WHERE id = ${id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserProfile");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserProfile");
 	return {
 		...row,
 		address: parseUserAddress(row.address) as UserAddress | null,
@@ -412,9 +398,7 @@ export async function roundTripUserAddress(
 VALUES ('Composite Parameter Round Trip', 'active', (${encodeUserAddress(address)}))
 RETURNING address`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: RoundTripUserAddress");
-	}
+	if (row === undefined) throw new Error("no row found for query: RoundTripUserAddress");
 	return {
 		...row,
 		address: parseUserAddress(row.address) as UserAddress | null,
@@ -433,9 +417,7 @@ export async function getUserAsJson(
 ): Promise<GetUserAsJsonRow> {
 	const result = await sql<GetUserAsJsonRow>`SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = ${id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserAsJson");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserAsJson");
 	return row;
 }
 
@@ -450,9 +432,7 @@ export async function getUsersAsJson(
 ): Promise<GetUsersAsJsonRow> {
 	const result = await sql<GetUsersAsJsonRow>`SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUsersAsJson");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUsersAsJson");
 	return row;
 }
 
@@ -472,8 +452,6 @@ LEFT JOIN orders o ON o.user_id = u.id
 WHERE u.id = ${id}
 GROUP BY u.id`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserOrdersAsJson");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserOrdersAsJson");
 	return row;
 }

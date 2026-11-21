@@ -42,9 +42,7 @@ export function getOrderTotal(
 ): GetOrderTotalRow {
 	const stmt = db.prepare(`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`);
 	const row = stmt.get(user_id) as GetOrderTotalRow | undefined;
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -71,9 +69,7 @@ export interface GetUserByIdRow {
 export function getUserById(db: Database.Database, id: number): GetUserByIdRow {
 	const stmt = db.prepare(`SELECT id, name, email, status, created_at FROM users WHERE id = ?`);
 	const row = stmt.get(id) as GetUserByIdRow | undefined;
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 

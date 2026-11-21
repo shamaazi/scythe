@@ -22,9 +22,7 @@ export async function createOrder(
 VALUES (${user_id}, ${total}, ${notes})
 RETURNING id, user_id, total, notes, created_at`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateOrder");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateOrder");
 	return row;
 }
 
@@ -57,9 +55,7 @@ export async function getOrderTotal(
 ): Promise<GetOrderTotalRow> {
 	const result = await sql<GetOrderTotalRow>`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ${user_id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -90,9 +86,7 @@ export async function getUserById(
 FROM users
 WHERE id = ${id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
@@ -134,9 +128,7 @@ export async function createUser(
 VALUES (${name}, ${email}, ${status})
 RETURNING id, name, email, status, created_at`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateUser");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateUser");
 	return row;
 }
 

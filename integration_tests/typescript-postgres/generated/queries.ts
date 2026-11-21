@@ -61,9 +61,7 @@ export async function createOrder(
     INSERT INTO orders (user_id, total, notes) VALUES (${user_id}, ${total}, ${notes}) RETURNING id, user_id, total, notes, created_at
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateOrder");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateOrder");
 	return row;
 }
 
@@ -100,9 +98,7 @@ export async function getOrderTotal(
     SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ${user_id}
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -120,9 +116,7 @@ export async function getOrderWeightTotal(
     SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ${user_id}
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderWeightTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderWeightTotal");
 	return row;
 }
 
@@ -155,9 +149,7 @@ export async function getUserById(
     SELECT id, name, email, status, created_at FROM users WHERE id = ${id}
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
@@ -199,9 +191,7 @@ export async function createUser(
     INSERT INTO users (name, email, status) VALUES (${name}, ${email}, ${status}) RETURNING id, name, email, status, created_at
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CreateUser");
-	}
+	if (row === undefined) throw new Error("no row found for query: CreateUser");
 	return row;
 }
 
@@ -260,9 +250,7 @@ export async function countUsersByStatus(
     SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ${status}
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: CountUsersByStatus");
-	}
+	if (row === undefined) throw new Error("no row found for query: CountUsersByStatus");
 	return row;
 }
 
@@ -402,9 +390,7 @@ export async function getUserProfile(
     SELECT id, secondary_status, address FROM users WHERE id = ${id}
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserProfile");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserProfile");
 	return {
 		...row,
 		address: parseUserAddress(row['address']) as UserAddress | null,
@@ -427,9 +413,7 @@ VALUES ('Composite Parameter Round Trip', 'active', (${address === null ? sql`NU
 RETURNING address
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: RoundTripUserAddress");
-	}
+	if (row === undefined) throw new Error("no row found for query: RoundTripUserAddress");
 	return {
 		...row,
 		address: parseUserAddress(row['address']) as UserAddress | null,
@@ -450,9 +434,7 @@ export async function getUserAsJson(
     SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = ${id}
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserAsJson");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserAsJson");
 	return row;
 }
 
@@ -467,9 +449,7 @@ export async function getUsersAsJson(sql: Sql): Promise<GetUsersAsJsonRow> {
     SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUsersAsJson");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUsersAsJson");
 	return row;
 }
 
@@ -491,8 +471,6 @@ WHERE u.id = ${id}
 GROUP BY u.id
   `;
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserOrdersAsJson");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserOrdersAsJson");
 	return row;
 }

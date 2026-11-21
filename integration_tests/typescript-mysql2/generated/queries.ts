@@ -37,9 +37,7 @@ export async function getLastInsertOrder(
 		`SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()`,
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetLastInsertOrder");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetLastInsertOrder");
 	return row;
 }
 
@@ -76,9 +74,7 @@ export async function getOrderTotal(
 		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`, [user_id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -111,9 +107,7 @@ export async function getUserById(
 		`SELECT id, name, email, status, created_at FROM users WHERE id = ?`, [id],
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
@@ -164,9 +158,7 @@ export async function getLastInsertUser(
 		`SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()`,
 	);
 	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetLastInsertUser");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetLastInsertUser");
 	return row;
 }
 

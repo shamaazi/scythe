@@ -36,9 +36,7 @@ export interface GetOrderTotalRow {
 /** Fetch a single GetOrderTotalRow. */
 export function getOrderTotal(db: Database, user_id: number): GetOrderTotalRow {
 	const row = db.selectObject(`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`, [user_id]) as unknown as GetOrderTotalRow | undefined;
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -60,9 +58,7 @@ export interface GetUserByIdRow {
 /** Fetch a single GetUserByIdRow. */
 export function getUserById(db: Database, id: number): GetUserByIdRow {
 	const row = db.selectObject(`SELECT id, name, email, status, created_at FROM users WHERE id = ?`, [id]) as unknown as GetUserByIdRow | undefined;
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 

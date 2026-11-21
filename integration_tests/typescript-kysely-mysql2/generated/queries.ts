@@ -35,9 +35,7 @@ export async function getLastInsertOrder(
 ): Promise<GetLastInsertOrderRow> {
 	const result = await sql<GetLastInsertOrderRow>`SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetLastInsertOrder");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetLastInsertOrder");
 	return row;
 }
 
@@ -70,9 +68,7 @@ export async function getOrderTotal(
 ): Promise<GetOrderTotalRow> {
 	const result = await sql<GetOrderTotalRow>`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ${user_id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetOrderTotal");
 	return row;
 }
 
@@ -101,9 +97,7 @@ export async function getUserById(
 ): Promise<GetUserByIdRow> {
 	const result = await sql<GetUserByIdRow>`SELECT id, name, email, status, created_at FROM users WHERE id = ${id}`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetUserById");
 	return row;
 }
 
@@ -148,9 +142,7 @@ export async function getLastInsertUser(
 ): Promise<GetLastInsertUserRow> {
 	const result = await sql<GetLastInsertUserRow>`SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()`.execute(db);
 	const row = result.rows[0];
-	if (row === undefined) {
-		throw new Error("no row found for query: GetLastInsertUser");
-	}
+	if (row === undefined) throw new Error("no row found for query: GetLastInsertUser");
 	return row;
 }
 

@@ -58,9 +58,7 @@ export async function getOrderTotal(
 			else resolve((rows ?? []).map(normalizeRow));
 		}});
 	});
-	if (rows.length === 0) {
-		throw new Error("no row found for query: GetOrderTotal");
-	}
+	if (rows.length === 0) throw new Error("no row found for query: GetOrderTotal");
 	return rows[0] as GetOrderTotalRow;
 }
 
@@ -100,9 +98,7 @@ export async function getUserById(
 			else resolve((rows ?? []).map(normalizeRow));
 		}});
 	});
-	if (rows.length === 0) {
-		throw new Error("no row found for query: GetUserById");
-	}
+	if (rows.length === 0) throw new Error("no row found for query: GetUserById");
 	return rows[0] as GetUserByIdRow;
 }
 

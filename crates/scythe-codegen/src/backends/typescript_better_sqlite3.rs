@@ -222,9 +222,11 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
                 match self.field_case {
                     TsFieldCase::Snake => {
                         let _ = writeln!(out, "\tconst row = {} as {} | undefined;", get_call, struct_name);
-                        let _ = writeln!(out, "\tif (row === undefined) {{");
-                        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(
+                            out,
+                            "\tif (row === undefined) {}",
+                            ts_row_not_found_throw(&analyzed.name)
+                        );
                         let _ = writeln!(out, "\treturn row;");
                     }
                     TsFieldCase::Camel => {
@@ -672,9 +674,11 @@ impl TypescriptBetterSqlite3Backend {
                     "\tconst row = {};",
                     js_type_cast(&format!("{} | undefined", struct_name), &get_call)
                 );
-                let _ = writeln!(out, "\tif (row === undefined) {{");
-                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(
+                    out,
+                    "\tif (row === undefined) {}",
+                    ts_row_not_found_throw(&analyzed.name)
+                );
                 let _ = writeln!(out, "\treturn row;");
                 let _ = write!(out, "}}");
             }
@@ -1643,7 +1647,7 @@ mod tests {
         );
         assert!(
             query_fn.contains(
-                "if (row === undefined) {\n\t\tthrow new Error(\"no row found for query: GetUserById\");\n\t}\n\treturn row;"
+                "if (row === undefined) throw new Error(\"no row found for query: GetUserById\");\n\treturn row;"
             ),
             "`:one` must throw on a missing row, not return null; got:\n{query_fn}"
         );
