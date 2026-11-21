@@ -101,6 +101,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RETURNING *` and `RETURNING t.*` columns carry the column they read, so
   `column_types` and schema constraints apply to them as they do to
   `SELECT *`.
+- `SELECT * FROM causes` declares its model `Cause`, not `Caus`: singularizing
+  `-ses` drops only the `s` unless the singular itself ends in `s`
+  (`addresses`, `statuses`, `aliases`, `buses`).
 
 ## [0.20.2] - 2026-10-31
 

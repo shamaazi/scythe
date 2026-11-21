@@ -141,6 +141,10 @@ pub struct NestedStructDegradation {
 }
 
 /// Simple singularization: remove trailing 's'.
+///
+/// `-ses` drops `es` only where the singular ends in `s` (`addresses`,
+/// `statuses`, `aliases`, `buses`); otherwise the `e` belongs to the
+/// singular (`causes`, `cases`, `purchases`).
 pub fn singularize(name: &str) -> String {
     if let Some(stem) = name.strip_suffix("ies") {
         format!("{stem}y")
@@ -149,7 +153,7 @@ pub fn singularize(name: &str) -> String {
         || name.ends_with("ches")
         || name.ends_with("xes")
         || name.ends_with("zes")
-        || name.ends_with("ses")
+        || ["atuses", "iases", "buses"].iter().any(|suffix| name.ends_with(suffix))
     {
         name[..name.len() - 2].to_string()
     } else if name.ends_with('s') && !name.ends_with("ss") {
@@ -1210,6 +1214,16 @@ mod tests {
     fn test_singularize_sses() {
         assert_eq!(singularize("addresses"), "address");
         assert_eq!(singularize("classes"), "class");
+    }
+
+    #[test]
+    fn test_singularize_ses_keeps_the_singular_e() {
+        assert_eq!(singularize("causes"), "cause");
+        assert_eq!(singularize("cases"), "case");
+        assert_eq!(singularize("purchases"), "purchase");
+        assert_eq!(singularize("statuses"), "status");
+        assert_eq!(singularize("aliases"), "alias");
+        assert_eq!(singularize("buses"), "bus");
     }
 
     #[test]
