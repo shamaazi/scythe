@@ -231,8 +231,12 @@ fn canonical_function(function: &super::Function) -> String {
         .collect::<Vec<_>>()
         .join("|");
     let return_type = match &function.return_type {
-        FunctionReturn::Scalar { sql_type } => format!("scalar:{}", escape_component(sql_type)),
-        FunctionReturn::SetOf { sql_type } => format!("setof:{}", escape_component(sql_type)),
+        FunctionReturn::Scalar { sql_type, nullable } => {
+            format!("scalar:{}{}", escape_component(sql_type), non_null_marker(*nullable))
+        }
+        FunctionReturn::SetOf { sql_type, nullable } => {
+            format!("setof:{}{}", escape_component(sql_type), non_null_marker(*nullable))
+        }
         FunctionReturn::Table { columns } => format!(
             "table:{}",
             columns
@@ -247,7 +251,25 @@ fn canonical_function(function: &super::Function) -> String {
                 .join("|")
         ),
     };
-    format!("{}:{arguments}:{return_type}", function.arguments.len())
+    // Strictness only changes how a call is typed once the body proves a
+    // result non-null, so a schema without such a body keeps its fingerprint.
+    let strict = if function.strict && proves_non_null(&function.return_type) {
+        ":strict"
+    } else {
+        ""
+    };
+    format!("{}:{arguments}:{return_type}{strict}", function.arguments.len())
+}
+
+fn non_null_marker(nullable: bool) -> &'static str {
+    if nullable { "" } else { ":nonnull" }
+}
+
+fn proves_non_null(return_type: &super::FunctionReturn) -> bool {
+    match return_type {
+        super::FunctionReturn::Scalar { nullable, .. } | super::FunctionReturn::SetOf { nullable, .. } => !nullable,
+        super::FunctionReturn::Table { columns } => columns.iter().any(|column| !column.nullable),
+    }
 }
 
 fn append_relation_metadata(catalog: &Catalog, lines: &mut Vec<String>) {

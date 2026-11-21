@@ -1,4 +1,5 @@
 mod expressions;
+mod function_body;
 mod helpers;
 mod naming;
 mod params;
@@ -8,6 +9,7 @@ mod statements;
 mod type_conversion;
 mod types;
 
+pub(crate) use function_body::{BodyArgument, analyze_function_body};
 pub use type_conversion::sql_type_to_neutral;
 pub use types::{
     AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, EnumInfo, GroupByConfig,

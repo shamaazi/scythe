@@ -397,6 +397,37 @@ nullability. The one exception is an ungrouped aggregate query with no `HAVING` 
 projected column (e.g. `(SELECT COUNT(*) FROM ...)`) -- that shape always returns exactly one row, so
 its nullability is the aggregate's own nullability from the tables above, not forced to nullable.
 
+## Nullability from SQL Functions
+
+On PostgreSQL, the results of a function defined in the schema are nullable unless its body proves
+otherwise. For a `LANGUAGE sql` function, scythe analyzes the body the way PostgreSQL inlines it, so
+`RETURNS TABLE` columns, `RETURNS SETOF` elements and scalar results take the body's nullability:
+
+```sql
+CREATE FUNCTION visible_payments(text) RETURNS TABLE (id integer, email text)
+    LANGUAGE sql STABLE AS $$
+    SELECT p.id, coalesce(p.email, '') FROM payments p WHERE $1::text IS NULL OR p.currency = $1
+    $$;
+
+-- id and email are non-null when payments.id is NOT NULL
+SELECT id, email FROM visible_payments($1);
+```
+
+- The body is an `AS '...'` or `AS $$...$$` string, whose last statement must be a query, or a
+  SQL-standard `RETURN expr`. Each `$n` placeholder and argument name reads as the argument, typed as
+  declared; a column of the body's own relations takes precedence over an argument of the same name.
+- Arguments are nullable in the body unless the function is `STRICT` (`RETURNS NULL ON NULL INPUT`).
+  A strict scalar call is nullable when any argument may be null, or a defaulted argument is omitted;
+  a strict set-returning function returns no rows for a null argument instead.
+- A scalar function returns null when its query returns no rows, so its result is non-null only when
+  the query has no `FROM`, filter, grouping, limit or set-returning call in its select list.
+- Bodies are analyzed after the whole schema is loaded, so they may read relations and call functions
+  defined later in the file. Functions that call each other, or themselves, settle on what their
+  bodies prove; views that call a refined function are analyzed again.
+- A body scythe cannot parse or analyze, another language, output parameters without `SETOF`, and
+  composite or `record` results keep every result nullable. Declared result types are kept as
+  written.
+
 ## Constructs with no nameable type
 
 Some SQL constructs have no type scythe can name for a result column or a query parameter -- a

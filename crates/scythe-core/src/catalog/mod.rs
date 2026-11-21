@@ -1,12 +1,14 @@
 mod builder;
 mod fingerprint;
+mod function_body;
 pub(crate) mod type_normalizer;
 mod view_resolver;
 
 use ahash::AHashMap;
 use sqlparser::ast::{
     AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ArgMode, ColumnOption, CreateFunction, DataType,
-    Expr, FunctionReturnType, ObjectName, Statement, TableConstraint, UserDefinedTypeRepresentation,
+    Expr, FunctionCalledOnNull, FunctionReturnType, ObjectName, Statement, TableConstraint,
+    UserDefinedTypeRepresentation,
 };
 use sqlparser::parser::Parser;
 
@@ -60,6 +62,9 @@ pub struct Catalog {
     composite_names: AHashMap<String, CatalogObjectName>,
     domain_names: AHashMap<String, CatalogObjectName>,
     raw_domain_types: AHashMap<String, String>,
+    /// Each view's defining query, in the order the schema defines them, so
+    /// views can be analyzed again once function results are refined.
+    view_queries: Vec<(String, sqlparser::ast::Query)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -85,10 +90,14 @@ pub struct FunctionResultColumn {
     pub nullable: bool,
 }
 
+/// A function's result. Each `nullable` says whether a value (the scalar
+/// result, an element of the set, a table column) can be null when every
+/// argument is non-null; it stays `true` unless the function's SQL body
+/// proves otherwise.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionReturn {
-    Scalar { sql_type: String },
-    SetOf { sql_type: String },
+    Scalar { sql_type: String, nullable: bool },
+    SetOf { sql_type: String, nullable: bool },
     Table { columns: Vec<FunctionResultColumn> },
 }
 
@@ -96,6 +105,17 @@ pub enum FunctionReturn {
 pub struct Function {
     pub arguments: Vec<FunctionArgument>,
     pub return_type: FunctionReturn,
+    /// `STRICT` (`RETURNS NULL ON NULL INPUT`): a null argument makes a call
+    /// return null, or no rows from a set-returning function, without
+    /// evaluating the body.
+    pub strict: bool,
+    /// The `LANGUAGE sql` body whose analysis refines the result's
+    /// nullability, as the query it evaluates: `RETURN expr` reads as
+    /// `SELECT expr`, and each `$n` placeholder as the column `"$n"` of the
+    /// arguments' scope. `None` for other languages, for bodies scythe cannot
+    /// parse, and for output parameters without `SETOF`, whose single row is
+    /// null when the body returns none.
+    pub body: Option<Box<sqlparser::ast::Query>>,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +214,7 @@ impl Catalog {
             composite_names: AHashMap::new(),
             domain_names: AHashMap::new(),
             raw_domain_types: AHashMap::new(),
+            view_queries: Vec::new(),
         };
 
         let parser_dialect = dialect.to_sqlparser_dialect();
@@ -218,6 +239,9 @@ impl Catalog {
             }
         }
 
+        // Bodies may read relations and call functions defined anywhere in
+        // the schema, so they are analyzed once all of it is loaded.
+        catalog.refine_function_results();
         Ok(catalog)
     }
 
@@ -421,8 +445,9 @@ impl Catalog {
             .join(", ");
         let existing_arguments = sql[function_open + 1..function_close].trim();
         let separator = if existing_arguments.is_empty() { "" } else { ", " };
+        // `RETURNS TABLE` returns a set of rows, unlike output parameters alone.
         format!(
-            "{}{}{}{}{}",
+            "{}{}{}{} RETURNS SETOF record{}",
             &sql[..function_close],
             separator,
             output_arguments,
@@ -931,6 +956,7 @@ impl Catalog {
                 nullable: true,
             })
             .collect::<Vec<_>>();
+        let returns_set = matches!(definition.return_type, Some(FunctionReturnType::SetOf(_)));
         let return_type = if !output_columns.is_empty() {
             FunctionReturn::Table {
                 columns: output_columns,
@@ -939,15 +965,33 @@ impl Catalog {
             match definition.return_type {
                 Some(FunctionReturnType::DataType(data_type)) => FunctionReturn::Scalar {
                     sql_type: function_sql_type(&data_type, &self.domains, *dialect),
+                    nullable: true,
                 },
                 Some(FunctionReturnType::SetOf(data_type)) => FunctionReturn::SetOf {
                     sql_type: function_sql_type(&data_type, &self.domains, *dialect),
+                    nullable: true,
                 },
                 None => return Ok(()),
             }
         };
 
-        let function = Function { arguments, return_type };
+        let strict = matches!(
+            definition.called_on_null,
+            Some(FunctionCalledOnNull::Strict | FunctionCalledOnNull::ReturnsNullOnNullInput)
+        );
+        let body = function_body::refinable_body(
+            definition.function_body.as_ref(),
+            definition.language.as_ref(),
+            returns_set,
+            &return_type,
+            *dialect,
+        );
+        let function = Function {
+            arguments,
+            return_type,
+            strict,
+            body,
+        };
         let overloads = self.functions.entry(key.clone()).or_default();
         let signature = input_signature(&function);
         if let Some(index) = overloads
@@ -2940,7 +2984,7 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
         assert!(matches!(&overloads[1].return_type, FunctionReturn::Table { columns } if columns.len() == 2));
         assert!(matches!(
             &catalog.get_functions("items_named").expect("set function")[0].return_type,
-            FunctionReturn::SetOf { sql_type } if sql_type == "text"
+            FunctionReturn::SetOf { sql_type, .. } if sql_type == "text"
         ));
     }
 
@@ -2990,7 +3034,7 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
         .expect("replacement and overload should catalog");
         let overloads = catalog.get_functions("f").expect("function should exist");
         assert_eq!(overloads.len(), 2);
-        assert!(matches!(&overloads[0].return_type, FunctionReturn::Scalar { sql_type } if sql_type == "text"));
+        assert!(matches!(&overloads[0].return_type, FunctionReturn::Scalar { sql_type, .. } if sql_type == "text"));
     }
 
     #[test]

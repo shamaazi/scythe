@@ -1064,11 +1064,14 @@ impl<'a> Analyzer<'a> {
 
         self.register_catalog_function_params(best, &call_arguments);
 
+        let strict_null = best.strict_null_input(&inferred);
         Some(match &best.function.return_type {
-            FunctionReturn::Scalar { sql_type } | FunctionReturn::SetOf { sql_type } => TypeInfo::new(
-                catalog_function_return_neutral(&function_name, sql_type, self.catalog),
-                true,
-            ),
+            FunctionReturn::Scalar { sql_type, nullable } | FunctionReturn::SetOf { sql_type, nullable } => {
+                TypeInfo::new(
+                    catalog_function_return_neutral(&function_name, sql_type, self.catalog),
+                    *nullable || strict_null,
+                )
+            }
             FunctionReturn::Table { .. } => TypeInfo::new(UNRESOLVED_EXPR_MARKER, true),
         })
     }
@@ -1442,6 +1445,24 @@ pub(super) struct CatalogFunctionMatch<'a> {
     pub(super) function: &'a Function,
     pub(super) score: u32,
     pub(super) bindings: Vec<(usize, usize)>,
+}
+
+impl CatalogFunctionMatch<'_> {
+    /// Whether the call may pass a STRICT function a null input, so return
+    /// null (or no rows) whatever its body proves: an argument that may be
+    /// null, or an omitted defaulted argument, whose default may be null.
+    /// `inferred` holds the types of the call's arguments, by call position.
+    pub(super) fn strict_null_input(&self, inferred: &[TypeInfo]) -> bool {
+        self.function.strict
+            && (self
+                .bindings
+                .iter()
+                .any(|(call, _)| inferred.get(*call).is_none_or(|argument| argument.nullable))
+                || self.function.arguments.iter().enumerate().any(|(index, argument)| {
+                    argument.mode != FunctionArgumentMode::Out
+                        && !self.bindings.iter().any(|(_, declared)| *declared == index)
+                }))
+    }
 }
 
 fn catalog_call_arguments(func: &ast::Function) -> Option<Vec<(Option<String>, &Expr)>> {
