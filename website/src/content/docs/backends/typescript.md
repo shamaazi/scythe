@@ -386,7 +386,7 @@ export interface GetUserRow {
 `typescript-bun`, `typescript-postgres` and `typescript-pg` can take a query's parameters as one
 object instead of one argument each. The object's type is exported beside the row type as
 `<Query>Params`, its properties named by `field_case`; the function reads them back in placeholder
-order. Name the parameters with [parameter declarations](/scythe/guide/annotations/#parameter-declarations)
+order. Name the parameters with [positional `@param`](/scythe/guide/annotations/#positional-form)
 to choose the property names.
 
 ```toml
@@ -400,8 +400,8 @@ params = "object"
 ```sql
 -- @name RecentOrders
 -- @returns :many
--- $1: customer_id
--- $2: since?
+-- @param $1 customer_id
+-- @param $2 since?
 SELECT id, total FROM orders WHERE customer_id = $1 AND placed_at >= $2;
 ```
 

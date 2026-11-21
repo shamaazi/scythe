@@ -141,35 +141,28 @@ SELECT id, name FROM users WHERE id = $1;
 
 Format: `-- @param $N name[?][: description]`. The `$N` token must come first; anything else after
 `@param` is parsed as the docs-only form. A trailing `?` on the name makes the parameter nullable
-(see [Parameter declarations](#parameter-declarations)).
+(see [Nullable parameters](#nullable-parameters)).
 
 The positional form may name any subset of the parameters. Naming one position twice, or a
-position the query does not use, is an error.
+position the query does not use, is an error. Names are cased by the backend like any parameter
+name (`customer_id` is `customerId` under `field_case = "camelCase"`).
 
-## Parameter declarations
+### Nullable parameters
 
-A query can instead declare all of its parameters in its comment header, one `-- $N: name` line
-per position. Declared names replace the names scythe would infer:
+A trailing `?` on a positional name makes the parameter nullable in generated types, for a
+parameter scythe infers as non-null:
 
 ```sql
 -- @name RecentOrders
 -- @returns :many
--- $1: customer_id
--- $2: max_rows?
+-- @param $1 customer_id
+-- @param $2 max_rows?
 SELECT id, total FROM orders WHERE customer_id = $1 ORDER BY id LIMIT $2;
 ```
 
-- A trailing `?` (`-- $2: max_rows?`) makes the parameter nullable in generated types, for a
-  parameter scythe infers as non-null (`LIMIT NULL` means no limit). A parameter scythe already infers as nullable needs no `?`:
-  one the statement tests with `IS NULL`/`IS NOT NULL`, passes to `COALESCE`, or writes to a
-  nullable column in `INSERT`, `UPDATE ... SET` or `ON CONFLICT DO UPDATE SET`.
-- Declarations are a complete list: a query that declares one parameter must declare every `$N` it
-  uses. A missing, duplicate or unused position is an error naming it.
-- Names must be identifiers (ASCII letters, digits and `_`, not starting with a digit), and are
-  cased by the backend like any parameter name (`customer_id` is `customerId` under
-  `field_case = "camelCase"`).
-- Only comment lines above the SQL are declarations; the same text inside the SQL body stays an
-  ordinary comment. Other header comments are kept.
+Here `LIMIT NULL` means no limit. A parameter scythe already infers as nullable needs no `?`: one
+the statement tests with `IS NULL`/`IS NOT NULL`, passes to `COALESCE`, or writes to a nullable
+column in `INSERT`, `UPDATE ... SET` or `ON CONFLICT DO UPDATE SET`.
 
 ## @nullable
 
