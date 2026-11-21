@@ -889,6 +889,22 @@ INSERT INTO users (bio) VALUES (COALESCE($1, 'unknown'));",
         }
     }
 
+    /// A searched CASE written into a column takes its result from the column
+    /// type and its condition as a boolean.
+    #[test]
+    fn should_type_a_written_case_condition_as_boolean() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name SetBio
+-- @returns :exec
+UPDATE users SET bio = CASE WHEN $1 THEN $2 ELSE bio END WHERE id = $3;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params[0].neutral_type, "bool");
+        assert_eq!(result.params[1].neutral_type, "string");
+    }
+
     /// Placeholders inside CASE branches of INSERT VALUES must be collected.
     #[test]
     fn test_insert_case_param_collected() {
@@ -902,7 +918,7 @@ INSERT INTO users (name) VALUES (CASE WHEN $1 THEN 'x' ELSE 'y' END);",
         let result = analyze(&catalog, &query).unwrap();
         assert_eq!(result.params.len(), 1, "$1 inside CASE must be registered");
         assert_eq!(result.params[0].name, "name");
-        assert_eq!(result.params[0].neutral_type, "string");
+        assert_eq!(result.params[0].neutral_type, "bool", "a CASE condition is a boolean");
     }
 
     /// Placeholders nested in function calls in UPDATE SET must be collected.

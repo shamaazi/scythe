@@ -100,6 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A searched `CASE WHEN $1 THEN ... END` written into a column types the
+  condition placeholder as a boolean instead of the column's type.
 - A `COALESCE` argument placeholder is inferred nullable when it is cast
   (`coalesce($1::boolean, active)`) and when the `COALESCE` is written into a
   NOT NULL column by `INSERT ... VALUES`.

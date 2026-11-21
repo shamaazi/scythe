@@ -518,7 +518,12 @@ impl<'a> Analyzer<'a> {
                     self.collect_param_from_expr_with_type_nullable(op, type_str, name, nullable);
                 }
                 for case_when in conditions {
-                    self.collect_param_from_expr_with_type_nullable(&case_when.condition, type_str, name, nullable);
+                    // A searched CASE's condition is a boolean, not the value written.
+                    if operand.is_none() {
+                        self.collect_param_from_expr_with_type_nullable(&case_when.condition, "bool", name, false);
+                    } else {
+                        self.collect_param_from_expr_with_type_nullable(&case_when.condition, type_str, name, nullable);
+                    }
                     self.collect_param_from_expr_with_type_nullable(&case_when.result, type_str, name, nullable);
                 }
                 if let Some(else_expr) = else_result {
