@@ -121,6 +121,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SC-SEC08 no longer reports a join to a set-returning function
+  (`JOIN jsonb_to_recordset(p.causes) AS a(...) ON true`, `, LATERAL unnest(...)`,
+  `CROSS JOIN LATERAL ...`) or to a LATERAL subquery that references an earlier
+  FROM item as a cartesian product: those expand each row rather than
+  multiplying two independent sets.
 - A query whose function name is a reserved binding in TypeScript (`@name
   Public`) gains a `_` (`public_`), as a parameter does, instead of emitting
   `export async function public(`, a strict-mode syntax error.
