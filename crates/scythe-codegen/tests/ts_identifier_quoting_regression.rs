@@ -34,9 +34,10 @@ use scythe_core::parser::parse_query_with_dialect;
 
 /// Every TypeScript backend, with an engine it supports and the dialect
 /// fixtures below are written in.
-const TS_BACKENDS: [(&str, &str, SqlDialect); 11] = [
+const TS_BACKENDS: [(&str, &str, SqlDialect); 12] = [
     ("typescript-pg", "postgresql", SqlDialect::PostgreSQL),
     ("typescript-postgres", "postgresql", SqlDialect::PostgreSQL),
+    ("typescript-bun", "postgresql", SqlDialect::PostgreSQL),
     ("typescript-kysely", "postgresql", SqlDialect::PostgreSQL),
     ("typescript-mysql2", "mysql", SqlDialect::MySQL),
     ("typescript-better-sqlite3", "sqlite", SqlDialect::SQLite),
@@ -93,8 +94,9 @@ fn fixture(dialect: &SqlDialect) -> (&'static str, [&'static str; 3]) {
 /// Each pairs with the same engine its `typescript-*` sibling in
 /// [`TS_BACKENDS`] uses, since `get_backend` dispatches both names to the
 /// same per-engine constructor (`new` vs. `new_js`).
-const JS_BACKENDS: [(&str, &str, SqlDialect); 10] = [
+const JS_BACKENDS: [(&str, &str, SqlDialect); 11] = [
     ("javascript-postgres", "postgresql", SqlDialect::PostgreSQL),
+    ("javascript-bun", "postgresql", SqlDialect::PostgreSQL),
     ("javascript-pg", "postgresql", SqlDialect::PostgreSQL),
     ("javascript-mysql2", "mysql", SqlDialect::MySQL),
     ("javascript-better-sqlite3", "sqlite", SqlDialect::SQLite),

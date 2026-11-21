@@ -61,6 +61,8 @@ fn query_fn_for(backend_name: &str, engine: &str, command: QueryCommand) -> Stri
 const TS_JS_BACKENDS: &[(&str, &str)] = &[
     ("typescript-postgres", "postgresql"),
     ("javascript-postgres", "postgresql"),
+    ("typescript-bun", "postgresql"),
+    ("javascript-bun", "postgresql"),
     ("typescript-pg", "postgresql"),
     ("javascript-pg", "postgresql"),
     ("typescript-mysql2", "mysql"),
