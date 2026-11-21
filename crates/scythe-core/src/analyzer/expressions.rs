@@ -11,22 +11,18 @@ impl<'a> Analyzer<'a> {
     pub(super) fn infer_expr_type(&mut self, expr: &Expr, scope: &Scope) -> TypeInfo {
         match expr {
             Expr::Identifier(ident) => {
-                let col_name = if ident.quote_style.is_some() {
-                    ident.value.clone()
-                } else {
-                    ident.value.to_lowercase()
-                };
+                let col_name = ident_name(ident);
                 self.resolve_column_in_scope(&col_name, None, scope)
             }
 
             Expr::CompoundIdentifier(parts) => {
                 if parts.len() == 2 {
-                    let qualifier = parts[0].value.to_lowercase();
-                    let col_name = parts[1].value.to_lowercase();
+                    let qualifier = ident_name(&parts[0]);
+                    let col_name = ident_name(&parts[1]);
                     self.resolve_column_in_scope(&col_name, Some(&qualifier), scope)
                 } else if parts.len() >= 3 {
-                    let qualifier = parts[parts.len() - 2].value.to_lowercase();
-                    let col_name = parts[parts.len() - 1].value.to_lowercase();
+                    let qualifier = ident_name(&parts[parts.len() - 2]);
+                    let col_name = ident_name(&parts[parts.len() - 1]);
                     self.resolve_column_in_scope(&col_name, Some(&qualifier), scope)
                 } else {
                     // Unreachable via `Parser::parse_sql` -- sqlparser never emits a
@@ -411,7 +407,7 @@ impl<'a> Analyzer<'a> {
                     && let Some(last) = access_chain.last()
                     && let ast::AccessExpr::Dot(Expr::Identifier(ident)) = last
                 {
-                    let field_name = ident.value.to_lowercase();
+                    let field_name = ident_name(ident);
                     if let Some(field) = comp.fields.iter().find(|f| f.name == field_name) {
                         let neutral = sql_type_to_neutral(&field.sql_type, self.catalog);
                         return TypeInfo::new(neutral, true);
@@ -1140,11 +1136,7 @@ impl<'a> Analyzer<'a> {
     fn classify_function_arg_expr(&self, fae: &FunctionArgExpr, scope: &Scope) -> FuncArgShape {
         match fae {
             FunctionArgExpr::Expr(Expr::Identifier(ident)) => {
-                let name = if ident.quote_style.is_some() {
-                    ident.value.clone()
-                } else {
-                    ident.value.to_lowercase()
-                };
+                let name = ident_name(ident);
                 match self.scope_relation_alias(&name, scope) {
                     Some(alias) => FuncArgShape::Relation(alias),
                     None => FuncArgShape::Expr(Box::new(Expr::Identifier(ident.clone()))),
@@ -1152,7 +1144,7 @@ impl<'a> Analyzer<'a> {
             }
             FunctionArgExpr::Expr(e) => FuncArgShape::Expr(Box::new(e.clone())),
             FunctionArgExpr::QualifiedWildcard(object_name) => {
-                let qualifier = object_name_to_string(object_name).to_lowercase();
+                let qualifier = object_column_name(object_name);
                 match self.find_scope_source_alias(&qualifier, scope) {
                     Some(alias) => FuncArgShape::Relation(alias),
                     None => FuncArgShape::Wildcard,

@@ -6,7 +6,8 @@ use crate::errors::ScytheError;
 
 use super::expressions::{catalog_call_arguments_from_args, catalog_function_return_neutral, match_catalog_function};
 use super::helpers::{
-    UNRESOLVED_EXPR_MARKER, function_arg_exprs, object_name_to_string, unresolved_type_error, widen_neutral_type,
+    UNRESOLVED_EXPR_MARKER, function_arg_exprs, ident_name, object_name_to_string, unresolved_type_error,
+    widen_neutral_type,
 };
 use super::type_conversion::{datatype_to_neutral, sql_type_to_neutral};
 use super::types::*;
@@ -119,7 +120,7 @@ impl<'a> Analyzer<'a> {
                 ..
             } => {
                 let table_name = object_name_to_string(name).to_lowercase();
-                let alias_name = alias.as_ref().map(|a| a.name.value.to_lowercase()).unwrap_or_else(|| {
+                let alias_name = alias.as_ref().map(|a| ident_name(&a.name)).unwrap_or_else(|| {
                     table_name
                         .rsplit_once('.')
                         .map(|(_, n)| n.to_string())
@@ -256,7 +257,7 @@ impl<'a> Analyzer<'a> {
 
                 let alias_name = alias
                     .as_ref()
-                    .map(|a| a.name.value.to_lowercase())
+                    .map(|a| ident_name(&a.name))
                     .unwrap_or_else(|| "subquery".to_string());
 
                 let scope_cols: Vec<ScopeColumn> = sub_cols.iter().map(ScopeColumn::from_analyzed_column).collect();
@@ -302,7 +303,7 @@ impl<'a> Analyzer<'a> {
             } => {
                 let alias_name = alias
                     .as_ref()
-                    .map(|a| a.name.value.to_lowercase())
+                    .map(|a| ident_name(&a.name))
                     .unwrap_or_else(|| "unnest".to_string());
                 let columns = self.unnest_columns(array_exprs, alias.as_ref(), scope);
                 scope.sources.push(ScopeSource {
@@ -315,7 +316,7 @@ impl<'a> Analyzer<'a> {
             TableFactor::TableFunction { alias, .. } => {
                 let alias_name = alias
                     .as_ref()
-                    .map(|a| a.name.value.to_lowercase())
+                    .map(|a| ident_name(&a.name))
                     .unwrap_or_else(|| "func".to_string());
                 scope.sources.push(ScopeSource {
                     alias: alias_name.clone(),
@@ -327,7 +328,7 @@ impl<'a> Analyzer<'a> {
             TableFactor::Function { alias, name, args, .. } => {
                 let alias_name = alias
                     .as_ref()
-                    .map(|a| a.name.value.to_lowercase())
+                    .map(|a| ident_name(&a.name))
                     .unwrap_or_else(|| object_name_to_string(name).to_lowercase());
 
                 let func_name = object_name_to_string(name).to_lowercase();
@@ -382,7 +383,7 @@ impl<'a> Analyzer<'a> {
                         // unexplained if selected (#223).
                         a.columns
                             .iter()
-                            .map(|c| ScopeColumn::new(c.name.value.to_lowercase(), UNRESOLVED_EXPR_MARKER, true))
+                            .map(|c| ScopeColumn::new(ident_name(&c.name), UNRESOLVED_EXPR_MARKER, true))
                             .collect()
                     } else {
                         cols
@@ -489,7 +490,7 @@ impl<'a> Analyzer<'a> {
         scope: &Scope,
     ) -> Vec<ScopeColumn> {
         let single_name = match (array_exprs, alias) {
-            ([_], Some(alias)) => Some(alias.name.value.to_lowercase()),
+            ([_], Some(alias)) => Some(ident_name(&alias.name)),
             _ => None,
         };
         array_exprs
@@ -521,7 +522,7 @@ impl<'a> Analyzer<'a> {
             .map(|column| {
                 let data_type = column.data_type.as_ref()?;
                 Some(ScopeColumn::from_catalog(
-                    column.name.value.to_lowercase(),
+                    ident_name(&column.name),
                     data_type.to_string().to_lowercase(),
                     datatype_to_neutral(data_type, self.catalog),
                     true,
@@ -638,7 +639,7 @@ impl<'a> Analyzer<'a> {
                 return Err(ScytheError::column_count_mismatch(alias.columns.len(), columns.len()));
             }
             for (column, alias) in columns.iter_mut().zip(&alias.columns) {
-                column.name = alias.name.value.to_lowercase();
+                column.name = ident_name(&alias.name);
             }
         }
         Ok(columns)
@@ -658,7 +659,7 @@ fn with_function_alias_columns(
     }
     if let Some(alias) = alias {
         for (column, name) in columns.iter_mut().zip(&alias.columns) {
-            column.name = name.name.value.to_lowercase();
+            column.name = ident_name(&name.name);
         }
     }
     columns

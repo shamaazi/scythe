@@ -24,7 +24,7 @@ fn apply_cte_alias_columns(
         ));
     }
     for (col, alias) in cols.iter_mut().zip(&cte_alias.columns) {
-        col.name = alias.name.value.to_lowercase();
+        col.name = ident_name(&alias.name);
     }
     Ok(cols)
 }
@@ -367,13 +367,13 @@ impl<'a> Analyzer<'a> {
                 SelectItem::ExprWithAlias { expr, alias } => {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
-                    columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti));
+                    columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti));
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
                     for alias in aliases {
-                        columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti.clone()));
+                        columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti.clone()));
                     }
                 }
                 SelectItem::Wildcard(_) => {
@@ -388,9 +388,7 @@ impl<'a> Analyzer<'a> {
                 }
                 SelectItem::QualifiedWildcard(kind, _) => {
                     let qualifier = match kind {
-                        ast::SelectItemQualifiedWildcardKind::ObjectName(name) => {
-                            object_name_to_string(name).to_lowercase()
-                        }
+                        ast::SelectItemQualifiedWildcardKind::ObjectName(name) => object_column_name(name),
                         ast::SelectItemQualifiedWildcardKind::Expr(expr) => expr_to_name(expr),
                     };
                     for source in &scope.sources {
@@ -457,11 +455,7 @@ impl<'a> Analyzer<'a> {
             }
         };
 
-        let target_cols: Vec<String> = insert
-            .columns
-            .iter()
-            .map(|name| object_name_to_string(name).to_lowercase())
-            .collect();
+        let target_cols: Vec<String> = insert.columns.iter().map(object_column_name).collect();
 
         if let Some(ref source) = insert.source {
             self.collect_insert_params(&table_name, &target_cols, source)?;
@@ -662,12 +656,12 @@ impl<'a> Analyzer<'a> {
                 }
                 SelectItem::ExprWithAlias { expr, alias } => {
                     let ti = self.infer_expr_type(expr, &scope);
-                    columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti));
+                    columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti));
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
                     let ti = self.infer_expr_type(expr, &scope);
                     for alias in aliases {
-                        columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti.clone()));
+                        columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti.clone()));
                     }
                 }
                 SelectItem::Wildcard(_) => {
@@ -686,9 +680,7 @@ impl<'a> Analyzer<'a> {
                 }
                 SelectItem::QualifiedWildcard(kind, _) => {
                     let qualifier = match kind {
-                        ast::SelectItemQualifiedWildcardKind::ObjectName(name) => {
-                            object_name_to_string(name).to_lowercase()
-                        }
+                        ast::SelectItemQualifiedWildcardKind::ObjectName(name) => object_column_name(name),
                         ast::SelectItemQualifiedWildcardKind::Expr(expr) => expr_to_name(expr),
                     };
                     for source in &scope.sources {

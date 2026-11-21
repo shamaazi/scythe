@@ -3054,4 +3054,51 @@ SELECT id, moods FROM t WHERE id = $1;",
         let positions: Vec<_> = result.params.iter().map(|p| p.position).collect();
         assert_eq!(positions, [1, 2], "no placeholder is dropped from the signature");
     }
+
+    fn reminder_catalog() -> Catalog {
+        Catalog::from_ddl(&[
+            "CREATE TABLE users (id text PRIMARY KEY, email text NOT NULL);",
+            "CREATE TABLE reminders (\"userId\" text NOT NULL, topic text NOT NULL, PRIMARY KEY (\"userId\", topic));",
+        ])
+        .expect("schema should parse")
+    }
+
+    #[test]
+    fn should_keep_the_case_of_quoted_column_identifiers() {
+        let catalog = reminder_catalog();
+        let query = parse_query(
+            "-- @name Subscriber\n-- @returns :many\n\
+             SELECT u.email, r.\"userId\", \"userId\" AS \"ownerId\" FROM reminders r \
+             JOIN users u ON u.id = r.\"userId\" WHERE r.\"userId\" = $1 AND r.topic = $2;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("a quoted identifier names its exact column");
+        let names: Vec<_> = result.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["email", "userId", "ownerId"]);
+        assert_eq!(param_types(&result), [(1, "string"), (2, "string")]);
+    }
+
+    #[test]
+    fn should_bind_writes_to_quoted_columns_by_their_exact_name() {
+        let catalog = reminder_catalog();
+        let query = parse_query(
+            "-- @name Save\n-- @returns :exec\n\
+             INSERT INTO reminders (\"userId\", topic) VALUES ($1, $2) ON CONFLICT (\"userId\", topic) \
+             DO UPDATE SET \"userId\" = $3;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("quoted target columns resolve");
+        assert_eq!(param_types(&result), [(1, "string"), (2, "string"), (3, "string")]);
+        let names: Vec<_> = result.params.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["userId_1", "topic", "userId_2"]);
+    }
+
+    #[test]
+    fn should_fold_unquoted_identifiers_that_name_a_quoted_column() {
+        let catalog = reminder_catalog();
+        let query = parse_query("-- @name Folded\n-- @returns :many\nSELECT r.userId FROM reminders r;")
+            .expect("query should parse");
+        let error = analyze(&catalog, &query).expect_err("an unquoted userId folds to userid, which does not exist");
+        assert!(error.message.contains("userid"), "got: {}", error.message);
+    }
 }
