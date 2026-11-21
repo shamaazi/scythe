@@ -471,8 +471,8 @@ A parameter is nullable when the statement accepts NULL for it: it is tested wit
 `$1 IS NULL`/`$1 IS NOT NULL` (the optional-filter idiom `$1::text IS NULL OR name = $1`), passed
 to `COALESCE`, or written to a nullable column by `INSERT`, `UPDATE ... SET` or
 `ON CONFLICT DO UPDATE SET`. One such use is enough, wherever it appears in the statement. Mark any
-other parameter nullable with a trailing `?` on its
-[declared name](/scythe/guide/annotations/#parameter-declarations).
+other parameter nullable with
+[`@param $N name?`](/scythe/guide/annotations/#nullable-parameters).
 
 ## Manual Overrides
 

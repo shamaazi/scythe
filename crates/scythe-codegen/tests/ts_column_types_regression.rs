@@ -34,7 +34,7 @@ const GET: &str = "-- @name GetSchedule\n-- @returns :one\n\
     SELECT id, causes, metadata, status, frequency, amount + 1 AS next_amount FROM schedules WHERE id = $1;";
 
 const ADD: &str = "-- @name AddSchedule\n-- @returns :exec\n\
-    -- $1: causes\n-- $2: metadata?\n-- $3: status\n-- $4: frequency\n-- $5: amount\n\
+    -- @param $1 causes\n-- @param $2 metadata?\n-- @param $3 status\n-- @param $4 frequency\n-- @param $5 amount\n\
     INSERT INTO schedules (causes, metadata, status, frequency, amount) VALUES ($1, $2, $3, $4, $5 * 100);";
 
 const ACTIVE: &str = "-- @name ActiveSchedules\n-- @returns :many\nSELECT id, causes, doubled FROM active_schedules;";

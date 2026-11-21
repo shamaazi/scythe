@@ -33,11 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and JSON as `unknown`, since `sql.json` serialises any value.
   JSON parameters go through `sql.json`, enum and JSON arrays through
   `sql.array`, and `:batch` opens a savepoint when handed a transaction.
-- Parameter declarations: a query's comment header can name its parameters
-  with `-- $1: user_id` lines, and `-- $2: since?` marks one nullable.
-  Declared names replace inferred ones; a query that declares one parameter
-  must declare all of them, and a missing, duplicate or unused position is an
-  error naming it. `@param $N name?` accepts the same `?`.
+- Nullable parameters: a trailing `?` on a positional `@param` name
+  (`-- @param $2 since?`) makes the parameter nullable in generated types.
 - `params = "object"` for `typescript-bun`, `typescript-postgres` and
   `typescript-pg`: query functions take one `params` argument typed by an
   exported `<Query>Params` interface whose properties follow `field_case`,

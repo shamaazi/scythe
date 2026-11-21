@@ -22,7 +22,7 @@ const SCHEMA: &str = "CREATE TABLE donations (\
 );";
 
 const RECENT: &str = "-- @name RecentDonations\n-- @returns :many\n\
-    -- $1: donor_id\n-- $2: from?\n\
+    -- @param $1 donor_id\n-- @param $2 from?\n\
     SELECT id, donor_id FROM donations WHERE donor_id = $1 AND given_at >= $2;";
 
 const FILTERED: &str = "-- @name FilterDonations\n-- @returns :many\n\
@@ -38,7 +38,7 @@ const COUNT: &str = "-- @name CountDonations\n-- @returns :one\n\
     SELECT count(*) AS total FROM donations;";
 
 const GROUPED: &str = "-- @name DonorsWithDonations\n-- @returns :grouped\n-- @group_by donations.donor_id\n\
-    -- $1: since\n\
+    -- @param $1 since\n\
     SELECT donor_id, id FROM donations WHERE given_at >= $1;";
 
 const BACKENDS: [&str; 3] = ["typescript-bun", "typescript-postgres", "typescript-pg"];

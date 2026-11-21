@@ -114,8 +114,8 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         .params
         .iter()
         .map(|p| {
-            // An explicit `@param $N name` / `-- $N: name` wins over the
-            // inferred name, which wins over the `pN` fallback.
+            // An explicit `@param $N name` wins over the inferred name, which
+            // wins over the `pN` fallback.
             let doc = query
                 .annotations
                 .positional_param_docs
@@ -395,13 +395,11 @@ fn written_base_column(
     bases.all(|other| other == base).then_some(base)
 }
 
-/// Reject a parameter name that names no parameter, and -- once the query
-/// declares its parameters with `-- $N: name` -- a parameter left unnamed.
+/// Reject a parameter name that names no parameter.
 ///
 /// A name for an absent position is always a mistake (a renumbered query, a
-/// typo), and would otherwise be dropped without a word. Completeness is only
-/// demanded of the declaration form: `@param $N name` has always named a
-/// subset, and `scythe migrate` relies on that.
+/// typo), and would otherwise be dropped without a word. `@param $N name`
+/// may name any subset of the parameters; `scythe migrate` relies on that.
 fn check_param_names(query: &Query, params: &[AnalyzedParam]) -> Result<(), ScytheError> {
     let docs = &query.annotations.positional_param_docs;
     if let Some(doc) = docs
@@ -412,22 +410,6 @@ fn check_param_names(query: &Query, params: &[AnalyzedParam]) -> Result<(), Scyt
             "query \"{}\": `{}` names ${}, but the query has no ${}",
             query.name, doc.name, doc.position, doc.position
         )));
-    }
-    if docs.iter().any(|doc| doc.declared) {
-        let missing: Vec<String> = params
-            .iter()
-            .filter(|p| !docs.iter().any(|doc| doc.position == p.position))
-            .map(|p| format!("${}", p.position))
-            .collect();
-        if !missing.is_empty() {
-            return Err(ScytheError::invalid_annotation(format!(
-                "query \"{}\": {} {} not named; a query that declares its parameters with `-- $N: name` \
-                 must declare every one",
-                query.name,
-                missing.join(", "),
-                if missing.len() == 1 { "is" } else { "are" }
-            )));
-        }
     }
     Ok(())
 }
@@ -1147,12 +1129,12 @@ ON CONFLICT (id) DO UPDATE SET bio = $4, name = EXCLUDED.name;",
     }
 
     #[test]
-    fn test_param_declarations_name_and_mark_nullable() {
+    fn test_positional_params_name_and_mark_nullable() {
         let result = analyze_sql(
             "-- @name RecentPosts
 -- @returns :many
--- $1: author
--- $2: since?
+-- @param $1 author
+-- @param $2 since?
 SELECT id FROM posts WHERE user_id = $1 AND created_at >= $2;",
         )
         .unwrap();
@@ -1164,43 +1146,16 @@ SELECT id FROM posts WHERE user_id = $1 AND created_at >= $2;",
     }
 
     #[test]
-    fn test_param_declaration_question_mark_is_optional_for_inferred_nullable() {
+    fn test_positional_param_question_mark_is_optional_for_inferred_nullable() {
         let result = analyze_sql(
             "-- @name FindUsers
 -- @returns :many
--- $1: min_age
+-- @param $1 min_age
 SELECT id FROM users WHERE ($1::int IS NULL OR age >= $1);",
         )
         .unwrap();
         assert_eq!(result.params[0].name, "min_age");
         assert!(result.params[0].nullable, "already nullable from `IS NULL`");
-    }
-
-    #[test]
-    fn test_param_declarations_must_cover_every_param() {
-        let err = analyze_sql(
-            "-- @name RecentPosts
--- @returns :many
--- $2: since
-SELECT id FROM posts WHERE user_id = $1 AND created_at >= $2 AND id > $3;",
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("query \"RecentPosts\": $1, $3 are not named"), "{err}");
-    }
-
-    #[test]
-    fn test_param_declaration_for_absent_position_errors() {
-        let err = analyze_sql(
-            "-- @name GetUser
--- @returns :one
--- $1: id
--- $2: extra
-SELECT id FROM users WHERE id = $1;",
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("`extra` names $2, but the query has no $2"), "{err}");
     }
 
     #[test]

@@ -37,7 +37,7 @@ const GET: &str = "-- @name GetCause\n-- @returns :one\n\
     SELECT id, slug, title, goal, status FROM causes WHERE id = $1;";
 
 const ADD: &str = "-- @name AddCause\n-- @returns :exec\n\
-    -- $1: slug\n-- $2: title\n-- $3: goal?\n-- $4: status\n\
+    -- @param $1 slug\n-- @param $2 title\n-- @param $3 goal?\n-- @param $4 status\n\
     INSERT INTO causes (slug, title, goal, status) VALUES ($1, $2, $3, $4);";
 
 const NOTES: &str = "-- @name CauseNotes\n-- @returns :many\nSELECT notes, raised FROM causes;";
