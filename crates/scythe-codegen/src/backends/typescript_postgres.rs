@@ -11,13 +11,13 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
-    generate_js_grouped_typedef_structs, generate_js_typedef, generate_js_typedef_row_struct, generate_jsdoc_fn_header,
-    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_json_composite_interface,
-    generate_ts_many_row_remap, generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_union_row_struct,
-    generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct,
-    js_fn_signature_line, js_type_cast, parse_bool_option, ts_index_access, ts_member_access, ts_property_key,
-    ts_row_not_found_throw,
+    TsFieldCase, TsParamStyle, TsQueryParams, TsRowShape, TsRowType, escape_ts_template_literal,
+    generate_grouped_interface_structs, generate_js_grouped_typedef_structs, generate_js_typedef,
+    generate_js_typedef_row_struct, generate_jsdoc_fn_header, generate_ts_grouped_fold_body,
+    generate_ts_interface_row_struct, generate_ts_json_composite_interface, generate_ts_many_row_remap,
+    generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum,
+    generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line,
+    js_type_cast, parse_bool_option, ts_index_access, ts_member_access, ts_property_key, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
@@ -465,6 +465,9 @@ pub struct TypescriptPostgresBackend {
     /// `sql<StructName[]>` tag's generic. `Snake` (the default) keeps that
     /// generic, which is sound there.
     field_case: TsFieldCase,
+    /// Whether query functions take one argument per parameter or one
+    /// `params` object -- see [`TsParamStyle`].
+    params_style: TsParamStyle,
     /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
     /// `javascript-postgres` registry name (#81). See
     /// `TypescriptPgBackend::js_mode` for the shared rationale, including why
@@ -502,6 +505,7 @@ impl TypescriptPostgresBackend {
             outer_join_unions: false,
             structs_only: false,
             field_case: TsFieldCase::default(),
+            params_style: TsParamStyle::default(),
             js_mode: false,
             driver: TemplateDriver::PostgresJs,
         })
@@ -530,6 +534,7 @@ impl TypescriptPostgresBackend {
             outer_join_unions: false,
             structs_only: false,
             field_case: TsFieldCase::default(),
+            params_style: TsParamStyle::default(),
             js_mode: false,
             driver: TemplateDriver::Bun,
         })
@@ -739,14 +744,16 @@ impl CodegenBackend for TypescriptPostgresBackend {
         if self.js_mode {
             return self.generate_query_fn_js(analyzed, struct_name, params);
         }
+        let query_params = TsQueryParams::new(self.params_style, &analyzed.name, params, &self.manifest.naming);
         if self.structs_only {
-            return Ok(String::new());
+            return Ok(query_params.declaration(&analyzed.name).trim_end().to_string());
         }
+        let params = &query_params.params[..];
         let columns = self.driver_columns(columns);
         let columns = &*columns;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let mut out = String::new();
+        let mut out = query_params.declaration(&analyzed.name);
 
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         // Escape the user's SQL before postgres.js's own `${}` interpolations
@@ -766,7 +773,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 |rp| {
                     pg_bind_expr(
                         self.driver,
-                        &rp.field_name,
+                        &query_params.access(rp),
                         &rp.neutral_type,
                         rp.nullable,
                         &analyzed.composites,
@@ -795,7 +802,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
         let query_sig_params: Vec<(String, String)> =
             std::iter::once(("sql".to_string(), self.driver.ts_handle_type().to_string()))
-                .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
+                .chain(query_params.signature())
                 .collect();
 
         match &analyzed.command {
@@ -883,15 +890,21 @@ impl CodegenBackend for TypescriptPostgresBackend {
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
-                if params.len() > 1 {
-                    let params_type_name = format!("{}BatchParams", struct_name);
-                    let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
-                    let _ = writeln!(out, "export interface {} {{", params_type_name);
-                    for p in params {
-                        let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
-                    }
-                    let _ = writeln!(out, "}}");
-                    let _ = writeln!(out);
+                if params.len() > 1 || query_params.interface.is_some() {
+                    let params_type_name = match &query_params.interface {
+                        Some(interface) => interface.clone(),
+                        None => {
+                            let params_type_name = format!("{}BatchParams", struct_name);
+                            let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
+                            let _ = writeln!(out, "export interface {} {{", params_type_name);
+                            for p in params {
+                                let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
+                            }
+                            let _ = writeln!(out, "}}");
+                            let _ = writeln!(out);
+                            params_type_name
+                        }
+                    };
                     let _ = writeln!(
                         out,
                         "/** Execute {} for each item in the batch within a transaction. */",
@@ -1040,12 +1053,13 @@ impl CodegenBackend for TypescriptPostgresBackend {
         let parent_columns = &*parent_columns;
         let child_columns = self.driver_columns(request.child_columns);
         let child_columns = &*child_columns;
-        let params = request.params;
         let key_column = request.key_column;
+        let query_params = TsQueryParams::new(self.params_style, &analyzed.name, request.params, &self.manifest.naming);
 
         if self.structs_only {
-            return Ok(String::new());
+            return Ok(query_params.declaration(&analyzed.name).trim_end().to_string());
         }
+        let params = &query_params.params[..];
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
@@ -1062,7 +1076,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 |rp| {
                     pg_bind_expr(
                         self.driver,
-                        &rp.field_name,
+                        &query_params.access(rp),
                         &rp.neutral_type,
                         rp.nullable,
                         &analyzed.composites,
@@ -1071,19 +1085,14 @@ impl CodegenBackend for TypescriptPostgresBackend {
             )
         });
 
-        let param_list = params
-            .iter()
-            .map(|p| format!("{}: {}", p.field_name, p.full_type))
+        let signature = query_params.signature();
+        let inline_params = std::iter::once(format!("sql: {}", self.driver.ts_handle_type()))
+            .chain(signature.iter().map(|(n, t)| format!("{n}: {t}")))
             .collect::<Vec<_>>()
             .join(", ");
-        let inline_params = if params.is_empty() {
-            format!("sql: {}", self.driver.ts_handle_type())
-        } else {
-            format!("sql: {}, {}", self.driver.ts_handle_type(), param_list)
-        };
         let ret = format!("Promise<{parent_struct_name}[]>");
 
-        let mut out = String::new();
+        let mut out = query_params.declaration(&analyzed.name);
         let oneliner = format!("export async function {func_name}({inline_params}): {ret} {{");
         if oneliner.len() <= 80 {
             let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
@@ -1092,8 +1101,8 @@ impl CodegenBackend for TypescriptPostgresBackend {
             let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
             let _ = writeln!(out, "export async function {func_name}(");
             let _ = writeln!(out, "\tsql: {},", self.driver.ts_handle_type());
-            for p in params {
-                let _ = writeln!(out, "\t{}: {},", p.field_name, p.full_type);
+            for (n, t) in &signature {
+                let _ = writeln!(out, "\t{n}: {t},");
             }
             let _ = writeln!(out, "): {ret} {{");
         }
@@ -1250,7 +1259,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         reject_unknown_options(
-            &["row_type", "outer_join_unions", "structs_only", "field_case"],
+            &["row_type", "outer_join_unions", "structs_only", "field_case", "params"],
             options,
         )?;
 
@@ -1270,10 +1279,23 @@ impl CodegenBackend for TypescriptPostgresBackend {
             // decision above -- one option, one source of truth for both.
             self.manifest.naming.field_case = value.clone();
         }
+        if let Some(value) = options.get("params") {
+            self.params_style = TsParamStyle::from_option(value)?;
+        }
 
-        // ~keep See `TypescriptPgBackend::apply_options` for why these three are
+        // ~keep See `TypescriptPgBackend::apply_options` for why these are
         // rejected outright in JSDoc mode rather than silently ignored.
         if self.js_mode {
+            if self.params_style == TsParamStyle::Object {
+                return Err(ScytheError::new(
+                    ErrorCode::InvalidConfig,
+                    format!(
+                        "{} does not support params = \"object\" -- use {}",
+                        self.driver.js_name(),
+                        self.driver.ts_name()
+                    ),
+                ));
+            }
             if self.row_type == TsRowType::Zod {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
