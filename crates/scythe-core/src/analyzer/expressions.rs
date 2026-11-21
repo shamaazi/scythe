@@ -3,6 +3,7 @@ use sqlparser::ast::{self, BinaryOperator, Expr, FunctionArg, FunctionArgExpr, U
 use crate::catalog::{Function, FunctionArgumentMode, FunctionReturn};
 use crate::dialect::SqlDialect;
 
+use super::builtins::builtin_functions;
 use super::helpers::*;
 use super::type_conversion::{datatype_to_neutral, sql_type_to_neutral};
 use super::types::*;
@@ -522,6 +523,10 @@ impl<'a> Analyzer<'a> {
             return self.infer_array_subquery_type(query, scope);
         }
 
+        if let Some(overloads) = self.builtin_overloads(&func_name) {
+            self.bind_builtin_arguments(func, overloads, scope);
+        }
+
         let first_arg_ti = self.get_first_arg_type(func, scope);
         let first_arg_nullable = first_arg_ti.as_ref().map(|ti| ti.nullable).unwrap_or(true);
 
@@ -1009,7 +1014,11 @@ impl<'a> Analyzer<'a> {
 
     fn infer_catalog_function_type(&mut self, func: &ast::Function, scope: &Scope) -> Option<TypeInfo> {
         let function_name = object_name_to_string(&func.name).to_lowercase();
-        let overloads = self.catalog.get_functions(&function_name)?;
+        let builtin = self.catalog.get_functions(&function_name).is_none();
+        let overloads = match self.catalog.get_functions(&function_name) {
+            Some(overloads) => overloads,
+            None => self.builtin_overloads(&function_name)?,
+        };
         let call_arguments = catalog_call_arguments(func)?;
         let inferred = call_arguments
             .iter()
@@ -1034,7 +1043,10 @@ impl<'a> Analyzer<'a> {
             ));
         }
 
-        self.register_catalog_function_params(best, &call_arguments);
+        // A built-in's placeholders were bound by `bind_builtin_arguments`.
+        if !builtin {
+            self.register_catalog_function_params(best, &call_arguments);
+        }
 
         let strict_null = best.strict_null_input(&inferred);
         Some(match &best.function.return_type {
@@ -1046,6 +1058,46 @@ impl<'a> Analyzer<'a> {
             }
             FunctionReturn::Table { .. } => TypeInfo::new(UNRESOLVED_EXPR_MARKER, true),
         })
+    }
+
+    /// The PostgreSQL built-in overloads of `name`, unless the schema defines
+    /// a function by that name.
+    pub(super) fn builtin_overloads(&self, name: &str) -> Option<&'static [Function]> {
+        if self.catalog.dialect() != SqlDialect::PostgreSQL || self.catalog.get_functions(name).is_some() {
+            return None;
+        }
+        builtin_functions(name)
+    }
+
+    /// Type the placeholders passed to a built-in function by the overload
+    /// the call resolves to. A call no overload accepts, or more than one
+    /// equally, binds nothing: inference arms type such calls themselves.
+    /// A placeholder argument is not nullable for being one.
+    fn bind_builtin_arguments(&mut self, func: &ast::Function, overloads: &[Function], scope: &Scope) {
+        let Some(call_arguments) = catalog_call_arguments(func) else {
+            return;
+        };
+        let inferred = call_arguments
+            .iter()
+            .map(|(_, expression)| self.infer_expr_type(expression, scope))
+            .collect::<Vec<_>>();
+        let mut matches = overloads
+            .iter()
+            .filter_map(|function| match_catalog_function(function, &call_arguments, &inferred, self.catalog))
+            .collect::<Vec<_>>();
+        matches.sort_by_key(|matched| matched.score);
+        let [best, rest @ ..] = matches.as_slice() else {
+            return;
+        };
+        if rest.first().is_some_and(|other| other.score == best.score) {
+            return;
+        }
+        for (call_index, declaration_index) in &best.bindings {
+            let declaration = &best.function.arguments[*declaration_index];
+            let neutral_type = sql_type_to_neutral(&declaration.sql_type, self.catalog);
+            let name = declaration.name.as_deref().unwrap_or("value");
+            self.collect_param_from_expr(call_arguments[*call_index].1, name, &neutral_type);
+        }
     }
 
     pub(super) fn register_catalog_function_params(

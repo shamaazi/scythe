@@ -133,6 +133,10 @@ pub fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'static, st
         // also surfaces them as text.
         "geography" | "geometry" => Cow::Borrowed("string"),
 
+        // A `void` result (`SELECT pg_advisory_xact_lock(...)`) is sent as
+        // the empty string PostgreSQL's `void_out` renders.
+        "void" => Cow::Borrowed("string"),
+
         "boolean" | "bool" => Cow::Borrowed("bool"),
 
         "bytea" => Cow::Borrowed("bytes"),

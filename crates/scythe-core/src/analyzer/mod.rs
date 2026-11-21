@@ -1,3 +1,4 @@
+mod builtins;
 mod expressions;
 mod function_body;
 mod helpers;
@@ -3198,5 +3199,75 @@ SELECT id, moods FROM t WHERE id = $1;",
             .expect("query should parse");
         let error = analyze(&catalog, &query).expect_err("mytuesdays is not a brand");
         assert_eq!(error.code, crate::errors::ErrorCode::TypeMismatch);
+    }
+
+    #[test]
+    fn should_resolve_postgres_builtin_lock_hash_and_setting_functions() {
+        let result = analyze_sql(
+            "-- @name Lock\n-- @returns :one\n\
+             SELECT pg_advisory_xact_lock(hashtextextended($1, 0)) AS locked, \
+             pg_try_advisory_xact_lock($2, $3) AS tried, \
+             set_config('statement_timeout', $4::text, true) AS timeout, \
+             current_setting('app.user', true) AS app_user;",
+        )
+        .expect("built-in functions resolve");
+        let columns: Vec<_> = result
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.neutral_type.as_str()))
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                ("locked", "string"),
+                ("tried", "bool"),
+                ("timeout", "string"),
+                ("app_user", "string")
+            ]
+        );
+        assert!(result.columns[3].nullable, "a missing setting reads as null");
+        assert_eq!(
+            param_types(&result),
+            [(1, "string"), (2, "int32"), (3, "int32"), (4, "string")]
+        );
+        assert!(result.params.iter().all(|p| !p.nullable));
+    }
+
+    #[test]
+    fn should_prefer_a_schema_function_over_a_builtin_of_the_same_name() {
+        let catalog =
+            Catalog::from_ddl(&["CREATE FUNCTION hashtext(value integer) RETURNS integer LANGUAGE sql RETURN value;"])
+                .expect("schema should parse");
+        let query =
+            parse_query("-- @name Hash\n-- @returns :one\nSELECT hashtext($1) AS hash;").expect("query should parse");
+        let result = analyze(&catalog, &query).expect("the schema's function resolves");
+        assert_eq!(param_types(&result), [(1, "int32")]);
+    }
+
+    #[test]
+    fn should_resolve_pg_stat_activity_and_pg_blocking_pids() {
+        let result = analyze_sql(
+            "-- @name Blocked\n-- @returns :one\n\
+             SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1::integer = ANY(pg_blocking_pids(pid))) AS blocked, \
+             (SELECT count(*) FROM pg_catalog.pg_stat_activity a WHERE a.state = $2) AS active;",
+        )
+        .expect("the system view resolves");
+        assert_eq!(param_types(&result), [(1, "int32"), (2, "string")]);
+        let error = analyze_sql("-- @name Oids\n-- @returns :many\nSELECT datid FROM pg_stat_activity;")
+            .expect_err("an oid column has no neutral type");
+        assert!(error.message.contains("datid"), "got: {}", error.message);
+    }
+
+    #[test]
+    fn should_type_placeholders_of_builtin_date_and_string_functions() {
+        let result = analyze_sql(
+            "-- @name Series\n-- @returns :many\n\
+             SELECT to_char(date_trunc($1, created_at AT TIME ZONE 'UTC'), $2) AS bucket FROM users \
+             WHERE starts_with(name, $3) GROUP BY 1;",
+        )
+        .expect("built-in argument types type the placeholders");
+        assert_eq!(param_types(&result), [(1, "string"), (2, "string"), (3, "string")]);
+        let names: Vec<_> = result.params.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["field", "format", "prefix"]);
     }
 }

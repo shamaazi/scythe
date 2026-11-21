@@ -2,8 +2,10 @@ use ahash::AHashMap;
 use sqlparser::ast::{self, JoinOperator, TableFactor};
 
 use crate::catalog::FunctionReturn;
+use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
+use super::builtins::builtin_relation;
 use super::expressions::{catalog_call_arguments_from_args, catalog_function_return_neutral, match_catalog_function};
 use super::helpers::{
     UNRESOLVED_EXPR_MARKER, function_arg_exprs, ident_name, object_name_to_string, unresolved_type_error,
@@ -145,6 +147,21 @@ impl<'a> Analyzer<'a> {
                                 c.nullable,
                             )
                             .with_origin(&table_name)
+                        })
+                        .collect()
+                } else if args.is_none()
+                    && self.catalog.dialect() == SqlDialect::PostgreSQL
+                    && let Some(columns) = builtin_relation(&table_name)
+                {
+                    columns
+                        .map(|(name, sql_type)| {
+                            // `oid` and `xid` have no neutral type: such a column is
+                            // reported when selected rather than mistyped.
+                            let neutral = match sql_type {
+                                "oid" | "xid" => UNRESOLVED_EXPR_MARKER.to_string(),
+                                _ => sql_type_to_neutral(sql_type, self.catalog).into_owned(),
+                            };
+                            ScopeColumn::from_catalog(name, sql_type, neutral, true)
                         })
                         .collect()
                 } else if let Some(function_args) = args
