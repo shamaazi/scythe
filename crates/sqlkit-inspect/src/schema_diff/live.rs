@@ -17,8 +17,8 @@
 use std::collections::{HashMap, HashSet};
 
 use sqlkit_core::catalog::{
-    Catalog, CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
-    DomainDefinition, EnumDefinition, RelationDefinition,
+    Catalog, CatalogBuilder, CatalogObjectName, CheckDefinition, ColumnDefinition, CompositeDefinition,
+    CompositeFieldDefinition, DomainDefinition, EnumDefinition, RelationDefinition,
 };
 use tokio_postgres::Client;
 use tokio_postgres::types::{Kind, Type};
@@ -78,6 +78,10 @@ struct PgTypeRow {
     domain_base_sql_type: String,
     /// Whether a domain rejects null values independently of its use site.
     domain_not_null: bool,
+    /// The collation a domain declares, when it differs from its base type's.
+    domain_collation: Option<String>,
+    /// A domain's `COMMENT ON DOMAIN` text.
+    domain_comment: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -137,7 +141,15 @@ pub async fn fetch_live_schema(
     let composite_rows = fetch_composite_rows(client, &scope).await?;
 
     let mut description = SchemaDescription::new();
-    fetch_tables(client, &types, &enum_labels, &scope, &mut description).await?;
+    fetch_tables(
+        client,
+        &types,
+        &enum_labels,
+        &scope,
+        &ColumnChecks::new(),
+        &mut description,
+    )
+    .await?;
     collect_enums(&types, &enum_labels, &scope, &mut description);
     collect_composites(&composite_rows, &types, &enum_labels, &mut description);
 
@@ -150,10 +162,15 @@ pub async fn fetch_live_schema(
 /// used, but the result retains raw SQL types, primary keys, enums, domains,
 /// and standalone composites rather than reducing them to drift metadata.
 ///
-/// Value constraints are not read: the catalog has no `CHECK` constraints,
-/// collations, `COMMENT ON` text or `varchar(n)` lengths as validation rules
-/// (see [`sqlkit_core::catalog::CatalogBuilder`]), so code generated from it
-/// lacks what the same schema parsed from DDL validates and documents.
+/// Columns and domains carry the value constraints the DDL path records for
+/// the same schema: single-column and domain `CHECK`s from `pg_constraint`
+/// (by the names PostgreSQL gave them, `NOT VALID` ones marked), a
+/// `COLLATE` that differs from the type's, `COMMENT ON` text, and the
+/// `varchar(n)`/`char(n)` length of the type.
+///
+/// The database cannot tell an explicit `COLLATE` naming the type's own
+/// collation from none, so that one reads as none. A view's columns do not
+/// share the constraints of the columns they read, as a DDL-parsed view's do.
 pub async fn fetch_live_catalog(client: &Client, declared_schemas: &[String]) -> Result<Catalog, InspectError> {
     let (types, enum_labels, scope) = fetch_context(client, declared_schemas).await?;
     let composite_rows = fetch_composite_rows(client, &scope).await?;
@@ -161,7 +178,16 @@ pub async fn fetch_live_catalog(client: &Client, declared_schemas: &[String]) ->
     let scoped_type_oids = scoped_user_type_oids(&types, &scope, &standalone_composites);
 
     let mut unused_description = SchemaDescription::new();
-    let relations = fetch_tables(client, &types, &enum_labels, &scope, &mut unused_description).await?;
+    let (column_checks, domain_checks) = fetch_checks(client, &scope).await?;
+    let relations = fetch_tables(
+        client,
+        &types,
+        &enum_labels,
+        &scope,
+        &column_checks,
+        &mut unused_description,
+    )
+    .await?;
     let mut builder = CatalogBuilder::new().search_path(scope.clone());
     for relation in relations {
         builder = builder.relation(relation);
@@ -172,7 +198,7 @@ pub async fn fetch_live_catalog(client: &Client, declared_schemas: &[String]) ->
     for definition in catalog_composite_definitions(&composite_rows, &types, &scoped_type_oids) {
         builder = builder.composite(definition);
     }
-    for definition in catalog_domain_definitions(&types, &scoped_type_oids) {
+    for definition in catalog_domain_definitions(&types, &scoped_type_oids, &domain_checks) {
         builder = builder.domain(definition);
     }
 
@@ -279,9 +305,15 @@ async fn fetch_types(client: &Client) -> Result<HashMap<u32, PgTypeRow>, Inspect
                     t.typcategory::text  AS type_category, \
                     format('%I.%I', n.nspname, t.typname) AS qualified_name, \
                     pg_catalog.format_type(t.typbasetype, t.typtypmod) AS domain_base_sql_type, \
-                    t.typnotnull         AS domain_not_null \
+                    t.typnotnull         AS domain_not_null, \
+                    CASE WHEN t.typtype = 'd' AND t.typcollation <> 0 AND t.typcollation <> bt.typcollation \
+                         THEN co.collname::text END AS domain_collation, \
+                    CASE WHEN t.typtype = 'd' \
+                         THEN pg_catalog.obj_description(t.oid, 'pg_type') END AS domain_comment \
              FROM pg_catalog.pg_type t \
-             JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace",
+             JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace \
+             LEFT JOIN pg_catalog.pg_type bt ON bt.oid = t.typbasetype \
+             LEFT JOIN pg_catalog.pg_collation co ON co.oid = t.typcollation",
             &[],
         )
         .await
@@ -302,6 +334,8 @@ async fn fetch_types(client: &Client) -> Result<HashMap<u32, PgTypeRow>, Inspect
                     qualified_name: row.get("qualified_name"),
                     domain_base_sql_type: row.get("domain_base_sql_type"),
                     domain_not_null: row.get("domain_not_null"),
+                    domain_collation: row.get("domain_collation"),
+                    domain_comment: row.get("domain_comment"),
                 },
             )
         })
@@ -335,6 +369,7 @@ async fn fetch_tables(
     types: &HashMap<u32, PgTypeRow>,
     enum_labels: &HashMap<u32, Vec<String>>,
     scope: &[String],
+    checks: &ColumnChecks,
     description: &mut SchemaDescription,
 ) -> Result<Vec<RelationDefinition>, InspectError> {
     // The scope is bound as a `text[]` parameter rather than re-deriving it
@@ -359,10 +394,17 @@ async fn fetch_tables(
                       AND key_column.ordinal <= i.indnkeyatts \
                       AND key_column.attnum = a.attnum \
                 ) AS primary_key, \
-                array_position($1::text[], n.nspname::text) AS schema_rank \
+                array_position($1::text[], n.nspname::text) AS schema_rank, \
+                c.oid AS relation_oid, \
+                a.attnum AS attnum, \
+                pg_catalog.col_description(c.oid, a.attnum) AS comment, \
+                CASE WHEN a.attcollation <> 0 AND a.attcollation <> ty.typcollation \
+                     THEN co.collname::text END AS collation \
          FROM pg_catalog.pg_class c \
          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
          JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid \
+         JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid \
+         LEFT JOIN pg_catalog.pg_collation co ON co.oid = a.attcollation \
          WHERE c.relkind IN ({RELATION_KINDS}) \
            AND n.nspname::text = ANY ($1::text[]) \
            AND a.attnum > 0 \
@@ -434,6 +476,16 @@ async fn fetch_tables(
             );
             if primary_key {
                 definition = definition.primary_key();
+            }
+            if let Some(collation) = row.get::<_, Option<String>>("collation") {
+                definition = definition.collation(collation);
+            }
+            if let Some(comment) = row.get::<_, Option<String>>("comment") {
+                definition = definition.comment(comment);
+            }
+            let check_key = (row.get::<_, u32>("relation_oid"), row.get::<_, i16>("attnum"));
+            for check in checks.get(&check_key).into_iter().flatten() {
+                definition = definition.check(check.clone());
             }
             catalog_relations[index].3.push(definition);
         }
@@ -604,21 +656,88 @@ fn catalog_composite_definitions(
         .collect()
 }
 
-fn catalog_domain_definitions(types: &HashMap<u32, PgTypeRow>, scoped: &HashSet<u32>) -> Vec<DomainDefinition> {
+fn catalog_domain_definitions(
+    types: &HashMap<u32, PgTypeRow>,
+    scoped: &HashSet<u32>,
+    checks: &DomainChecks,
+) -> Vec<DomainDefinition> {
     let mut rows: Vec<_> = types
         .iter()
         .filter(|(oid, row)| row.kind == "d" && scoped.contains(oid))
         .collect();
     rows.sort_unstable_by_key(|(_, row)| (&row.schema, &row.name));
     rows.into_iter()
-        .map(|(_, row)| {
-            DomainDefinition::new(
+        .map(|(oid, row)| {
+            let mut definition = DomainDefinition::new(
                 CatalogObjectName::qualified(&row.schema, &row.name),
                 catalog_sql_type(row.base_type_oid, &row.domain_base_sql_type, types, 0),
                 row.domain_not_null,
-            )
+            );
+            if let Some(collation) = &row.domain_collation {
+                definition = definition.collation(collation);
+            }
+            if let Some(comment) = &row.domain_comment {
+                definition = definition.comment(comment);
+            }
+            for check in checks.get(oid).into_iter().flatten() {
+                definition = definition.check(check.clone());
+            }
+            definition
         })
         .collect()
+}
+
+/// The checks on one column, by the relation's OID and the column's number.
+type ColumnChecks = HashMap<(u32, i16), Vec<CheckDefinition>>;
+
+/// The checks of each domain, by its type OID.
+type DomainChecks = HashMap<u32, Vec<CheckDefinition>>;
+
+/// Read the `CHECK` constraints of the relations in `scope` that constrain
+/// one column, and those of every domain, each in the order they were
+/// created (the order PostgreSQL named them in).
+///
+/// A relation's check is attributed by `conkey`, the columns its expression
+/// references, as the DDL path attributes it by the columns it reads. The
+/// expression is `pg_get_expr` of the stored tree: the same text
+/// `pg_get_constraintdef` prints inside `CHECK (...)`, without the `NOT
+/// VALID` it may append.
+async fn fetch_checks(client: &Client, scope: &[String]) -> Result<(ColumnChecks, DomainChecks), InspectError> {
+    let scope_param: Vec<&str> = scope.iter().map(String::as_str).collect();
+    let rows = client
+        .query(
+            "SELECT c.conrelid AS relation_oid, \
+                    c.conkey[1] AS attnum, \
+                    c.contypid AS type_oid, \
+                    c.conname::text AS name, \
+                    c.convalidated AS validated, \
+                    pg_catalog.pg_get_expr(c.conbin, c.conrelid) AS expression \
+             FROM pg_catalog.pg_constraint c \
+             JOIN pg_catalog.pg_namespace n ON n.oid = c.connamespace \
+             WHERE c.contype = 'c' \
+               AND (c.contypid <> 0 OR (cardinality(c.conkey) = 1 AND n.nspname::text = ANY ($1::text[]))) \
+             ORDER BY c.oid",
+            &[&scope_param],
+        )
+        .await
+        .map_err(|e| query_error("pg_constraint", e))?;
+
+    let mut columns = ColumnChecks::new();
+    let mut domains = DomainChecks::new();
+    for row in &rows {
+        let mut check = CheckDefinition::new(row.get::<_, String>("name"), row.get::<_, String>("expression"));
+        if !row.get::<_, bool>("validated") {
+            check = check.not_valid();
+        }
+        let type_oid: u32 = row.get("type_oid");
+        if type_oid != 0 {
+            domains.entry(type_oid).or_default().push(check);
+        } else {
+            let key = (row.get::<_, u32>("relation_oid"), row.get::<_, i16>("attnum"));
+            columns.entry(key).or_default().push(check);
+        }
+    }
+    Ok((columns, domains))
 }
 
 fn catalog_sql_type(oid: u32, formatted: &str, types: &HashMap<u32, PgTypeRow>, depth: usize) -> String {

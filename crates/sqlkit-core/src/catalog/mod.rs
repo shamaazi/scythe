@@ -24,9 +24,9 @@ pub use constraints::{CheckConstraint, ColumnConstraints, ColumnOrigin};
 use constraints::{DomainConstraint, NamedConstraint, attach_check};
 
 pub use builder::{
-    CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
-    DomainDefinition, EnumDefinition, FunctionArgumentDefinition, FunctionDefinition, FunctionResultColumnDefinition,
-    FunctionReturnDefinition, GeneratedColumnKind, RelationDefinition, RelationKind,
+    CatalogBuilder, CatalogObjectName, CheckDefinition, ColumnDefinition, CompositeDefinition,
+    CompositeFieldDefinition, DomainDefinition, EnumDefinition, FunctionArgumentDefinition, FunctionDefinition,
+    FunctionResultColumnDefinition, FunctionReturnDefinition, GeneratedColumnKind, RelationDefinition, RelationKind,
 };
 
 #[derive(Debug)]

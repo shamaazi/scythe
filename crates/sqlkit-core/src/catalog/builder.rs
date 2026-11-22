@@ -78,6 +78,7 @@ pub struct ColumnDefinition {
     primary_key: bool,
     resolved_sql_type: Option<String>,
     generated: Option<GeneratedColumnKind>,
+    facts: InspectedFacts,
 }
 
 impl ColumnDefinition {
@@ -91,6 +92,7 @@ impl ColumnDefinition {
             primary_key: false,
             resolved_sql_type: None,
             generated: None,
+            facts: InspectedFacts::default(),
         }
     }
 
@@ -121,6 +123,64 @@ impl ColumnDefinition {
         self.generated = Some(kind);
         self
     }
+
+    /// Attach a `CHECK` constraint that constrains this column alone.
+    #[must_use]
+    pub fn check(mut self, check: CheckDefinition) -> Self {
+        self.facts.checks.push(check);
+        self
+    }
+
+    /// Attach the collation the column declares, when it differs from its
+    /// type's.
+    #[must_use]
+    pub fn collation(mut self, collation: impl Into<String>) -> Self {
+        self.facts.collation = Some(collation.into());
+        self
+    }
+
+    /// Attach the column's `COMMENT ON` text.
+    #[must_use]
+    pub fn comment(mut self, comment: impl Into<String>) -> Self {
+        self.facts.comment = Some(comment.into());
+        self
+    }
+}
+
+/// An inspected `CHECK` constraint on one column or on a domain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckDefinition {
+    name: String,
+    expression: String,
+    validated: bool,
+}
+
+impl CheckDefinition {
+    /// A validated check named `name` (PostgreSQL's `conname`), whose
+    /// expression is `expression` as PostgreSQL prints it (`pg_get_expr`).
+    pub fn new(name: impl Into<String>, expression: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            expression: expression.into(),
+            validated: true,
+        }
+    }
+
+    /// Mark the check added `NOT VALID` and not validated since.
+    #[must_use]
+    pub fn not_valid(mut self) -> Self {
+        self.validated = false;
+        self
+    }
+}
+
+/// What an inspected column or domain declares about its values beyond its
+/// type: its checks, `COLLATE` and comment.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct InspectedFacts {
+    checks: Vec<CheckDefinition>,
+    collation: Option<String>,
+    comment: Option<String>,
 }
 
 /// An inspected table or view definition.
@@ -204,6 +264,7 @@ pub struct DomainDefinition {
     name: CatalogObjectName,
     raw_base_type: String,
     not_null: bool,
+    facts: InspectedFacts,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -295,19 +356,40 @@ impl DomainDefinition {
             name,
             raw_base_type: raw_base_type.into(),
             not_null,
+            facts: InspectedFacts::default(),
         }
+    }
+
+    /// Attach one of the domain's `CHECK` constraints.
+    #[must_use]
+    pub fn check(mut self, check: CheckDefinition) -> Self {
+        self.facts.checks.push(check);
+        self
+    }
+
+    /// Attach the collation the domain declares, when it differs from its
+    /// base type's.
+    #[must_use]
+    pub fn collation(mut self, collation: impl Into<String>) -> Self {
+        self.facts.collation = Some(collation.into());
+        self
+    }
+
+    /// Attach the domain's `COMMENT ON` text.
+    #[must_use]
+    pub fn comment(mut self, comment: impl Into<String>) -> Self {
+        self.facts.comment = Some(comment.into());
+        self
     }
 }
 
 /// Validates inspected schema definitions before constructing a [`Catalog`].
 ///
-/// An inspected catalog records no value constraints: its columns and
-/// domains carry no `varchar(n)` length, `CHECK`, `COLLATE` or `COMMENT ON`
-/// text (see [`super::ColumnConstraints`]), so [`Catalog::column_constraints`]
-/// and [`Catalog::domain_constraints`] resolve nothing from it. Code generated
-/// from an inspected catalog therefore lacks the validation and documentation
-/// the same schema parsed from DDL produces; generate from DDL where they
-/// matter.
+/// Columns and domains record the value constraints the database reports
+/// (their `CHECK`s, `COLLATE` and `COMMENT ON` text, see
+/// [`ColumnDefinition::check`] and [`DomainDefinition::check`]) and the
+/// `varchar(n)`/`char(n)` length of their type, as the same schema parsed
+/// from DDL records them (see [`super::ColumnConstraints`]).
 #[derive(Debug, Default)]
 pub struct CatalogBuilder {
     search_path: Option<Vec<String>>,
@@ -389,10 +471,13 @@ impl CatalogBuilder {
             view_queries: Vec::new(),
         };
 
-        add_relations(&mut catalog, self.relations)?;
+        let mut pending = add_relations(&mut catalog, self.relations)?;
         add_enums(&mut catalog, self.enums)?;
         add_composites(&mut catalog, self.composites)?;
-        add_domains(&mut catalog, self.domains)?;
+        pending.extend(add_domains(&mut catalog, self.domains)?);
+        // Once every domain exists: a column or domain typed with one takes
+        // its facts from it.
+        apply_facts(&mut catalog, pending);
         add_functions(&mut catalog, self.functions)?;
         Ok(catalog)
     }
@@ -463,7 +548,11 @@ fn add_functions(catalog: &mut Catalog, definitions: Vec<FunctionDefinition>) ->
     Ok(())
 }
 
-fn add_relations(catalog: &mut Catalog, definitions: Vec<RelationDefinition>) -> Result<(), SqlkitError> {
+fn add_relations(
+    catalog: &mut Catalog,
+    definitions: Vec<RelationDefinition>,
+) -> Result<Vec<PendingFacts>, SqlkitError> {
+    let mut pending = Vec::new();
     for definition in definitions {
         let key = definition.name.normalized_key("relation")?;
         if catalog.tables.contains_key(&key) {
@@ -484,6 +573,12 @@ fn add_relations(catalog: &mut Catalog, definitions: Vec<RelationDefinition>) ->
             if let Some(kind) = column.generated {
                 generated_kinds.insert(column_key.clone(), kind);
             }
+            pending.push(PendingFacts {
+                target: FactsTarget::Column(key.clone(), columns.len()),
+                owner: definition.name.name.clone(),
+                raw_type: column.raw_sql_type.clone(),
+                facts: column.facts,
+            });
             raw_types.insert(column_key, column.raw_sql_type);
             columns.push(Column {
                 name: column.name,
@@ -505,7 +600,7 @@ fn add_relations(catalog: &mut Catalog, definitions: Vec<RelationDefinition>) ->
             catalog.generated_column_kinds.insert(key, generated_kinds);
         }
     }
-    Ok(())
+    Ok(pending)
 }
 
 fn add_enums(catalog: &mut Catalog, definitions: Vec<EnumDefinition>) -> Result<(), SqlkitError> {
@@ -550,7 +645,8 @@ fn add_composites(catalog: &mut Catalog, definitions: Vec<CompositeDefinition>) 
     Ok(())
 }
 
-fn add_domains(catalog: &mut Catalog, definitions: Vec<DomainDefinition>) -> Result<(), SqlkitError> {
+fn add_domains(catalog: &mut Catalog, definitions: Vec<DomainDefinition>) -> Result<Vec<PendingFacts>, SqlkitError> {
+    let mut pending = Vec::new();
     for definition in definitions {
         let key = definition.name.normalized_key("domain")?;
         if catalog.domains.contains_key(&key)
@@ -569,10 +665,110 @@ fn add_domains(catalog: &mut Catalog, definitions: Vec<DomainDefinition>) -> Res
                 other_constraints: Vec::new(),
             },
         );
+        pending.push(PendingFacts {
+            target: FactsTarget::Domain(key.clone()),
+            owner: definition.name.name.clone(),
+            raw_type: definition.raw_base_type.clone(),
+            facts: definition.facts,
+        });
         catalog.domain_names.insert(key.clone(), definition.name);
         catalog.raw_domain_types.insert(key, definition.raw_base_type);
     }
-    Ok(())
+    Ok(pending)
+}
+
+/// What an inspected column or domain declares, waiting for every domain to
+/// be added.
+struct PendingFacts {
+    target: FactsTarget,
+    /// The relation's or domain's name, unqualified, as the database spells it.
+    owner: String,
+    /// The column's type or the domain's base type, as the database reports it.
+    raw_type: String,
+    facts: InspectedFacts,
+}
+
+enum FactsTarget {
+    /// A relation's key and the column's index.
+    Column(String, usize),
+    /// A domain's key.
+    Domain(String),
+}
+
+/// Record inspected facts as the DDL path records the same schema's: the
+/// length of a `varchar(n)`/`char(n)` type and the domain a type names come
+/// from the type, and checks are read as [`super::constraints::inspected_check`]
+/// reads them.
+fn apply_facts(catalog: &mut Catalog, pending: Vec<PendingFacts>) {
+    for PendingFacts {
+        target,
+        owner,
+        raw_type,
+        facts,
+    } in pending
+    {
+        let mut constraints = sqlparser::parser::Parser::new(&sqlparser::dialect::PostgreSqlDialect {})
+            .try_with_sql(&raw_type)
+            .and_then(|mut parser| parser.parse_data_type())
+            .map(|data_type| ColumnConstraints::from_type(&data_type, &[], &catalog.domains))
+            .unwrap_or_default();
+        let base_type = resolved_base_type(catalog, &raw_type);
+        constraints.collation = facts.collation.map(|collation| collation.to_lowercase());
+        constraints.comment = facts.comment;
+        let slot = match &target {
+            FactsTarget::Column(key, index) => catalog
+                .tables
+                .get_mut(key)
+                .and_then(|table| table.columns.get_mut(*index))
+                .map(|column| (Some(column.name.clone()), &mut column.constraints)),
+            FactsTarget::Domain(key) => catalog
+                .domains
+                .get_mut(key)
+                .map(|domain| (None, &mut domain.constraints)),
+        };
+        let Some((column, slot)) = slot else {
+            continue;
+        };
+        constraints.checks = facts
+            .checks
+            .iter()
+            .map(|check| {
+                super::constraints::inspected_check(
+                    &check.name,
+                    &owner,
+                    column.as_deref(),
+                    &check.expression,
+                    check.validated,
+                    base_type.as_deref(),
+                )
+            })
+            .collect();
+        *slot = constraints;
+    }
+}
+
+/// `raw_type` with every domain it names resolved to the type underneath,
+/// normalized as the DDL path normalizes a type.
+fn resolved_base_type(catalog: &Catalog, raw_type: &str) -> Option<String> {
+    let parse = |sql: &str| {
+        sqlparser::parser::Parser::new(&sqlparser::dialect::PostgreSqlDialect {})
+            .try_with_sql(sql)
+            .and_then(|mut parser| parser.parse_data_type())
+            .ok()
+    };
+    let mut data_type = parse(raw_type)?;
+    // Bounded: a domain cannot be its own base, but the catalog is input.
+    for _ in 0..16 {
+        let sqlparser::ast::DataType::Custom(name, _) = &data_type else {
+            break;
+        };
+        let key = super::type_normalizer::object_name_to_key(name);
+        let Some(base) = catalog.raw_domain_types.get(&key) else {
+            break;
+        };
+        data_type = parse(base)?;
+    }
+    Some(super::type_normalizer::normalize_data_type(&data_type, &AHashMap::new()).0)
 }
 
 fn normalize_search_path(search_path: Option<Vec<String>>) -> Result<Option<Vec<String>>, SqlkitError> {
@@ -607,8 +803,8 @@ fn duplicate_error(object_kind: &str, key: &str) -> SqlkitError {
 #[cfg(test)]
 mod tests {
     use crate::catalog::{
-        Catalog, CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
-        DomainDefinition, EnumDefinition, RelationDefinition, RelationKind,
+        Catalog, CatalogBuilder, CatalogObjectName, CheckDefinition, ColumnDefinition, CompositeDefinition,
+        CompositeFieldDefinition, DomainDefinition, EnumDefinition, RelationDefinition, RelationKind,
     };
 
     fn id_column() -> ColumnDefinition {
@@ -897,5 +1093,73 @@ mod tests {
             .expect_err("blank search path schema must fail");
 
         assert!(error.to_string().contains("search path schema must not be empty"));
+    }
+
+    #[test]
+    fn should_record_inspected_value_constraints_as_the_ddl_path_does() {
+        let catalog = CatalogBuilder::new()
+            .search_path(["public"])
+            .domain(
+                DomainDefinition::new(CatalogObjectName::qualified("public", "amount"), "integer", false)
+                    .check(CheckDefinition::new("amount_check", "(VALUE >= 0)"))
+                    .comment("In minor units."),
+            )
+            .domain(
+                DomainDefinition::new(
+                    CatalogObjectName::qualified("public", "positive"),
+                    "public.amount",
+                    false,
+                )
+                .check(CheckDefinition::new("positive_check", "((VALUE)::integer > 0)")),
+            )
+            .relation(RelationDefinition::table(
+                CatalogObjectName::qualified("public", "t"),
+                vec![
+                    ColumnDefinition::new("name", "character varying(10)", true)
+                        .collation("C")
+                        .comment("@deprecated\nA name.")
+                        .check(CheckDefinition::new("t_name_check", "(length((name)::text) >= 2)"))
+                        .check(CheckDefinition::new("short", "((name)::text <> 'x'::text)").not_valid()),
+                    ColumnDefinition::new("code", "character(4)", true),
+                    ColumnDefinition::new("goal", "public.positive", true)
+                        .check(CheckDefinition::new("t_goal_check1", "((goal)::integer < 100)")),
+                ],
+            ))
+            .build()
+            .expect("catalog");
+
+        let name = catalog.column_constraint_facts("t", "name").unwrap();
+        assert_eq!(name.max_length, Some(10));
+        assert_eq!(name.collation.as_deref(), Some("c"));
+        let checks: Vec<_> = name
+            .checks
+            .iter()
+            .map(|c| (c.name.as_deref(), c.system_name.as_str(), c.validated))
+            .collect();
+        // A name PostgreSQL would have generated reads as unnamed.
+        assert_eq!(checks, [(None, "t_name_check", true), (Some("short"), "short", false)]);
+        let read = catalog.column_constraints("t", "name").unwrap();
+        assert_eq!((read.rules.min_length, read.rules.max_length), (Some(2), Some(10)));
+        assert_eq!(read.tags, [("deprecated".to_string(), String::new())]);
+        assert_eq!(
+            catalog.column_constraint_facts("t", "code").unwrap().max_length,
+            Some(4)
+        );
+
+        // The casts PostgreSQL prints for a domain value's base type are dropped.
+        let goal = catalog.column_constraints("t", "goal").unwrap();
+        assert_eq!(goal.domain.as_deref(), Some("public.positive"));
+        assert_eq!(goal.description.as_deref(), Some("In minor units."));
+        assert_eq!(
+            (
+                goal.rules.minimum,
+                goal.rules.exclusive_minimum,
+                goal.rules.exclusive_maximum
+            ),
+            (Some("0".to_string()), Some("0".to_string()), Some("100".to_string()))
+        );
+        assert!(goal.untranslated.is_empty(), "{:?}", goal.untranslated);
+        let check = &catalog.column_constraint_facts("t", "goal").unwrap().checks[0];
+        assert_eq!((check.name.as_deref(), check.sql.as_str()), (None, "goal < 100"));
     }
 }

@@ -286,6 +286,11 @@ impl Catalog {
         self.find_column(relation, column).map(|c| &c.constraints)
     }
 
+    /// The raw constraint facts recorded for the domain `name`.
+    pub fn domain_constraint_facts(&self, name: &str) -> Option<&ColumnConstraints> {
+        lookup_qualified(&self.domains, name, self.search_path.as_deref()).map(|d| &d.constraints)
+    }
+
     fn find_column(&self, relation: &str, column: &str) -> Option<&super::Column> {
         let table = self.get_table(relation)?;
         let column = column.to_lowercase();
@@ -584,15 +589,93 @@ impl Catalog {
         let bare = super::type_normalizer::bare_name(domain);
         let system_name = name.clone().unwrap_or_else(|| generated_check_name(bare, None, taken));
         taken.insert(system_name.clone());
-        let body = crate::parser::spell_out_default_trim_characters(body);
-        let parsed = sqlparser::parser::Parser::new(&sqlparser::dialect::PostgreSqlDialect {})
-            .try_with_sql(&body)
-            .and_then(|mut parser| parser.parse_expr());
-        match parsed {
-            Ok(expr) => CheckConstraint::new(name, system_name, &expr, "value"),
-            Err(_) => CheckConstraint::unparsed(name, system_name, &body),
-        }
+        check_from_sql(name, system_name, body, "value")
     }
+}
+
+/// A check from the SQL of its expression, as written in DDL or as
+/// PostgreSQL prints it back.
+fn check_from_sql(name: Option<String>, system_name: String, body: &str, subject: &str) -> CheckConstraint {
+    let body = crate::parser::spell_out_default_trim_characters(body);
+    let parsed = sqlparser::parser::Parser::new(&sqlparser::dialect::PostgreSqlDialect {})
+        .try_with_sql(&body)
+        .and_then(|mut parser| parser.parse_expr());
+    match parsed {
+        Ok(expr) => CheckConstraint::new(name, system_name, &expr, subject),
+        Err(_) => CheckConstraint::unparsed(name, system_name, &body),
+    }
+}
+
+/// A check read from a live database's `pg_constraint`: `conname`, the
+/// expression as `pg_get_expr` prints it, and whether it is validated.
+/// `owner` is the relation or domain it belongs to and `column` the one
+/// column of a relation it constrains.
+///
+/// The database does not say whether a name was written or generated: one
+/// PostgreSQL would have generated for the check (see
+/// [`generated_check_name`]) is taken as generated, so the check reads the
+/// same as the DDL that created it.
+///
+/// `base_type` is the constrained value's type with every domain resolved,
+/// normalized: PostgreSQL's casts of the value to it are dropped (see
+/// [`strip_base_type_casts`]).
+pub(crate) fn inspected_check(
+    conname: &str,
+    owner: &str,
+    column: Option<&str>,
+    expression: &str,
+    validated: bool,
+    base_type: Option<&str>,
+) -> CheckConstraint {
+    let digits = &conname[conname.trim_end_matches(|c: char| c.is_ascii_digit()).len()..];
+    let label = format!("check{digits}");
+    let generated =
+        make_object_name(owner, column, &label) == conname && (digits.is_empty() || !digits.starts_with('0'));
+    let name = (!generated).then(|| conname.to_string());
+    let mut check = check_from_sql(name, conname.to_string(), expression, column.unwrap_or("value"));
+    if let Some(mut expr) = check.expr.take() {
+        // `pg_get_expr` wraps the whole expression in parentheses.
+        if let Expr::Nested(inner) = expr {
+            expr = *inner;
+        }
+        if let Some(base_type) = base_type {
+            strip_base_type_casts(&mut expr, &check.subject, base_type);
+        }
+        check.sql = expr.to_string();
+        check.expr = Some(expr);
+    }
+    check.validated = validated;
+    check
+}
+
+/// Remove the casts of `subject` to `base_type` (normalized) from `expr`.
+///
+/// PostgreSQL applies an operator to a domain value through the value's base
+/// type, and prints that coercion back as a cast: `CHECK (VALUE > 0)` on a
+/// domain over another integer domain reads back as `(VALUE)::integer > 0`,
+/// and so does `CHECK (goal > 0)` on a column of that domain. The cast does
+/// not change the value, so the check reads as written.
+fn strip_base_type_casts(expr: &mut Expr, subject: &str, base_type: &str) {
+    use sqlparser::ast::{CastKind, visit_expressions_mut};
+    let _ = visit_expressions_mut(expr, |node| {
+        if let Expr::Cast {
+            kind: CastKind::Cast | CastKind::DoubleColon,
+            expr: inner,
+            data_type,
+            ..
+        } = node
+        {
+            let mut operand = inner.as_ref();
+            while let Expr::Nested(nested) = operand {
+                operand = nested;
+            }
+            let is_subject = matches!(operand, Expr::Identifier(ident) if ident.value.eq_ignore_ascii_case(subject));
+            if is_subject && normalize_data_type(data_type, &AHashMap::new()).0 == base_type {
+                *node = operand.clone();
+            }
+        }
+        std::ops::ControlFlow::<()>::Continue(())
+    });
 }
 
 #[cfg(test)]

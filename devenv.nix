@@ -145,6 +145,14 @@ in
       env.SQLKIT_CONFORMANCE_POSTGRES_URL = databaseUrl;
       exec = "cargo test --locked -p sqlkit-conformance --features pg,live-tests --test live -- --nocapture";
     };
+    # sqlkit-inspect's live tests (schema drift, query verification, the live checks, and the
+    # live catalog's value constraints against the DDL-parsed catalog's) on devenv's PostgreSQL.
+    "sqlkit:inspect-live" = {
+      description = "Run the sqlkit-inspect live tests against PostgreSQL";
+      after = [ "devenv:processes:postgres@ready" ];
+      env.SQLKIT_TEST_DATABASE_URL = databaseUrl;
+      exec = "cargo test --locked -p sqlkit-inspect --features live-tests";
+    };
     "sqlkit:integration" = {
       description = "Run the PostgreSQL and Bun integration projects";
       after = [ "devenv:processes:postgres@ready" ];
