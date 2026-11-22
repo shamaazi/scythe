@@ -5,7 +5,7 @@ use ahash::{AHashMap, AHashSet};
 use sqlparser::ast::{ColumnOption, ColumnOptionDef, DataType, Expr, ObjectName, ObjectNamePart};
 
 use super::type_normalizer::{ident_to_lower, normalize_data_type, object_name_to_key};
-use super::{Catalog, DomainDef, lookup_qualified};
+use super::{Catalog, CheckDefinition, DomainDef, lookup_qualified};
 use crate::constraints::{
     SmartComment, TextComparison, Translation, Untranslated, ValueConstraints, referenced_columns, translate_check,
 };
@@ -161,25 +161,26 @@ pub struct CheckConstraint {
 }
 
 impl CheckConstraint {
-    /// A check on `subject` (a column name, or `value` in a domain).
-    pub(crate) fn new(name: Option<String>, system_name: String, expr: &Expr, subject: &str) -> Self {
+    /// A check on `subject` (a column name, or `value` in a domain), validated
+    /// or added `NOT VALID` and not validated since.
+    pub(crate) fn new(name: Option<String>, system_name: String, expr: &Expr, subject: &str, validated: bool) -> Self {
         Self {
             name,
             system_name,
             sql: expr.to_string(),
-            validated: true,
+            validated,
             expr: Some(expr.clone()),
             subject: subject.to_string(),
         }
     }
 
     /// A check whose expression could not be parsed: kept, untranslated.
-    pub(crate) fn unparsed(name: Option<String>, system_name: String, sql: &str) -> Self {
+    pub(crate) fn unparsed(name: Option<String>, system_name: String, sql: &str, validated: bool) -> Self {
         Self {
             name,
             system_name,
             sql: sql.to_string(),
-            validated: true,
+            validated,
             expr: None,
             subject: String::new(),
         }
@@ -533,9 +534,10 @@ pub(crate) fn attach_check(
         .and_then(|column| table.columns.iter_mut().find(|c| &c.name == column));
     match (column, target) {
         (Some(column), Some(target)) => {
-            let mut check = CheckConstraint::new(name, system_name, expr, &column);
-            check.validated = validated;
-            target.constraints.checks.push(check);
+            target
+                .constraints
+                .checks
+                .push(CheckConstraint::new(name, system_name, expr, &column, validated));
         }
         _ => table.other_constraints.push(NamedConstraint {
             name: system_name,
@@ -613,37 +615,45 @@ pub(crate) fn domain_constraints(tail: &str) -> Vec<DomainConstraint> {
 
 impl Catalog {
     /// A domain's check from the SQL of its expression, named `name` or as
-    /// PostgreSQL names an unnamed one, recording the name in `taken`.
+    /// PostgreSQL names an unnamed one, recording the name in `taken`;
+    /// `validated` unless it was added `NOT VALID`.
     pub(crate) fn domain_check(
         &self,
         domain: &str,
         name: Option<String>,
         body: &str,
+        validated: bool,
         taken: &mut AHashSet<String>,
     ) -> CheckConstraint {
         let bare = super::type_normalizer::bare_name(domain);
         let system_name = name.clone().unwrap_or_else(|| generated_check_name(bare, None, taken));
         taken.insert(system_name.clone());
-        check_from_sql(name, system_name, body, "value")
+        check_from_sql(name, system_name, body, "value", validated)
     }
 }
 
 /// A check from the SQL of its expression, as written in DDL or as
 /// PostgreSQL prints it back.
-fn check_from_sql(name: Option<String>, system_name: String, body: &str, subject: &str) -> CheckConstraint {
+fn check_from_sql(
+    name: Option<String>,
+    system_name: String,
+    body: &str,
+    subject: &str,
+    validated: bool,
+) -> CheckConstraint {
     let body = crate::parser::spell_out_default_trim_characters(body);
     let parsed = sqlparser::parser::Parser::new(&sqlparser::dialect::PostgreSqlDialect {})
         .try_with_sql(&body)
         .and_then(|mut parser| parser.parse_expr());
     match parsed {
-        Ok(expr) => CheckConstraint::new(name, system_name, &expr, subject),
-        Err(_) => CheckConstraint::unparsed(name, system_name, &body),
+        Ok(expr) => CheckConstraint::new(name, system_name, &expr, subject, validated),
+        Err(_) => CheckConstraint::unparsed(name, system_name, &body, validated),
     }
 }
 
-/// A check read from a live database's `pg_constraint`: `conname`, the
-/// expression as `pg_get_expr` prints it, and whether it is validated.
-/// `owner` is the relation or domain it belongs to and `column` the one
+/// A check read from a live database's `pg_constraint` (`definition`: its
+/// `conname`, the expression as `pg_get_expr` prints it, and whether it is
+/// validated). `owner` is the relation or domain it belongs to and `column` the one
 /// column of a relation it constrains.
 ///
 /// The database does not say whether a name was written or generated: one
@@ -655,19 +665,22 @@ fn check_from_sql(name: Option<String>, system_name: String, body: &str, subject
 /// normalized: PostgreSQL's casts of the value to it are dropped (see
 /// [`strip_base_type_casts`]).
 pub(crate) fn inspected_check(
-    conname: &str,
+    definition: &CheckDefinition,
     owner: &str,
     column: Option<&str>,
-    expression: &str,
-    validated: bool,
     base_type: Option<&str>,
 ) -> CheckConstraint {
+    let CheckDefinition {
+        name: conname,
+        expression,
+        validated,
+    } = definition;
     let digits = &conname[conname.trim_end_matches(|c: char| c.is_ascii_digit()).len()..];
     let label = format!("check{digits}");
     let generated =
-        make_object_name(owner, column, &label) == conname && (digits.is_empty() || !digits.starts_with('0'));
+        make_object_name(owner, column, &label) == *conname && (digits.is_empty() || !digits.starts_with('0'));
     let name = (!generated).then(|| conname.to_string());
-    let mut check = check_from_sql(name, conname.to_string(), expression, column.unwrap_or("value"));
+    let mut check = check_from_sql(name, conname.clone(), expression, column.unwrap_or("value"), *validated);
     if let Some(mut expr) = check.expr.take() {
         // `pg_get_expr` wraps the whole expression in parentheses.
         if let Expr::Nested(inner) = expr {
@@ -679,7 +692,6 @@ pub(crate) fn inspected_check(
         check.sql = expr.to_string();
         check.expr = Some(expr);
     }
-    check.validated = validated;
     check
 }
 

@@ -150,9 +150,9 @@ impl ColumnDefinition {
 /// An inspected `CHECK` constraint on one column or on a domain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckDefinition {
-    name: String,
-    expression: String,
-    validated: bool,
+    pub(crate) name: String,
+    pub(crate) expression: String,
+    pub(crate) validated: bool,
 }
 
 impl CheckDefinition {
@@ -732,16 +732,7 @@ fn apply_facts(catalog: &mut Catalog, pending: Vec<PendingFacts>) {
         constraints.checks = facts
             .checks
             .iter()
-            .map(|check| {
-                super::constraints::inspected_check(
-                    &check.name,
-                    &owner,
-                    column.as_deref(),
-                    &check.expression,
-                    check.validated,
-                    base_type.as_deref(),
-                )
-            })
+            .map(|check| super::constraints::inspected_check(check, &owner, column.as_deref(), base_type.as_deref()))
             .collect();
         *slot = constraints;
     }

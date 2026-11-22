@@ -655,7 +655,7 @@ impl Catalog {
         for constraint in constraints::domain_constraints(&rest[end_pos..]) {
             match constraint {
                 DomainConstraint::Check { name, body } => {
-                    let check = self.domain_check(&domain_name, name, &body, &mut taken);
+                    let check = self.domain_check(&domain_name, name, &body, true, &mut taken);
                     constraints.checks.push(check);
                 }
                 DomainConstraint::NamedNotNull(name) => {
@@ -720,9 +720,7 @@ impl Catalog {
                 for constraint in constraints::domain_constraints(tail) {
                     match constraint {
                         DomainConstraint::Check { name, body } => {
-                            let mut check = self.domain_check(&key, name, &body, &mut taken);
-                            check.validated = !not_valid;
-                            checks.push(check);
+                            checks.push(self.domain_check(&key, name, &body, !not_valid, &mut taken));
                         }
                         DomainConstraint::NamedNotNull(name) => other_constraints.push(name),
                     }
