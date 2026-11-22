@@ -112,10 +112,21 @@ impl QueryNameConvention {
 
     fn accepts(&self, name: &str) -> bool {
         match &self.prefixes {
-            Some(prefixes) => prefixes.iter().any(|p| name.starts_with(p.as_str())),
-            None => ALLOWED_PREFIXES.iter().any(|p| name.starts_with(p)),
+            Some(prefixes) => prefixes.iter().any(|p| starts_with_word(name, p)),
+            None => ALLOWED_PREFIXES.iter().any(|p| starts_with_word(name, p)),
         }
     }
+}
+
+/// Whether `name` starts with `prefix` as a whole PascalCase word: the prefix
+/// is the whole name or is followed by an uppercase letter or a digit, so
+/// `GetUser` and `Get2fa` start with `Get` but `Getaway` does not.
+fn starts_with_word(name: &str, prefix: &str) -> bool {
+    name.strip_prefix(prefix).is_some_and(|rest| {
+        rest.chars()
+            .next()
+            .is_none_or(|c| c.is_uppercase() || c.is_ascii_digit())
+    })
 }
 
 const ALLOWED_PREFIXES: &[&str] = &[
@@ -162,6 +173,12 @@ impl LintRule for QueryNameConvention {
     }
     fn description(&self) -> &'static str {
         "Query name should start with an action verb"
+    }
+
+    fn configure(&mut self, config: &crate::types::LintConfig) {
+        if let Some(prefixes) = &config.naming.query_prefixes {
+            self.prefixes = Some(prefixes.clone());
+        }
     }
 
     fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
@@ -380,6 +397,39 @@ mod tests {
         assert_eq!(check("AnonymizeUser"), 0);
         assert_eq!(check("EnqueueEmail"), 0);
         assert_eq!(check("UpdateUser"), 1, "a built-in prefix no longer counts");
+    }
+
+    #[test]
+    fn a_prefix_must_end_at_a_pascal_case_word_boundary() {
+        for (prefixes, name, accepted) in [
+            (None, "GetUser", true),
+            (None, "Get", true),
+            (None, "Get2faSecret", true),
+            (None, "Getaway", false),
+            (None, "Listing", false),
+            (Some(vec!["Age".to_string()]), "AgeRecords", true),
+            (Some(vec!["Age".to_string()]), "Agent", false),
+            (
+                Some(vec!["Set".to_string(), "Settle".to_string()]),
+                "SettleCharge",
+                true,
+            ),
+            (Some(vec!["Set".to_string()]), "SettleCharge", false),
+        ] {
+            let rule = QueryNameConvention { prefixes };
+            assert_eq!(rule.accepts(name), accepted, "{name}");
+        }
+    }
+
+    #[test]
+    fn configure_reads_query_prefixes_and_keeps_the_built_in_list_without_them() {
+        let mut rule = QueryNameConvention::default();
+        rule.configure(&crate::types::LintConfig::default());
+        assert!(rule.accepts("GetUser"));
+        let config: crate::types::LintConfig = toml::from_str("[naming]\nquery_prefixes = [\"Claim\"]\n").unwrap();
+        rule.configure(&config);
+        assert!(rule.accepts("ClaimUser"));
+        assert!(!rule.accepts("GetUser"));
     }
 
     #[test]

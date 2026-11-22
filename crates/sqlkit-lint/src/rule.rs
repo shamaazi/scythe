@@ -1,4 +1,4 @@
-use super::types::{LintContext, RuleCategory, Severity, Violation};
+use super::types::{LintConfig, LintContext, RuleCategory, Severity, Violation};
 use sqlkit_core::catalog::Catalog;
 
 /// A single lint rule that can inspect queries and/or the catalog.
@@ -30,6 +30,12 @@ pub trait LintRule: Send + Sync {
     fn cwe(&self) -> Vec<String> {
         Vec::new()
     }
+
+    /// Read this rule's settings from the `[lint]` table. The registry calls
+    /// it on every rule whenever a configuration is applied, so a rule with
+    /// options (SC-N03 reads `[lint.naming] query_prefixes`) takes them here;
+    /// a rule without options keeps this no-op default.
+    fn configure(&mut self, _config: &LintConfig) {}
 
     /// Check a single parsed + analyzed query.  Returns violations found.
     fn check_query(&self, _ctx: &LintContext<'_>) -> Vec<Violation> {

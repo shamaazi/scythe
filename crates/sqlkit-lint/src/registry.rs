@@ -34,8 +34,8 @@ impl RuleRegistry {
         self.rules.push(rule);
     }
 
-    /// Apply a lint configuration: category and per-rule overrides, and the
-    /// settings rules take (`[lint.naming]`).
+    /// Apply a lint configuration: category and per-rule overrides, then each
+    /// rule's own settings through [`LintRule::configure`].
     pub fn apply_config(&mut self, config: &LintConfig) {
         for (&cat, &sev) in &config.categories {
             self.category_overrides.insert(cat, sev);
@@ -43,13 +43,8 @@ impl RuleRegistry {
         for (id, &sev) in &config.rules {
             self.severity_overrides.insert(id.clone(), sev);
         }
-        if let Some(prefixes) = &config.naming.query_prefixes {
-            let configured = rules::naming::QueryNameConvention::with_prefixes(prefixes.clone());
-            for rule in &mut self.rules {
-                if rule.id() == configured.id() {
-                    *rule = Box::new(configured.clone());
-                }
-            }
+        for rule in &mut self.rules {
+            rule.configure(config);
         }
     }
 
