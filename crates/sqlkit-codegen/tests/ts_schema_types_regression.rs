@@ -134,7 +134,7 @@ fn query_modules_import_enums_and_name_domain_values_by_their_alias() {
         assert!(create_fn.contains(param), "{param}: {create_fn}");
     }
 
-    let header = backend.file_header_for_results(std::slice::from_ref(&code));
+    let header = backend.schema_types_import_decl("@app/schema", std::slice::from_ref(&code));
     assert!(
         header.contains("import type { Amount, CountryCode, Currency, EmailAddress } from \"@app/schema\";\n"),
         "{header}"
@@ -190,15 +190,62 @@ fn an_untranslatable_domain_check_fails_under_constraints_error() {
     assert!(module.code.contains("export type Slug = string;"), "{}", module.code);
 }
 
+/// Which module a query's module imports the schema types from is per-call
+/// context: generating one module that imports them leaves nothing behind on
+/// the backend for the next module, which declares them itself.
+#[test]
+fn the_module_context_not_the_backend_decides_the_schema_types_import() {
+    let catalog = catalog(SCHEMA);
+    let analyzed = analyze(&catalog, &parse_query(GET).unwrap()).unwrap();
+    let backend = backend(&[("validation", "jsdoc")]);
+    let generate_in = |import: Option<&str>| {
+        sqlkit_codegen::generate_in_module(
+            &analyzed,
+            backend.as_ref(),
+            &[],
+            &Default::default(),
+            sqlkit_codegen::ModuleContext {
+                schema_types_import: import,
+            },
+        )
+        .unwrap()
+    };
+
+    let importing = generate_in(Some("./schema"));
+    assert!(importing.enum_def.is_none());
+    assert!(importing.schema_types.iter().any(|name| name == "EmailAddress"));
+    let declaring = generate_in(None);
+    assert!(
+        declaring
+            .enum_def
+            .as_deref()
+            .is_some_and(|e| e.contains("CurrencyValues"))
+    );
+    assert!(declaring.schema_types.is_empty());
+    assert_eq!(
+        backend.schema_types_import_decl("../schema", std::slice::from_ref(&importing)),
+        "import type { Amount, CountryCode, Currency, EmailAddress } from \"../schema\";\n"
+    );
+}
+
 #[test]
 fn schema_types_options_are_validated() {
     // `schema_types` is an output the CLI handles, not a backend option.
     let mut backend = get_backend("typescript-bun").unwrap();
     let path = HashMap::from([("schema_types".to_string(), "src/schema.ts".to_string())]);
     assert!(backend.apply_options(&path).is_err());
-    let mut backend = get_backend("typescript-bun").unwrap();
-    assert!(backend.set_schema_types_import("../types/schema").is_ok());
-    assert_eq!(backend.schema_types_import(), Some("../types/schema"));
+    let backend = get_backend("typescript-bun").unwrap();
+    assert!(backend.check_schema_types_import("../types/schema").is_ok());
+    assert!(backend.check_schema_types_import("../types/\"schema").is_err());
+    assert_eq!(
+        backend.schema_types_import(),
+        None,
+        "checking a specifier configures nothing"
+    );
+    let mut zod = get_backend("typescript-bun").unwrap();
+    zod.apply_options(&HashMap::from([("row_type".to_string(), "zod".to_string())]))
+        .unwrap();
+    assert!(zod.check_schema_types_import("../types/schema").is_err());
 
     let mut backend = get_backend("typescript-bun").unwrap();
     let zod = HashMap::from([

@@ -179,17 +179,20 @@ pub trait CodegenBackend: Send + Sync {
         None
     }
 
-    /// The module the generated code imports the schema's named types from
-    /// (see [`crate::schema_types`]), or `None` when it declares them itself.
-    /// When set, enums are imported rather than rendered per module, and a
-    /// value of a domain type is declared by [`Self::schema_type`].
+    /// The module this backend is configured to import the schema's named
+    /// types from (see [`crate::schema_types`]) for every module it generates,
+    /// or `None`. Which module a given generated module imports from is
+    /// per-call context: see [`crate::ModuleContext`].
     fn schema_types_import(&self) -> Option<&str> {
         None
     }
 
-    /// Import the schema types from `specifier`, which the CLI computes per
-    /// module for a `schema_types` output with no `schema_types_import`.
-    fn set_schema_types_import(&mut self, specifier: &str) -> Result<(), SqlkitError> {
+    /// Check that generated code can import the schema types from
+    /// `specifier` -- the configured [`Self::schema_types_import`], or the
+    /// relative one the CLI computes per module for a `schema_types` output
+    /// without it. The default rejects every specifier: a backend that cannot
+    /// import schema types says so.
+    fn check_schema_types_import(&self, specifier: &str) -> Result<(), SqlkitError> {
         Err(SqlkitError::new(
             ErrorCode::InvalidConfig,
             format!(
@@ -199,11 +202,25 @@ pub trait CodegenBackend: Send + Sync {
         ))
     }
 
+    /// The declaration importing, from `module`, the schema types `generated`
+    /// names, placed after [`Self::file_header_for_results`]; empty when it
+    /// names none.
+    fn schema_types_import_decl(&self, _module: &str, _generated: &[GeneratedCode]) -> String {
+        String::new()
+    }
+
     /// The `(lang_type, full_type)` naming the schema type `sql_name` (a
-    /// domain) from the [`Self::schema_types_import`] module, or `None` to keep
+    /// domain) when the module imports the schema types, or `None` to keep
     /// the value's own type.
     fn schema_type(&self, _sql_name: &str, _nullable: bool) -> Option<(String, String)> {
         None
+    }
+
+    /// Reject `type_overrides` this backend, as configured, cannot honour.
+    /// Backends for other languages ignore `ts_type`, so the default accepts
+    /// everything.
+    fn check_type_overrides(&self, _overrides: &[crate::TypeOverride]) -> Result<(), SqlkitError> {
+        Ok(())
     }
 
     /// Render the module declaring the schema's enums and domains as named

@@ -9,8 +9,7 @@ use ahash::{AHashMap, AHashSet};
 use sqlkit_backend::naming::{enum_type_name, fn_name, row_struct_name};
 use sqlkit_codegen::validation::{ValidationOutcome, validate_generated_code};
 use sqlkit_codegen::{
-    CodegenBackend, TypeOverride, generate_single_enum_def_with_backend, generate_with_backend_and_overrides,
-    generate_with_backend_and_overrides_and_nested_composites, get_backend,
+    CodegenBackend, ModuleContext, TypeOverride, generate_in_module, generate_single_enum_def_with_backend, get_backend,
 };
 use sqlkit_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
 use sqlkit_core::catalog::Catalog;
@@ -755,8 +754,20 @@ fn run_generate_inner(
                     Some(query_file) => format!("{} (for {query_file})", target.backend),
                     None => target.backend.clone(),
                 };
-                let filename = output_filename(backends[backend_index].1.as_ref(), query_file);
+                let backend = backends[backend_index].1.as_ref();
+                let filename = output_filename(backend, query_file);
+                let schema_types_import = match &schema_types_outputs[backend_index] {
+                    Some(schema_types) if schema_types.relative_import => {
+                        let specifier = relative_module_specifier(Path::new(&output_dir), &schema_types.path);
+                        backend
+                            .check_schema_types_import(&specifier)
+                            .map_err(|e| format!("[{}] backend '{}': {e}", sql_config.name, target.backend))?;
+                        Some(specifier)
+                    }
+                    _ => backend.schema_types_import().map(str::to_string),
+                };
                 jobs.push(GenJob {
+                    schema_types_import,
                     backend_index,
                     label,
                     output_dir,
@@ -809,24 +820,12 @@ fn run_generate_inner(
         }
 
         for job in &jobs {
-            // Without `schema_types_import`, each module imports the schema types
-            // module by its path relative to the module's own directory.
-            if let Some(schema_types) = &schema_types_outputs[job.backend_index]
-                && schema_types.relative_import
-            {
-                let specifier = relative_module_specifier(Path::new(&job.output_dir), &schema_types.path);
-                let (target, backend, _) = &mut backends[job.backend_index];
-                backend
-                    .set_schema_types_import(&specifier)
-                    .map_err(|e| format!("[{}] backend '{}': {e}", sql_config.name, target.backend))?;
-            }
             let (_, backend, options_fingerprint) = &backends[job.backend_index];
             let output_file = Path::new(&job.output_dir).join(&job.filename);
             let target_validation_failed = generate_for_backend(
                 &sql_config.name,
                 backend.as_ref(),
-                job.queries,
-                &output_file,
+                job,
                 overrides,
                 ProvenanceFields {
                     schema: &schema_fingerprint,
@@ -1003,6 +1002,10 @@ struct GenJob<'a> {
     filename: String,
     queries: &'a [AnalyzedQuery],
     queries_fingerprint: String,
+    /// The module this module imports the schema types from: the target's
+    /// `schema_types_import`, or, for a `schema_types` output without one,
+    /// the output's path relative to this module's directory.
+    schema_types_import: Option<String>,
 }
 
 /// Read the per-target manifest overlay at `manifest_path` and merge it into
@@ -1450,11 +1453,12 @@ fn assemble_output(
     schema: &str,
     queries: &str,
     options: &str,
+    module: ModuleContext<'_>,
 ) -> String {
     sqlkit_codegen::provenance::assemble_file(
         &backend.file_preamble(),
         &provenance_header_line(backend, schema, queries, options),
-        &assemble_body(backend, results),
+        &assemble_body(backend, results, module),
     )
 }
 
@@ -1468,7 +1472,7 @@ fn assemble_output(
 /// Excludes [`CodegenBackend::file_preamble`] and the provenance header
 /// line — both are [`assemble_output`]'s responsibility, not this
 /// function's. See its doc comment for why.
-fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> String {
+fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult], module: ModuleContext<'_>) -> String {
     // Unioned across queries: an enum is emitted once for the whole file, so
     // any query reaching it through a nested aggregate decides the form for
     // all of them. That form is a superset of the plain one, so widening is
@@ -1507,7 +1511,10 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
     let mut output_parts: Vec<String> = Vec::new();
 
     let generated: Vec<sqlkit_codegen::GeneratedCode> = results.iter().map(|result| result.code.clone()).collect();
-    let header = backend.file_header_for_results(&generated);
+    let mut header = backend.file_header_for_results(&generated);
+    if let Some(module) = module.schema_types_import {
+        header.push_str(&backend.schema_types_import_decl(module, &generated));
+    }
     if !header.is_empty() {
         output_parts.push(header);
     }
@@ -1618,8 +1625,7 @@ struct ProvenanceFields<'a> {
 fn generate_for_backend(
     config_name: &str,
     backend: &dyn CodegenBackend,
-    analyzed_queries: &[AnalyzedQuery],
-    output_file: &Path,
+    job: &GenJob<'_>,
     overrides: &[TypeOverride],
     provenance: ProvenanceFields<'_>,
     validate_output: bool,
@@ -1629,6 +1635,11 @@ fn generate_for_backend(
         queries,
         options,
     } = provenance;
+    let analyzed_queries = job.queries;
+    let output_file = &Path::new(&job.output_dir).join(&job.filename);
+    let module = ModuleContext {
+        schema_types_import: job.schema_types_import.as_deref(),
+    };
     // ~keep Nested struct names are deduplicated by (name, shape) only *within*
     // one analyze() call, so two queries in the same file can each derive
     // the same name -- `to_snake_case` collapses `GetUserPosts` and
@@ -1657,7 +1668,7 @@ fn generate_for_backend(
 
     let initial_codes: Vec<sqlkit_codegen::GeneratedCode> = analyzed_queries
         .iter()
-        .map(|analyzed| generate_with_backend_and_overrides(analyzed, backend, overrides))
+        .map(|analyzed| generate_in_module(analyzed, backend, overrides, &AHashSet::new(), module))
         .collect::<Result<_, _>>()?;
     let nested_composite_names: AHashSet<String> = analyzed_queries
         .iter()
@@ -1683,12 +1694,7 @@ fn generate_for_backend(
         let code = if nested_composite_names.is_empty() {
             initial_code
         } else {
-            generate_with_backend_and_overrides_and_nested_composites(
-                analyzed,
-                backend,
-                overrides,
-                &nested_composite_names,
-            )?
+            generate_in_module(analyzed, backend, overrides, &nested_composite_names, module)?
         };
 
         // ~keep GH #147: `degrade_unsupported_nested_structs` rewrites a nested-aggregate
@@ -1716,7 +1722,7 @@ fn generate_for_backend(
         // before nested-aggregate inference, breaking the byte-identity
         // guarantee the degradation pass exists to provide.
         // A backend importing the schema types module declares no enum itself.
-        let imports_schema_types = backend.schema_types_import().is_some();
+        let imports_schema_types = module.schema_types_import.is_some();
         let mut nested_enum_names: Vec<String> = Vec::new();
         let enums: Vec<EnumInfo> = analyzed
             .enums
@@ -1756,7 +1762,7 @@ fn generate_for_backend(
 
     check_file_level_type_name_collisions(analyzed_queries, &results, backend)?;
 
-    let mut output_content = assemble_output(backend, &results, schema, queries, options);
+    let mut output_content = assemble_output(backend, &results, schema, queries, options, module);
 
     if let Some(out_path) = output_file.parent() {
         std::fs::create_dir_all(out_path)
@@ -3800,7 +3806,7 @@ backend = \"rust-sqlx\"
             query_result(None, Some("ROW_B"), Some("FN_B")),
         ];
 
-        let output = assemble_body(backend.as_ref(), &results);
+        let output = assemble_body(backend.as_ref(), &results, ModuleContext::default());
 
         let pos = |needle: &str| {
             output
@@ -3890,7 +3896,7 @@ backend = \"rust-sqlx\"
                 },
             ];
 
-            let output = assemble_body(backend.as_ref(), &results);
+            let output = assemble_body(backend.as_ref(), &results, ModuleContext::default());
             let occurrences = output.matches(marker).count();
             assert_eq!(
                 occurrences, 1,
@@ -4197,7 +4203,7 @@ backend = \"rust-sqlx\"
             manifest: real.manifest().clone(),
         };
 
-        let output = assemble_body(&backend, &[]);
+        let output = assemble_body(&backend, &[], ModuleContext::default());
 
         assert_eq!(output, "// No queries generated.\n");
     }
@@ -4270,6 +4276,7 @@ backend = \"rust-sqlx\"
             "sch1:fedcba9876543210",
             "q1:0123456789abcdef",
             "opt1:0123456789abcdef",
+            ModuleContext::default(),
         );
 
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
@@ -4292,7 +4299,14 @@ backend = \"rust-sqlx\"
             "test assumes rust-sqlx has no preamble"
         );
 
-        let output = assemble_output(backend.as_ref(), &[], "sch1:cccc", "q1:fedcba9876543210", "opt1:cccc");
+        let output = assemble_output(
+            backend.as_ref(),
+            &[],
+            "sch1:cccc",
+            "q1:fedcba9876543210",
+            "opt1:cccc",
+            ModuleContext::default(),
+        );
         assert!(
             output.starts_with("// sqlkit:provenance "),
             "got:\n{}",
@@ -4325,7 +4339,14 @@ backend = \"rust-sqlx\"
             .next()
             .expect("test assumes rust-sqlx's file_header is non-empty");
 
-        let output = assemble_output(backend.as_ref(), &[], "sch1:dddd", "q1:fedcba9876543210", "opt1:dddd");
+        let output = assemble_output(
+            backend.as_ref(),
+            &[],
+            "sch1:dddd",
+            "q1:fedcba9876543210",
+            "opt1:dddd",
+            ModuleContext::default(),
+        );
         let mut lines = output.lines();
         let provenance_line = lines.next().expect("output must have a first line");
         assert!(

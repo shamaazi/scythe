@@ -65,8 +65,8 @@ pub struct GeneratedCode {
     /// each field means.
     pub degraded_nested_structs: Vec<NestedStructDegradation>,
     /// The schema types (enums and domains) this query's code names from the
-    /// backend's [`CodegenBackend::schema_types_import`] module, for the file
-    /// to import. Empty unless the backend imports them.
+    /// module's [`ModuleContext::schema_types_import`] module, for the file
+    /// to import. Empty unless the module imports them.
     pub schema_types: Vec<String>,
     /// The types this query's code names from other modules, for `ts_type`
     /// overrides with a `ts_import` (see [`overrides::TsTypeOverride`]): one entry
@@ -234,6 +234,29 @@ fn determine_struct_name(analyzed: &AnalyzedQuery, manifest: &BackendManifest) -
     }
 }
 
+/// What one generated module needs beyond its backend's own configuration:
+/// a backend configured once generates every module of a target, so anything
+/// that differs between those modules is passed per call rather than set on
+/// the backend.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ModuleContext<'a> {
+    /// The module this module imports the schema's named types from (see
+    /// [`schema_types`]), or `None` when it declares them itself. When set,
+    /// enums are imported rather than rendered, and a value of a domain type
+    /// is declared by [`CodegenBackend::schema_type`].
+    pub schema_types_import: Option<&'a str>,
+}
+
+impl<'a> ModuleContext<'a> {
+    /// The context of a module generated with only `backend`'s configured
+    /// [`CodegenBackend::schema_types_import`].
+    pub fn configured(backend: &'a dyn CodegenBackend) -> Self {
+        Self {
+            schema_types_import: backend.schema_types_import(),
+        }
+    }
+}
+
 /// Generate code using a specific backend.
 pub fn generate_with_backend(
     analyzed: &AnalyzedQuery,
@@ -248,16 +271,25 @@ pub fn generate_with_backend_and_overrides(
     backend: &dyn CodegenBackend,
     overrides: &[TypeOverride],
 ) -> Result<GeneratedCode, SqlkitError> {
-    generate_with_backend_and_overrides_and_nested_composites(analyzed, backend, overrides, &AHashSet::new())
+    generate_in_module(
+        analyzed,
+        backend,
+        overrides,
+        &AHashSet::new(),
+        ModuleContext::configured(backend),
+    )
 }
 
-/// Generate code while promoting the named composites to their nested-capable form.
-pub fn generate_with_backend_and_overrides_and_nested_composites(
+/// Generate code for one query of the module `module` describes, promoting
+/// the named composites to their nested-capable form.
+pub fn generate_in_module(
     analyzed: &AnalyzedQuery,
     backend: &dyn CodegenBackend,
     overrides: &[TypeOverride],
     nested_composite_names: &AHashSet<String>,
+    module: ModuleContext<'_>,
 ) -> Result<GeneratedCode, SqlkitError> {
+    let imports_schema_types = module.schema_types_import.is_some();
     let manifest = backend.manifest();
     let source_table = analyzed.source_table.as_deref().unwrap_or("");
 
@@ -297,13 +329,15 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
         &mut params,
         &mut result.constraint_warnings,
     )?;
-    result.schema_types = resolve::apply_schema_types(
-        backend,
-        degraded_columns.as_deref().unwrap_or(&analyzed.columns),
-        &mut columns,
-        &analyzed.params,
-        &mut params,
-    );
+    if imports_schema_types {
+        result.schema_types = resolve::apply_schema_types(
+            backend,
+            degraded_columns.as_deref().unwrap_or(&analyzed.columns),
+            &mut columns,
+            &analyzed.params,
+            &mut params,
+        );
+    }
 
     // Computed here, ahead of enum generation, so the collision check below
     // can compare an enum's generated name against the same row/model type
@@ -325,7 +359,7 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
         backend,
         &nested_refs,
         declared_struct_name,
-        &mut result.schema_types,
+        imports_schema_types.then_some(&mut result.schema_types),
     )?;
     if !enum_def.is_empty() {
         result.enum_def = Some(enum_def);
@@ -441,8 +475,10 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
                 &mut child_cols,
             ),
         ] {
-            let names = resolve::apply_schema_types(backend, analyzed_cols, cols, &[], &mut []);
-            result.schema_types.extend(names);
+            if imports_schema_types {
+                let names = resolve::apply_schema_types(backend, analyzed_cols, cols, &[], &mut []);
+                result.schema_types.extend(names);
+            }
             result
                 .type_imports
                 .extend(cols.iter().filter_map(|c| TypeImport::of(c.ts_type.as_ref())));
@@ -716,7 +752,8 @@ pub fn nested_type_is_emitted(
         })
 }
 
-/// Generate enum definitions via the backend trait.
+/// Generate enum definitions via the backend trait, or, when `imported` is
+/// given (the module imports the schema types), push their names onto it instead.
 ///
 /// `declared_struct_name` is the query's own row/model type name when this
 /// query actually declares one (`None` for `:grouped`, `:exec`, and any
@@ -728,7 +765,7 @@ fn generate_enum_defs_via_backend(
     backend: &dyn CodegenBackend,
     nested_refs: &NestedTypeRefs,
     declared_struct_name: Option<&str>,
-    imported: &mut Vec<String>,
+    mut imported: Option<&mut Vec<String>>,
 ) -> Result<String, SqlkitError> {
     use ahash::AHashSet;
     use std::fmt::Write;
@@ -804,7 +841,7 @@ fn generate_enum_defs_via_backend(
         )?;
 
         // Declared once, in the schema types module this code imports from.
-        if backend.schema_types_import().is_some() {
+        if let Some(imported) = imported.as_deref_mut() {
             imported.push(sqlkit_backend::naming::enum_type_name(sql_name, naming));
             continue;
         }
@@ -2042,8 +2079,7 @@ mod tests {
         let nested_names = AHashSet::from_iter(["user_address".to_string()]);
 
         let result =
-            generate_with_backend_and_overrides_and_nested_composites(&query, backend.as_ref(), &[], &nested_names)
-                .unwrap();
+            generate_in_module(&query, backend.as_ref(), &[], &nested_names, ModuleContext::default()).unwrap();
         let definition = result.model_struct.unwrap();
 
         assert!(definition.contains("serde::Serialize"), "{definition}");

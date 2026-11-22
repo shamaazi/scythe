@@ -566,14 +566,28 @@ impl CodegenBackend for TypescriptBunBackend {
         self.schema_types_import.as_deref()
     }
 
-    fn set_schema_types_import(&mut self, specifier: &str) -> Result<(), SqlkitError> {
-        self.schema_types_import = Some(ts_schema_types_import_specifier(specifier, self.row_type)?);
-        Ok(())
+    fn check_schema_types_import(&self, specifier: &str) -> Result<(), SqlkitError> {
+        ts_schema_types_import_specifier(specifier, self.row_type).map(drop)
+    }
+
+    fn schema_types_import_decl(&self, module: &str, generated: &[crate::GeneratedCode]) -> String {
+        ts_schema_types_import(Some(module), generated)
     }
 
     fn schema_type(&self, sql_name: &str, nullable: bool) -> Option<(String, String)> {
-        self.schema_types_import.as_ref()?;
         Some(ts_schema_type(sql_name, &self.manifest.naming, nullable))
+    }
+
+    /// A Zod schema is a runtime value: a type-only `ts_type` cannot reach it.
+    fn check_type_overrides(&self, overrides: &[crate::TypeOverride]) -> Result<(), SqlkitError> {
+        if self.row_type == TsRowType::Zod && overrides.iter().any(|o| o.ts_type.is_some()) {
+            return Err(SqlkitError::new(
+                ErrorCode::InvalidConfig,
+                "type_overrides with ts_type need row_type = \"interface\" -- a Zod schema cannot carry a \
+                 type-only TypeScript type",
+            ));
+        }
+        Ok(())
     }
 
     fn generate_schema_types(&self, types: &crate::schema_types::SchemaTypes) -> Option<Result<String, SqlkitError>> {
@@ -596,7 +610,6 @@ impl CodegenBackend for TypescriptBunBackend {
     fn file_header_for_results(&self, generated: &[crate::GeneratedCode]) -> String {
         let mut header = self.bun_header_for_results(generated);
         header.push_str(&ts_type_imports(generated));
-        header.push_str(&ts_schema_types_import(self.schema_types_import.as_deref(), generated));
         header
     }
 
