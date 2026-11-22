@@ -652,84 +652,32 @@ fn run_generate_inner(
         // with the other `eprintln!` progress lines and is easy to miss in CI.
         check_type_overrides_resolve(&sql_config.name, &analyzed_queries, overrides)?;
 
-        let gen_targets = resolve_gen_targets(sql_config)?;
-
-        // Construct every target's backend and resolve every output directory
-        // before writing any of them. This does two things a single combined
-        // loop cannot: (1) it lets a containment violation or a filename
-        // collision on the *last* job abort before the *first* job's files
-        // are written, and (2) it makes the collision check below possible at
-        // all, since detecting "two jobs write the same file" requires knowing
-        // every job's resolved (output_dir, filename) up front.
-        let mut backends: Vec<(&ResolvedGenTarget, Box<dyn CodegenBackend>, String)> = Vec::new();
-        for target in &gen_targets {
-            let mut backend =
-                get_backend(&target.backend).map_err(|e| format!("backend '{}': {}", target.backend, e))?;
-
-            // Merged before `apply_options`, not after, so any state a backend
-            // derives from the manifest there sees the user's overlay.
-            if let Some(ref manifest_path) = target.manifest_override {
-                apply_manifest_override(backend.manifest_mut(), &target.backend, manifest_path, base_dir)?;
-            }
-
-            if !target.options.is_empty() {
-                backend
-                    .apply_options(&target.options)
-                    .map_err(|e| format!("backend '{}' apply_options failed: {}", target.backend, e))?;
-            }
-            // A Zod schema is a runtime value: a type-only `ts_type` cannot reach it.
-            if target.options.get("row_type").is_some_and(|row_type| row_type == "zod")
-                && overrides.iter().any(|o| o.ts_type.is_some())
-            {
-                return Err(format!(
-                    "[{}] backend '{}': type_overrides with ts_type need row_type = \"interface\" -- a Zod \
-                     schema cannot carry a type-only TypeScript type",
-                    sql_config.name, target.backend
-                )
-                .into());
-            }
-
-            let options_fingerprint = resolve_options_fingerprint(target, base_dir)?;
-            backends.push((target, backend, options_fingerprint));
-        }
-
-        let schema_types_outputs: Vec<Option<SchemaTypesOutput>> = backends
-            .iter()
-            .map(|(target, backend, _)| {
-                target
-                    .schema_types
-                    .as_deref()
-                    .map(|path| {
-                        Ok::<_, String>(SchemaTypesOutput {
-                            path: resolve_contained_output(base_dir, path, &target.backend, allow_output_escape)?,
-                            relative_import: backend.schema_types_import().is_none(),
-                        })
-                    })
-                    .transpose()
-            })
+        // Prepare every target and resolve every output directory before
+        // writing any of them. This does two things a single combined loop
+        // cannot: (1) it lets a containment violation or a filename collision
+        // on the *last* job abort before the *first* job's files are written,
+        // and (2) it makes the collision check below possible at all, since
+        // detecting "two jobs write the same file" requires knowing every
+        // job's resolved (output_dir, filename) up front.
+        let targets: Vec<PreparedTarget> = resolve_gen_targets(sql_config)?
+            .into_iter()
+            .map(|target| prepare_target(target, sql_config, base_dir, allow_output_escape))
             .collect::<Result<_, _>>()?;
 
         // A plain target is one job over the whole block. A `{dir}` target is
         // one job per query file, each writing only that file's queries into
         // the file's own directory, and fingerprinting only those queries so
         // `sqlkit check` can verify each module on its own.
+        let shares = query_file_shares(&query_files, &file_of_query, &analyzed_queries);
         let mut jobs: Vec<GenJob<'_>> = Vec::new();
-        for (backend_index, (target, _, _)) in backends.iter().enumerate() {
-            let per_file: Vec<(Option<&str>, String, Range<usize>)> = if is_per_file_output(&target.output) {
-                // A query file with no queries gets no module.
-                query_file_ranges(&file_of_query, query_files.len())
-                    .into_iter()
-                    .zip(&query_files)
-                    .filter(|(range, _)| !range.is_empty())
-                    .map(|(range, query_file)| {
-                        let output = per_file_output(&target.output, query_file, base_dir);
-                        (Some(query_file.as_str()), output, range)
-                    })
-                    .collect()
-            } else {
-                vec![(None, target.output.clone(), 0..analyzed_queries.len())]
-            };
-            for (query_file, output, range) in per_file {
+        for (target_index, prepared) in targets.iter().enumerate() {
+            let PreparedTarget {
+                target,
+                backend,
+                schema_types,
+                ..
+            } = prepared;
+            for module in target_modules(target, &shares, base_dir) {
                 // ~keep `output` is a path, not a glob pattern, so it is resolved via
                 // plain `Path::join` (not `rebase_pattern`/`glob::Pattern::escape`)
                 // — an output directory literally named `a[1]` must not be
@@ -742,21 +690,22 @@ fn run_generate_inner(
                 // generate` running in CI against a PR-modified `sqlkit.toml` is
                 // otherwise an arbitrary directory-create-and-write primitive.
                 // See #207. Checked per job, after `{dir}` substitution.
-                let output_dir = resolve_contained_output(base_dir, &output, &target.backend, allow_output_escape)?
-                    .to_string_lossy()
-                    .into_owned();
-                let queries = &analyzed_queries[range];
-                let queries_fingerprint = match query_file {
-                    Some(_) => AnalyzedQuery::fingerprint_set(queries),
-                    None => queries_fingerprint.clone(),
+                let output_dir =
+                    resolve_contained_output(base_dir, &module.output, &target.backend, allow_output_escape)?
+                        .to_string_lossy()
+                        .into_owned();
+                let (queries, queries_fingerprint) = match module.share {
+                    Some(share) => (&analyzed_queries[share.queries.clone()], share.fingerprint.clone()),
+                    None => (&analyzed_queries[..], queries_fingerprint.clone()),
                 };
-                let label = match query_file {
+                let label = match module.query_file() {
                     Some(query_file) => format!("{} (for {query_file})", target.backend),
                     None => target.backend.clone(),
                 };
-                let backend = backends[backend_index].1.as_ref();
-                let filename = output_filename(backend, query_file);
-                let schema_types_import = match &schema_types_outputs[backend_index] {
+                let filename = output_filename(backend.as_ref(), module.query_file());
+                // Without `schema_types_import`, each module imports the schema
+                // types module by its path relative to the module's own directory.
+                let schema_types_import = match schema_types {
                     Some(schema_types) if schema_types.relative_import => {
                         let specifier = relative_module_specifier(Path::new(&output_dir), &schema_types.path);
                         backend
@@ -767,13 +716,13 @@ fn run_generate_inner(
                     _ => backend.schema_types_import().map(str::to_string),
                 };
                 jobs.push(GenJob {
-                    schema_types_import,
-                    backend_index,
+                    target_index,
                     label,
                     output_dir,
                     filename,
                     queries,
                     queries_fingerprint,
+                    schema_types_import,
                 });
             }
         }
@@ -802,12 +751,12 @@ fn run_generate_inner(
         }
 
         // The schema types module is an output like the query modules.
-        for ((target, _, _), schema_types) in backends.iter().zip(&schema_types_outputs) {
-            let Some(schema_types) = schema_types else {
+        for prepared in &targets {
+            let Some(schema_types) = &prepared.schema_types else {
                 continue;
             };
             let full_path = schema_types.path.to_string_lossy().into_owned();
-            let label = format!("{} (schema_types)", target.backend);
+            let label = format!("{} (schema_types)", prepared.target.backend);
             if let Some(existing) = seen_paths.get(&full_path) {
                 return Err(format!(
                     "[{}] targets '{}' and '{}' both write '{}'; give one of them a distinct path so \
@@ -820,17 +769,17 @@ fn run_generate_inner(
         }
 
         for job in &jobs {
-            let (_, backend, options_fingerprint) = &backends[job.backend_index];
+            let prepared = &targets[job.target_index];
             let output_file = Path::new(&job.output_dir).join(&job.filename);
             let target_validation_failed = generate_for_backend(
                 &sql_config.name,
-                backend.as_ref(),
+                prepared.backend.as_ref(),
                 job,
                 overrides,
                 ProvenanceFields {
                     schema: &schema_fingerprint,
                     queries: &job.queries_fingerprint,
-                    options: options_fingerprint,
+                    options: &prepared.options_fingerprint,
                 },
                 validate_output,
             )?;
@@ -842,7 +791,13 @@ fn run_generate_inner(
 
         // A target's `schema_types` module declares the whole schema's types, so it is
         // written once per target, however many modules `{dir}` makes.
-        for ((target, backend, options_fingerprint), schema_types) in backends.iter().zip(&schema_types_outputs) {
+        for PreparedTarget {
+            target,
+            backend,
+            options_fingerprint,
+            schema_types,
+        } in &targets
+        {
             let Some(schema_types) = schema_types else {
                 continue;
             };
@@ -890,6 +845,80 @@ fn run_generate_inner(
 struct SchemaTypesOutput {
     path: std::path::PathBuf,
     relative_import: bool,
+}
+
+/// A `[[sql.gen]]` target ready to generate from: its backend constructed,
+/// with the manifest overlay and options applied, and every check that makes
+/// `generate` refuse a config passed.
+struct PreparedTarget {
+    target: ResolvedGenTarget,
+    backend: Box<dyn CodegenBackend>,
+    /// See [`resolve_options_fingerprint`].
+    options_fingerprint: String,
+    schema_types: Option<SchemaTypesOutput>,
+}
+
+/// Prepare `target` of `sql_config` -- the one place that decides whether a
+/// target can be generated. `generate` writes with the result, `check`
+/// reports a failure as SC-PRV09 and verifies a prepared target's artifacts,
+/// so the two cannot disagree about which configs are valid.
+///
+/// `allow_output_escape` is `generate`'s `--allow-output-escape`: an `output`
+/// or `schema_types` path outside the project root is refused without it
+/// (#207). A `{dir}` target's per-module directories are checked where they
+/// are known, in `generate`.
+fn prepare_target(
+    target: ResolvedGenTarget,
+    sql_config: &SqlConfig,
+    base_dir: &Path,
+    allow_output_escape: bool,
+) -> Result<PreparedTarget, String> {
+    let mut backend = get_backend(&target.backend).map_err(|e| format!("backend '{}': {}", target.backend, e))?;
+
+    // Merged before `apply_options`, not after, so any state a backend
+    // derives from the manifest there sees the user's overlay.
+    if let Some(manifest_path) = &target.manifest_override {
+        apply_manifest_override(backend.manifest_mut(), &target.backend, manifest_path, base_dir)
+            .map_err(|e| e.to_string())?;
+    }
+    if !target.options.is_empty() {
+        backend
+            .apply_options(&target.options)
+            .map_err(|e| format!("backend '{}' apply_options failed: {}", target.backend, e))?;
+    }
+    let invalid =
+        |e: sqlkit_core::errors::SqlkitError| format!("[{}] backend '{}': {e}", sql_config.name, target.backend);
+    backend
+        .check_type_overrides(&sql_config.type_overrides)
+        .map_err(invalid)?;
+
+    let options_fingerprint = resolve_options_fingerprint(&target, base_dir)?;
+    resolve_contained_output(base_dir, &target.output, &target.backend, allow_output_escape)?;
+
+    let schema_types = match target.schema_types.as_deref() {
+        None => None,
+        Some(path) => {
+            let path = resolve_contained_output(base_dir, path, &target.backend, allow_output_escape)?;
+            let relative_import = backend.schema_types_import().is_none();
+            if relative_import {
+                // Checked here for the target's own directory so `check` sees a
+                // backend that cannot import the module; `generate` checks each
+                // module's own specifier again.
+                let module_dir = base_dir.join(target.output.replace(DIR_PLACEHOLDER, "."));
+                backend
+                    .check_schema_types_import(&relative_module_specifier(&module_dir, &path))
+                    .map_err(invalid)?;
+            }
+            Some(SchemaTypesOutput { path, relative_import })
+        }
+    };
+
+    Ok(PreparedTarget {
+        target,
+        backend,
+        options_fingerprint,
+        schema_types,
+    })
 }
 
 /// The `queries=` provenance field of a schema types module, which holds no
@@ -993,7 +1022,8 @@ fn per_file_output(output: &str, query_file: &str, base_dir: &Path) -> String {
 /// resolved output directory, and the queries (with their fingerprint) the
 /// module holds.
 struct GenJob<'a> {
-    backend_index: usize,
+    /// Index of the job's [`PreparedTarget`].
+    target_index: usize,
     /// The backend name, plus the query file for a `{dir}` job, for the
     /// collision error.
     label: String,
@@ -1130,18 +1160,18 @@ fn resolve_options_fingerprint(target: &ResolvedGenTarget, base_dir: &Path) -> R
     ))
 }
 
-/// Validate that every `[[sql.gen]]` target in `sql_config` would actually
-/// construct -- resolving gen targets, building each backend, applying its
-/// manifest override and options -- without writing anything, and report
-/// each one that would not as an `SC-PRV09` error finding.
+/// Validate that every `[[sql.gen]]` target in `sql_config` would prepare
+/// ([`prepare_target`], the same function `generate` prepares targets with)
+/// without writing anything, and report each one that would not as an
+/// `SC-PRV09` error finding.
 ///
-/// Mirrors exactly the fallible steps `run_generate_inner` performs before
-/// it writes a single byte, so `sqlkit check` reports precisely the configs
-/// `sqlkit generate` refuses (issue #209, item 1) -- previously the only
-/// signal was `verify_provenance`'s SC-PRV07, and only once a stale
-/// artifact happened to already exist on disk to check provenance against;
-/// a config with no artifact yet generated produced no finding at all, and
-/// `[main] All queries valid.` printed regardless.
+/// `check` has no `--allow-output-escape`, so it validates under
+/// `generate`'s strict default: an `output` that escapes the project root is
+/// reported here too (#207). A check that is green where generate is red is
+/// worse than no check -- before every step lived in [`prepare_target`], this
+/// function repeated them, and the copies drifted (a Zod `row_type` with a
+/// `ts_type` override, a `schema_types` path outside the project, and a
+/// backend that cannot import schema types all passed `check`).
 ///
 /// Returns a plain `Vec`, like [`verify_provenance`], rather than a
 /// `Result` propagated via `?`: this function's finding is `Error` by
@@ -1151,10 +1181,7 @@ fn resolve_options_fingerprint(target: &ResolvedGenTarget, base_dir: &Path) -> R
 /// discard every other finding already collected for this block and every
 /// block after it -- and, for `check --output r.json`, leave no report
 /// file written at all. See
-/// `run_check_still_emits_lint_findings_when_a_gen_target_cannot_be_constructed`,
-/// which pins exactly that: a real SC-S03 lint finding must survive an
-/// unconstructable `[[sql.gen]]` target in the same config, not disappear
-/// with it.
+/// `run_check_still_emits_lint_findings_when_a_gen_target_cannot_be_constructed`.
 ///
 /// `severity` is `SC-PRV09`'s effective severity, resolved by the caller
 /// from [`sqlkit_lint::provenance_registry`] (see [`ProvenanceSeverities`])
@@ -1165,92 +1192,32 @@ fn validate_gen_targets_constructible(
     base_dir: &Path,
     severity: Severity,
 ) -> Vec<QueryViolation> {
-    let mut violations = Vec::new();
+    let violation = |query_name: String, message: String| QueryViolation {
+        query_name,
+        rule_id: Cow::Borrowed("SC-PRV09"),
+        severity,
+        message: format!("{message} (run `sqlkit generate` for the full diagnosis)"),
+    };
 
-    let gen_targets = match resolve_gen_targets(sql_config) {
+    let targets = match resolve_gen_targets(sql_config) {
         Ok(targets) => targets,
         Err(e) => {
-            violations.push(QueryViolation {
-                query_name: sql_config.name.clone(),
-                rule_id: Cow::Borrowed("SC-PRV09"),
-                severity,
-                message: format!(
-                    "failed to resolve [sql.gen] targets: {e} (run `sqlkit generate` for the full diagnosis)"
-                ),
-            });
-            return violations;
+            return vec![violation(
+                sql_config.name.clone(),
+                format!("failed to resolve [sql.gen] targets: {e}"),
+            )];
         }
     };
 
-    for target in &gen_targets {
-        let target_label = format!("{}:{}", sql_config.name, target.backend);
-
-        let mut backend = match get_backend(&target.backend) {
-            Ok(backend) => backend,
-            Err(e) => {
-                violations.push(QueryViolation {
-                    query_name: target_label,
-                    rule_id: Cow::Borrowed("SC-PRV09"),
-                    severity,
-                    message: format!(
-                        "backend '{}' could not be constructed: {} (run `sqlkit generate` for the full \
-                         diagnosis)",
-                        target.backend, e
-                    ),
-                });
-                continue;
-            }
-        };
-
-        if let Some(ref manifest_path) = target.manifest_override
-            && let Err(e) = apply_manifest_override(backend.manifest_mut(), &target.backend, manifest_path, base_dir)
-        {
-            violations.push(QueryViolation {
-                query_name: target_label.clone(),
-                rule_id: Cow::Borrowed("SC-PRV09"),
-                severity,
-                message: format!(
-                    "manifest override could not be applied: {e} (run `sqlkit generate` for the full diagnosis)"
-                ),
-            });
-            continue;
-        }
-
-        if !target.options.is_empty()
-            && let Err(e) = backend.apply_options(&target.options)
-        {
-            violations.push(QueryViolation {
-                query_name: target_label.clone(),
-                rule_id: Cow::Borrowed("SC-PRV09"),
-                severity,
-                message: format!(
-                    "backend options could not be applied: {e} (run `sqlkit generate` for the full diagnosis)"
-                ),
-            });
-        }
-
-        // `sqlkit generate` refuses (by default, i.e. without
-        // `--allow-output-escape`) to write outside the project root -- see
-        // `resolve_contained_output` and #207. `check` has no equivalent
-        // flag of its own, so it validates under that same strict default:
-        // an `output` that would be rejected without `--allow-output-escape`
-        // is reported here too. Before this, `check` never called
-        // `resolve_contained_output` at all, so a config with a
-        // path-traversing `output` (e.g. `output = "../../ESCAPED"`) passed
-        // `sqlkit check` cleanly and was only ever refused once `sqlkit
-        // generate` actually ran against it -- a check that is green where
-        // generate is red is worse than no check.
-        if let Err(e) = resolve_contained_output(base_dir, &target.output, &target.backend, false) {
-            violations.push(QueryViolation {
-                query_name: target_label,
-                rule_id: Cow::Borrowed("SC-PRV09"),
-                severity,
-                message: format!("{e} (run `sqlkit generate` for the full diagnosis)"),
-            });
-        }
-    }
-
-    violations
+    targets
+        .into_iter()
+        .filter_map(|target| {
+            let target_label = format!("{}:{}", sql_config.name, target.backend);
+            prepare_target(target, sql_config, base_dir, false)
+                .err()
+                .map(|e| violation(target_label, e))
+        })
+        .collect()
 }
 
 /// A single generated query's code alongside the enum definitions it
@@ -1575,16 +1542,73 @@ fn output_filename(backend: &dyn CodegenBackend, query_file: Option<&str>) -> St
     format!("{stem}.{}", backend.manifest().backend.file_extension)
 }
 
-/// Which queries came from which query file: for each of `file_count` files,
-/// the range of queries whose entry in `file_of_query` (each query's index in
-/// the query file list, in file order) is that file. `generate` and `check`
-/// both split a `{dir}` target's modules by it.
-fn query_file_ranges(file_of_query: &[usize], file_count: usize) -> Vec<Range<usize>> {
-    (0..file_count)
-        .map(|file_index| {
+/// One query file's share of a `[[sql]]` block's analyzed queries: what a
+/// `{dir}` target writes one module for.
+struct QueryFileShare<'a> {
+    /// The query file as `resolve_globs` matched it.
+    query_file: &'a str,
+    /// The file's queries, as a range of the block's analyzed queries.
+    queries: Range<usize>,
+    /// `q1:` fingerprint of this file's queries alone.
+    fingerprint: String,
+}
+
+/// Each query file's share of `analyzed`, in file order, leaving out a file
+/// with no queries (it gets no module). `file_of_query[i]` is the index in
+/// `query_files` of the file `analyzed[i]` came from, in file order.
+fn query_file_shares<'a>(
+    query_files: &'a [String],
+    file_of_query: &[usize],
+    analyzed: &[AnalyzedQuery],
+) -> Vec<QueryFileShare<'a>> {
+    query_files
+        .iter()
+        .enumerate()
+        .filter_map(|(file_index, query_file)| {
             let start = file_of_query.partition_point(|index| *index < file_index);
             let end = file_of_query.partition_point(|index| *index <= file_index);
-            start..end
+            (start < end).then(|| QueryFileShare {
+                query_file,
+                queries: start..end,
+                fingerprint: AnalyzedQuery::fingerprint_set(&analyzed[start..end]),
+            })
+        })
+        .collect()
+}
+
+/// One module a target writes: its `output` directory, still relative to the
+/// config directory, and the query file whose queries it holds -- `None` for
+/// a plain target's one module over the whole block.
+struct TargetModule<'s, 'a> {
+    output: String,
+    share: Option<&'s QueryFileShare<'a>>,
+}
+
+impl TargetModule<'_, '_> {
+    fn query_file(&self) -> Option<&str> {
+        self.share.map(|share| share.query_file)
+    }
+}
+
+/// The modules `target` writes: one over the whole block, or, for a `{dir}`
+/// target, one per query file share, in that file's directory. `generate`
+/// writes and `check` verifies exactly these.
+fn target_modules<'s, 'a>(
+    target: &ResolvedGenTarget,
+    shares: &'s [QueryFileShare<'a>],
+    base_dir: &Path,
+) -> Vec<TargetModule<'s, 'a>> {
+    if !is_per_file_output(&target.output) {
+        return vec![TargetModule {
+            output: target.output.clone(),
+            share: None,
+        }];
+    }
+    shares
+        .iter()
+        .map(|share| TargetModule {
+            output: per_file_output(&target.output, share.query_file, base_dir),
+            share: Some(share),
         })
         .collect()
 }
@@ -2130,15 +2154,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         // `analyzed_queries`, in file order). A file with no queries has no
         // module, as `generate` writes none.
         let file_of_query: Vec<usize> = query_names.iter().map(|(file_index, _)| *file_index).collect();
-        let per_file_queries: Vec<PerFileQueries<'_>> = query_file_ranges(&file_of_query, query_files.len())
-            .into_iter()
-            .zip(&query_files)
-            .filter(|(range, _)| !range.is_empty())
-            .map(|(range, query_file)| PerFileQueries {
-                query_file,
-                queries_fingerprint: AnalyzedQuery::fingerprint_set(&analyzed_queries[range]),
-            })
-            .collect();
+        let per_file_queries = query_file_shares(&query_files, &file_of_query, &analyzed_queries);
 
         if should_retain_for_verification(opts.database_url.as_deref()) {
             verifiable.push(VerifiableBlock {
@@ -2568,15 +2584,6 @@ impl ProvenanceSeverities {
     }
 }
 
-/// One query file's share of a block, for verifying a `{dir}` target's
-/// module for that file.
-struct PerFileQueries<'a> {
-    /// The query file as `resolve_globs` matched it.
-    query_file: &'a str,
-    /// `q1:` fingerprint of the queries analyzed from this file alone.
-    queries_fingerprint: String,
-}
-
 /// What a single on-disk artifact's provenance header is checked against.
 ///
 /// Bundled rather than passed as loose arguments because every field is
@@ -2646,12 +2653,12 @@ struct ProvenanceExpectation<'a> {
 ///
 /// The two failures that used to propagate are now findings instead:
 ///
-/// - A target whose backend does not construct (a typo.d or removed backend
-///   name, or one this build left out).
-///   A target that cannot be constructed is a target that cannot be verified,
-///   so it is reported as SC-PRV07 and skipped. `sqlkit generate` still
-///   reports the same misconfiguration as a hard error, which is the right
-///   place for it.
+/// - A target that does not prepare ([`prepare_target`]): a typo'd or
+///   removed backend name, an unreadable manifest overlay, options the
+///   backend rejects. A target `generate` would refuse is a target that
+///   cannot be verified, so it is reported as SC-PRV07 and skipped;
+///   [`validate_gen_targets_constructible`] reports the misconfiguration
+///   itself as SC-PRV09.
 /// - Any read failure other than "the file does not exist": a non-UTF-8
 ///   artifact, a directory sitting where the artifact should be, a
 ///   permissions problem. Same reasoning -- unverifiable, not drifted.
@@ -2684,25 +2691,26 @@ fn verify_provenance(
     sql_config: &SqlConfig,
     catalog: &Catalog,
     current_queries: &str,
-    per_file: &[PerFileQueries<'_>],
+    per_file: &[QueryFileShare<'_>],
     base_dir: &Path,
     severities: ProvenanceSeverities,
 ) -> Vec<QueryViolation> {
     let current_schema = catalog.fingerprint();
     let mut violations = Vec::new();
+    let unverifiable = |query_name: String, reason: String| QueryViolation {
+        query_name,
+        rule_id: Cow::Borrowed("SC-PRV07"),
+        severity: severities.unverifiable,
+        message: format!("cannot verify provenance: {reason} (run `sqlkit generate` for the full diagnosis)"),
+    };
 
     let targets = match resolve_gen_targets(sql_config) {
         Ok(targets) => targets,
         Err(e) => {
-            violations.push(QueryViolation {
-                query_name: sql_config.name.clone(),
-                rule_id: Cow::Borrowed("SC-PRV07"),
-                severity: severities.unverifiable,
-                message: format!(
-                    "cannot verify provenance: failed to resolve [sql.gen] targets: {e} (run `sqlkit generate` \
-                     for the full diagnosis)"
-                ),
-            });
+            violations.push(unverifiable(
+                sql_config.name.clone(),
+                format!("failed to resolve [sql.gen] targets: {e}"),
+            ));
             return violations;
         }
     };
@@ -2710,83 +2718,48 @@ fn verify_provenance(
     for target in targets {
         let target_label = format!("{}:{}", sql_config.name, target.backend);
 
-        let backend = match get_backend(&target.backend) {
-            Ok(backend) => backend,
+        // Prepared as `generate` prepares it, so the artifact is checked
+        // against the options fingerprint `generate` would write. Escaping
+        // output is allowed: verifying reads, and a project generated with
+        // `--allow-output-escape` keeps its artifacts there.
+        let prepared = match prepare_target(target, sql_config, base_dir, true) {
+            Ok(prepared) => prepared,
             Err(e) => {
-                violations.push(QueryViolation {
-                    query_name: target_label,
-                    rule_id: Cow::Borrowed("SC-PRV07"),
-                    severity: severities.unverifiable,
-                    message: format!(
-                        "cannot verify provenance: backend '{}' could not be constructed: {} (run \
-                         `sqlkit generate` for the full diagnosis)",
-                        target.backend, e
-                    ),
-                });
+                violations.push(unverifiable(target_label, e));
                 continue;
             }
         };
-
-        let options_fingerprint = match resolve_options_fingerprint(&target, base_dir) {
-            Ok(fingerprint) => fingerprint,
-            Err(e) => {
-                violations.push(QueryViolation {
-                    query_name: target_label,
-                    rule_id: Cow::Borrowed("SC-PRV07"),
-                    severity: severities.unverifiable,
-                    message: format!("cannot verify provenance: {e} (run `sqlkit generate` for the full diagnosis)"),
-                });
-                continue;
-            }
+        let expected = ProvenanceExpectation {
+            target_label: &target_label,
+            backend_name: prepared.backend.name(),
+            schema: &current_schema,
+            queries: current_queries,
+            options: &prepared.options_fingerprint,
+            version: env!("CARGO_PKG_VERSION"),
+            severities,
         };
 
-        // A `{dir}` target wrote one module per query file, fingerprinted
-        // over that file's queries alone; a plain target wrote one module
-        // over the whole block.
-        let modules: Vec<(String, Option<&str>, &str)> = if is_per_file_output(&target.output) {
-            per_file
-                .iter()
-                .map(|file| {
-                    (
-                        per_file_output(&target.output, file.query_file, base_dir),
-                        Some(file.query_file),
-                        file.queries_fingerprint.as_str(),
-                    )
-                })
-                .collect()
-        } else {
-            vec![(target.output.clone(), None, current_queries)]
-        };
-
-        for (output, query_file, queries) in modules {
-            let expected = ProvenanceExpectation {
-                target_label: &target_label,
-                backend_name: backend.name(),
-                schema: &current_schema,
-                queries,
-                options: &options_fingerprint,
-                version: env!("CARGO_PKG_VERSION"),
-                severities,
-            };
-
-            let output_dir = base_dir.join(&output);
-            let artifact_path = output_dir.join(output_filename(&*backend, query_file));
-            violations.extend(verify_artifact(&artifact_path, &expected));
+        for module in target_modules(&prepared.target, per_file, base_dir) {
+            let queries = module.share.map_or(current_queries, |share| share.fingerprint.as_str());
+            let artifact_path = base_dir
+                .join(&module.output)
+                .join(output_filename(prepared.backend.as_ref(), module.query_file()));
+            violations.extend(verify_artifact(
+                &artifact_path,
+                &ProvenanceExpectation { queries, ..expected },
+            ));
         }
 
         // The schema types module, generated from the schema alone.
-        if let Some(schema_types) = &target.schema_types {
+        if let Some(schema_types) = &prepared.schema_types {
             let queries = schema_types_queries_fingerprint();
-            let expected = ProvenanceExpectation {
-                target_label: &target_label,
-                backend_name: backend.name(),
-                schema: &current_schema,
-                queries: &queries,
-                options: &options_fingerprint,
-                version: env!("CARGO_PKG_VERSION"),
-                severities,
-            };
-            violations.extend(verify_artifact(&base_dir.join(schema_types), &expected));
+            violations.extend(verify_artifact(
+                &schema_types.path,
+                &ProvenanceExpectation {
+                    queries: &queries,
+                    ..expected
+                },
+            ));
         }
     }
 
@@ -4764,8 +4737,8 @@ backend = \"rust-sqlx\"
                 manifest: None,
                 schema_types: None,
                 options: std::collections::HashMap::from([(
-                    "row_type".to_string(),
-                    toml::Value::String("pydantic".to_string()),
+                    "serde".to_string(),
+                    toml::Value::String("true".to_string()),
                 )]),
             }])),
             type_overrides: Vec::new(),
@@ -4773,7 +4746,7 @@ backend = \"rust-sqlx\"
 
         // Computed through the real function, not hand-derived, so this test
         // cannot be wrong about what "current" actually is.
-        let current_options = sqlkit_codegen::provenance::options_fingerprint([("row_type", "pydantic")], None);
+        let current_options = sqlkit_codegen::provenance::options_fingerprint([("serde", "true")], None);
 
         write_artifact(
             dir.path(),
@@ -5803,5 +5776,58 @@ backend = \"rust-sqlx\"
             "message should explain the containment rejection: {}",
             violations[0].message
         );
+    }
+
+    fn typescript_target(options: &[(&str, &str)], schema_types: Option<&str>) -> SqlConfig {
+        SqlConfig {
+            name: "main".to_string(),
+            schema: Vec::new(),
+            queries: Vec::new(),
+            output: None,
+            gen_config: Some(GenTargets::Array(vec![GenTarget {
+                backend: "typescript-bun".to_string(),
+                output: "generated".to_string(),
+                manifest: None,
+                schema_types: schema_types.map(str::to_string),
+                options: options
+                    .iter()
+                    .map(|(key, value)| (key.to_string(), toml::Value::String(value.to_string())))
+                    .collect(),
+            }])),
+            type_overrides: Vec::new(),
+        }
+    }
+
+    /// `check` and `generate` prepare targets through one function, so every
+    /// config `generate` refuses is an SC-PRV09 finding. These three passed
+    /// `check` while the checks were copied per command.
+    #[test]
+    fn check_reports_every_target_config_generate_refuses() {
+        let mut zod_with_ts_type = typescript_target(&[("row_type", "zod")], None);
+        zod_with_ts_type.type_overrides = vec![TypeOverride {
+            db_type: Some("text".to_string()),
+            ts_type: Some(sqlkit_codegen::overrides::TsTypeOverride {
+                ts_type: "Email".to_string(),
+                import: Some("@app/types".to_string()),
+            }),
+            ..Default::default()
+        }];
+        let escaping_schema_types = typescript_target(&[], Some("../../schema.ts"));
+        let zod_with_schema_types = typescript_target(&[("row_type", "zod")], Some("schema.ts"));
+
+        for (config, expected) in [
+            (&zod_with_ts_type, "type_overrides with ts_type need row_type"),
+            (&escaping_schema_types, "escapes the project root"),
+            (&zod_with_schema_types, "schema_types needs row_type"),
+        ] {
+            let violations =
+                validate_gen_targets_constructible(config, Path::new("proj"), sqlkit_lint::Severity::Error);
+            assert_eq!(violations.len(), 1, "{expected}: {violations:?}");
+            assert_eq!(violations[0].rule_id, "SC-PRV09");
+            assert!(violations[0].message.contains(expected), "{}", violations[0].message);
+        }
+
+        let valid = typescript_target(&[], Some("schema.ts"));
+        assert!(validate_gen_targets_constructible(&valid, Path::new("proj"), sqlkit_lint::Severity::Error).is_empty());
     }
 }
