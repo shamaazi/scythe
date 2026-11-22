@@ -594,7 +594,6 @@ fn generate_lint_test(fixture: &Fixture, file_path: &str) -> String {
         out.push_str("        analyzed: &analyzed,\n");
         out.push_str("        catalog: &catalog,\n");
         out.push_str("        annotations: &query.annotations,\n");
-        out.push_str("        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,\n");
         out.push_str("    };\n");
         out.push_str("    _violations.extend(engine.check_query(&ctx));\n");
     }

@@ -426,7 +426,6 @@ mod tests {
             analyzed,
             catalog,
             annotations: &query.annotations,
-            dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
         }
     }
 
@@ -713,7 +712,6 @@ mod tests {
             analyzed: &analyzed,
             catalog: &cat,
             annotations: &q.annotations,
-            dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
         };
         let v = UnboundSqlParam.check_query(&ctx);
         assert_eq!(v.len(), 1, "SC-S07 must fire for unbound $1");
@@ -775,7 +773,6 @@ mod tests {
             analyzed: &analyzed,
             catalog: &cat,
             annotations: &q.annotations,
-            dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
         };
         let v = UnboundSqlParam.check_query(&ctx);
         assert_eq!(v.len(), 1);

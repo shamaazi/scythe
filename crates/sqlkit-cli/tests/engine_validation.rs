@@ -72,7 +72,7 @@ fn lint_from_config_rejects_unknown_engine() {
          success (exit 0); stderr: {err}"
     );
     assert!(
-        err.contains("unknown engine 'mysql8'"),
+        err.contains("unsupported engine 'mysql8'"),
         "the error must name the offending value; stderr: {err}"
     );
 }
@@ -103,7 +103,7 @@ fn lint_explicit_file_mode_rejects_unknown_engine_from_config() {
          does, not silently skip native-rule construction; stderr: {err}"
     );
     assert!(
-        err.contains("unknown engine 'postgersql'"),
+        err.contains("unsupported engine 'postgersql'"),
         "the error must name the offending value; stderr: {err}"
     );
 }
@@ -129,7 +129,7 @@ fn audit_from_config_rejects_unknown_engine() {
          stderr: {err}"
     );
     assert!(
-        err.contains("unknown engine 'mysql8'"),
+        err.contains("unsupported engine 'mysql8'"),
         "the error must name the offending value; stderr: {err}"
     );
 }

@@ -1,6 +1,5 @@
 use ahash::{AHashMap, AHashSet};
 
-use crate::dialect::SqlDialect;
 use crate::errors::SqlkitError;
 
 use super::{
@@ -301,9 +300,8 @@ impl DomainDefinition {
 }
 
 /// Validates inspected schema definitions before constructing a [`Catalog`].
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CatalogBuilder {
-    dialect: SqlDialect,
     search_path: Option<Vec<String>>,
     relations: Vec<RelationDefinition>,
     enums: Vec<EnumDefinition>,
@@ -313,17 +311,9 @@ pub struct CatalogBuilder {
 }
 
 impl CatalogBuilder {
-    /// Start a catalog builder for a SQL dialect.
-    pub fn new(dialect: SqlDialect) -> Self {
-        Self {
-            dialect,
-            search_path: None,
-            relations: Vec::new(),
-            enums: Vec::new(),
-            composites: Vec::new(),
-            domains: Vec::new(),
-            functions: Vec::new(),
-        }
+    /// Start an empty catalog builder.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Register the ordered schemas used to resolve unqualified object names.
@@ -379,7 +369,6 @@ impl CatalogBuilder {
             composites: AHashMap::new(),
             domains: AHashMap::new(),
             functions: AHashMap::new(),
-            dialect: self.dialect,
             search_path: normalize_search_path(self.search_path)?,
             relation_names: AHashMap::new(),
             relation_kinds: AHashMap::new(),
@@ -616,7 +605,6 @@ mod tests {
         Catalog, CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
         DomainDefinition, EnumDefinition, RelationDefinition, RelationKind,
     };
-    use crate::dialect::SqlDialect;
 
     fn id_column() -> ColumnDefinition {
         ColumnDefinition::new("id", "INTEGER", false).primary_key()
@@ -624,7 +612,7 @@ mod tests {
 
     #[test]
     fn should_reject_relations_that_normalize_to_the_same_name() {
-        let error = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let error = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::qualified("Public", "Users"),
                 vec![id_column()],
@@ -642,7 +630,7 @@ mod tests {
 
     #[test]
     fn should_preserve_relation_metadata_raw_types_and_defaults() {
-        let catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let catalog = CatalogBuilder::new()
             .relation(RelationDefinition::view(
                 CatalogObjectName::qualified("Main", "UserRollup"),
                 vec![
@@ -671,12 +659,10 @@ mod tests {
 
     #[test]
     fn should_match_an_equivalent_parser_built_catalog() {
-        let parsed = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE users (id INTEGER PRIMARY KEY NOT NULL, name TEXT DEFAULT 'guest');"],
-            &SqlDialect::PostgreSQL,
-        )
-        .expect("valid DDL");
-        let built = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let parsed =
+            Catalog::from_ddl(&["CREATE TABLE users (id INTEGER PRIMARY KEY NOT NULL, name TEXT DEFAULT 'guest');"])
+                .expect("valid DDL");
+        let built = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("users"),
                 vec![
@@ -702,7 +688,7 @@ mod tests {
 
     #[test]
     fn should_fingerprint_equivalent_definitions_independent_of_insertion_order() {
-        let first = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let first = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("alpha"),
                 vec![id_column()],
@@ -713,7 +699,7 @@ mod tests {
             ))
             .build()
             .expect("valid definitions");
-        let second = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let second = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("beta"),
                 vec![id_column()],
@@ -730,7 +716,7 @@ mod tests {
 
     #[test]
     fn should_construct_all_definition_kinds() {
-        let catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let catalog = CatalogBuilder::new()
             .enum_type(EnumDefinition::new(
                 CatalogObjectName::qualified("Public", "Mood"),
                 vec!["happy".to_string(), "sad".to_string()],
@@ -769,7 +755,7 @@ mod tests {
 
     #[test]
     fn should_reject_duplicate_columns_after_normalization() {
-        let error = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let error = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("users"),
                 vec![
@@ -785,7 +771,7 @@ mod tests {
 
     #[test]
     fn should_reject_duplicate_types_after_normalization() {
-        let error = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let error = CatalogBuilder::new()
             .enum_type(EnumDefinition::new(
                 CatalogObjectName::qualified("Public", "Status"),
                 vec!["active".to_string()],
@@ -803,14 +789,14 @@ mod tests {
 
     #[test]
     fn should_change_fingerprint_when_semantic_definition_changes() {
-        let integer_catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let integer_catalog = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("users"),
                 vec![ColumnDefinition::new("id", "INTEGER", false)],
             ))
             .build()
             .expect("valid catalog");
-        let text_catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let text_catalog = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("users"),
                 vec![ColumnDefinition::new("id", "TEXT", false)],
@@ -823,7 +809,7 @@ mod tests {
 
     #[test]
     fn should_resolve_bare_qualified_objects_in_search_path_order() {
-        let catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let catalog = CatalogBuilder::new()
             .search_path(["Tenant", "public"])
             .relation(RelationDefinition::table(
                 CatalogObjectName::qualified("public", "accounts"),
@@ -900,7 +886,7 @@ mod tests {
 
     #[test]
     fn should_reject_an_empty_search_path_schema() {
-        let error = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let error = CatalogBuilder::new()
             .search_path(["public", " "])
             .build()
             .expect_err("blank search path schema must fail");

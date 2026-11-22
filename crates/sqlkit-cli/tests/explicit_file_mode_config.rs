@@ -3,7 +3,7 @@
 //! `audit <file>` ignored `[lint]`/`[audit]` entirely (a rule turned "off"
 //! still fired, and user-defined rules never ran), `fmt` never read or
 //! validated `[lint.sqruff]`, and a malformed `--config` was silently
-//! swallowed rather than reported, degrading the dialect to `ansi`.
+//! swallowed rather than reported.
 //!
 //! Every test drives the compiled binary via
 //! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))`.
@@ -241,7 +241,7 @@ fn fmt_blames_an_unusable_rules_table_on_the_config_not_on_the_first_file() {
 }
 
 /// #206, item 4: a malformed `--config` must be reported, not silently
-/// swallowed into "no dialect configured, default to ansi" -- in explicit
+/// swallowed -- in explicit
 /// file mode with no query files this manifests as `lint`/`fmt` reporting a
 /// config error instead of quietly proceeding.
 #[test]

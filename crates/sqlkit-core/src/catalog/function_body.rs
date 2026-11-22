@@ -7,10 +7,10 @@
 use std::ops::ControlFlow;
 
 use sqlparser::ast::{self, CreateFunctionBody, Expr, GroupByExpr, Ident, SetExpr, Statement, Value};
+use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 use crate::analyzer::{BodyArgument, analyze_function_body};
-use crate::dialect::SqlDialect;
 
 use super::{Catalog, FunctionArgumentMode, FunctionReturn};
 
@@ -50,11 +50,10 @@ pub(super) fn refinable_body(
     language: Option<&Ident>,
     returns_set: bool,
     return_type: &FunctionReturn,
-    dialect: SqlDialect,
 ) -> Option<Box<ast::Query>> {
     // Output parameters without SETOF describe a single row, which is null
     // when the body returns none.
-    if dialect != SqlDialect::PostgreSQL || matches!(return_type, FunctionReturn::Table { .. }) && !returns_set {
+    if matches!(return_type, FunctionReturn::Table { .. }) && !returns_set {
         return None;
     }
     let is_sql = |language: Option<&Ident>| language.is_some_and(|language| language.value.eq_ignore_ascii_case("sql"));
@@ -76,8 +75,7 @@ pub(super) fn refinable_body(
         }
         _ => return None,
     };
-    let parser_dialect = dialect.to_sqlparser_dialect();
-    let Some(Statement::Query(mut query)) = Parser::parse_sql(parser_dialect.as_ref(), &source).ok()?.pop() else {
+    let Some(Statement::Query(mut query)) = Parser::parse_sql(&PostgreSqlDialect {}, &source).ok()?.pop() else {
         return None;
     };
     let _ = ast::visit_expressions_mut(&mut query, |expression| {

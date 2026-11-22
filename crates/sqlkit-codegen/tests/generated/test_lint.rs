@@ -36,7 +36,6 @@ fn test_and_in_join_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -68,7 +67,6 @@ fn test_equal_null_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for equal_null_fires");
@@ -100,7 +98,6 @@ fn test_is_null_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -135,7 +132,6 @@ fn test_or_in_join_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for or_in_join_fires");
@@ -167,7 +163,6 @@ fn test_duplicate_query_names_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -199,7 +194,6 @@ fn test_exec_with_returning_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -234,7 +228,6 @@ fn test_exec_without_returning_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -266,7 +259,6 @@ fn test_one_with_returning_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -298,7 +290,6 @@ fn test_bad_query_name_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -333,7 +324,6 @@ fn test_good_query_name_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -365,7 +355,6 @@ fn test_lowercase_alias_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -397,7 +386,6 @@ fn test_non_snake_case_alias_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -432,7 +420,6 @@ fn test_non_snake_case_table_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -467,7 +454,6 @@ fn test_snake_case_alias_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -499,7 +485,6 @@ fn test_snake_case_table_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -531,7 +516,6 @@ fn test_uppercase_alias_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -569,7 +553,6 @@ fn test_in_subquery_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -601,7 +584,6 @@ fn test_like_leading_wildcard_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -637,7 +619,6 @@ fn test_like_suffix_wildcard_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -672,7 +653,6 @@ fn test_not_in_subquery_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -707,7 +687,6 @@ fn test_order_with_limit_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -739,7 +718,6 @@ fn test_order_without_limit_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -774,7 +752,6 @@ fn test_all_params_used_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -810,7 +787,6 @@ fn test_ambiguous_column_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -845,7 +821,6 @@ fn test_delete_with_where_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -877,7 +852,6 @@ fn test_delete_without_where_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -912,7 +886,6 @@ fn test_has_returning_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -944,7 +917,6 @@ fn test_missing_returning_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -983,7 +955,6 @@ fn test_qualified_column_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1015,7 +986,6 @@ fn test_select_columns_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1047,7 +1017,6 @@ fn test_select_star_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1083,7 +1052,6 @@ fn test_unused_params_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1118,7 +1086,6 @@ fn test_update_with_where_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1150,7 +1117,6 @@ fn test_update_without_where_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1185,7 +1151,6 @@ fn test_adding_not_nullable_field_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1218,7 +1183,6 @@ fn test_adding_not_nullable_field_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1253,7 +1217,6 @@ fn test_adding_primary_key_constraint_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1285,7 +1248,6 @@ fn test_adding_primary_key_constraint_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1321,7 +1283,6 @@ fn test_alter_column_type_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1353,7 +1314,6 @@ fn test_alter_column_type_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1388,7 +1348,6 @@ fn test_ban_create_domain_with_constraint_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1421,7 +1380,6 @@ fn test_ban_create_domain_with_constraint_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1456,7 +1414,6 @@ fn test_ban_drop_column_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1488,7 +1445,6 @@ fn test_ban_drop_column_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1523,7 +1479,6 @@ fn test_ban_drop_database_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1555,7 +1510,6 @@ fn test_ban_drop_database_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1591,7 +1545,6 @@ fn test_ban_drop_not_null_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1624,7 +1577,6 @@ fn test_ban_drop_not_null_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1659,7 +1611,6 @@ fn test_ban_drop_table_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1691,7 +1642,6 @@ fn test_ban_drop_table_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1726,7 +1676,6 @@ fn test_ban_truncate_cascade_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1758,7 +1707,6 @@ fn test_ban_truncate_cascade_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1796,7 +1744,6 @@ fn test_cartesian_join_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1831,7 +1778,6 @@ fn test_cartesian_join_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1866,7 +1812,6 @@ fn test_check_constraint_always_true_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1898,7 +1843,6 @@ fn test_check_constraint_always_true_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1933,7 +1877,6 @@ fn test_constraint_missing_not_valid_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -1965,7 +1908,6 @@ fn test_constraint_missing_not_valid_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2000,7 +1942,6 @@ fn test_dangerous_function_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2032,7 +1973,6 @@ fn test_dangerous_function_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2067,7 +2007,6 @@ fn test_disallowed_unique_constraint_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2099,7 +2038,6 @@ fn test_disallowed_unique_constraint_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2134,7 +2072,6 @@ fn test_function_search_path_mutable_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2166,7 +2103,6 @@ fn test_function_search_path_mutable_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2201,7 +2137,6 @@ fn test_grant_all_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2233,7 +2168,6 @@ fn test_grant_all_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for grant_all_fires");
@@ -2265,7 +2199,6 @@ fn test_grant_to_public_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2297,7 +2230,6 @@ fn test_grant_to_public_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2332,7 +2264,6 @@ fn test_literal_password_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2364,7 +2295,6 @@ fn test_literal_password_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2400,7 +2330,6 @@ fn test_policy_always_permissive_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2432,7 +2361,6 @@ fn test_policy_always_permissive_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2467,7 +2395,6 @@ fn test_policy_references_user_metadata_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2499,7 +2426,6 @@ fn test_policy_references_user_metadata_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2534,7 +2460,6 @@ fn test_policy_uses_uncached_auth_function_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2567,7 +2492,6 @@ fn test_policy_uses_uncached_auth_function_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2603,7 +2527,6 @@ fn test_prefer_bigint_over_int_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2635,7 +2558,6 @@ fn test_prefer_bigint_over_int_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2671,7 +2593,6 @@ fn test_prefer_identity_over_serial_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2704,7 +2625,6 @@ fn test_prefer_identity_over_serial_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2740,7 +2660,6 @@ fn test_prefer_text_over_varchar_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2772,7 +2691,6 @@ fn test_prefer_text_over_varchar_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2807,7 +2725,6 @@ fn test_prefer_timestamptz_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2839,7 +2756,6 @@ fn test_prefer_timestamptz_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2874,7 +2790,6 @@ fn test_renaming_column_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2907,7 +2822,6 @@ fn test_renaming_column_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2942,7 +2856,6 @@ fn test_renaming_table_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -2974,7 +2887,6 @@ fn test_renaming_table_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3009,7 +2921,6 @@ fn test_require_concurrent_index_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3041,7 +2952,6 @@ fn test_require_concurrent_index_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3076,7 +2986,6 @@ fn test_security_definer_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3108,7 +3017,6 @@ fn test_security_definer_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3143,7 +3051,6 @@ fn test_select_star_pii_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3176,7 +3083,6 @@ fn test_select_star_pii_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3211,7 +3117,6 @@ fn test_session_mutation_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3243,7 +3148,6 @@ fn test_session_mutation_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3278,7 +3182,6 @@ fn test_superuser_role_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3310,7 +3213,6 @@ fn test_superuser_role_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3345,7 +3247,6 @@ fn test_unbounded_like_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3377,7 +3278,6 @@ fn test_unbounded_like_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3413,7 +3313,6 @@ fn test_unsupported_reg_types_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3446,7 +3345,6 @@ fn test_unsupported_reg_types_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3482,7 +3380,6 @@ fn test_weak_hash_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3515,7 +3412,6 @@ fn test_weak_hash_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for weak_hash_fires");
@@ -3547,7 +3443,6 @@ fn test_case_null_pattern_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3582,7 +3477,6 @@ fn test_coalesce_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3614,7 +3508,6 @@ fn test_count_one_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for count_one_fires");
@@ -3646,7 +3539,6 @@ fn test_count_star_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3681,7 +3573,6 @@ fn test_explicit_join_clean() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(
@@ -3716,7 +3607,6 @@ fn test_implicit_join_fires() {
         analyzed: &analyzed,
         catalog: &catalog,
         annotations: &query.annotations,
-        dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
     };
     _violations.extend(engine.check_query(&ctx));
     assert!(

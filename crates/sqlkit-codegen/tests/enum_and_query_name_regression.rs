@@ -38,14 +38,13 @@
 use sqlkit_codegen::{GeneratedCode, generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
 use sqlkit_core::errors::{ErrorCode, SqlkitError};
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 fn generate(schema: &str, query: &str, backend_name: &str) -> Result<GeneratedCode, SqlkitError> {
     let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
-    let catalog = Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::PostgreSQL).expect("schema must parse");
-    let parsed = parse_query_with_dialect(query, &SqlDialect::PostgreSQL).expect("query must parse");
+    let catalog = Catalog::from_ddl(&[schema]).expect("schema must parse");
+    let parsed = parse_query(query).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     generate_with_backend(&analyzed, &*backend)
 }

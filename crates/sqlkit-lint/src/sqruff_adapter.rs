@@ -37,20 +37,18 @@ pub enum SqruffConfigError {
     Linter(String),
 }
 
-/// Create a sqruff `FluffConfig` for the given dialect, optionally applying
-/// rule include/exclude settings from [`SqruffConfig`].
 /// Rules excluded by default due to upstream sqruff bugs.
 /// LT01: incorrectly splits compound operators (>=, <=, <@, etc.) into separate tokens.
 const DEFAULT_EXCLUDED_RULES: &[&str] = &["LT01"];
 
-/// Build the sqruff config source for a dialect, applying `[lint.sqruff.rules]`.
+/// Build the sqruff config (always the `postgres` dialect), applying `[lint.sqruff.rules]`.
 ///
 /// Every entry in `rules` must be `"off"` — sqruff cannot express per-rule
 /// severity (see [`SqruffConfigError::UnsupportedRuleValue`]). Any other
 /// value is rejected rather than silently misinterpreted as an allowlist
 /// entry.
-fn make_config(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<FluffConfig, SqruffConfigError> {
-    let mut source = format!("[sqruff]\ndialect = {}\n", dialect);
+fn make_config(sqruff_config: Option<&SqruffConfig>) -> Result<FluffConfig, SqruffConfigError> {
+    let mut source = String::from("[sqruff]\ndialect = postgres\n");
 
     let mut excluded: Vec<&str> = DEFAULT_EXCLUDED_RULES.to_vec();
     if let Some(cfg) = sqruff_config {
@@ -105,14 +103,14 @@ pub struct SqruffLinter {
 }
 
 impl SqruffLinter {
-    /// Build and validate a linter for `dialect`.
+    /// Build and validate a linter.
     ///
     /// `[lint.sqruff].enabled` is deliberately **not** consulted: this is the
     /// constructor `sqlkit fmt` uses, and `fmt` formats regardless of whether
     /// sqruff-based *linting* is switched off. Callers that must honour
     /// `enabled` want [`for_linting`](Self::for_linting) instead.
-    pub fn new(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<Self, SqruffConfigError> {
-        let config = make_config(dialect, sqruff_config)?;
+    pub fn new(sqruff_config: Option<&SqruffConfig>) -> Result<Self, SqruffConfigError> {
+        let config = make_config(sqruff_config)?;
         let linter = Linter::new(config, None, None, false).map_err(SqruffConfigError::Linter)?;
 
         linter
@@ -128,11 +126,11 @@ impl SqruffLinter {
     /// nothing is validated in that case, matching what the lint path does
     /// with a disabled config: it never reaches sqruff at all, so a
     /// configuration it will never read must not fail the run.
-    pub fn for_linting(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<Option<Self>, SqruffConfigError> {
+    pub fn for_linting(sqruff_config: Option<&SqruffConfig>) -> Result<Option<Self>, SqruffConfigError> {
         if sqruff_config.is_some_and(|cfg| !cfg.enabled) {
             return Ok(None);
         }
-        Self::new(dialect, sqruff_config).map(Some)
+        Self::new(sqruff_config).map(Some)
     }
 
     /// Run sqruff's rules over `sql`.
@@ -202,8 +200,8 @@ mod tests {
     /// Build the linter the `sqlkit lint` path builds, asserting the config
     /// is one it accepts. `for_linting` returns `None` for `enabled = false`;
     /// every caller of this helper is testing the enabled case.
-    fn enabled_linter(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> SqruffLinter {
-        SqruffLinter::for_linting(dialect, sqruff_config)
+    fn enabled_linter(sqruff_config: Option<&SqruffConfig>) -> SqruffLinter {
+        SqruffLinter::for_linting(sqruff_config)
             .expect("configuration should be accepted")
             .expect("an enabled configuration must build a linter")
     }
@@ -211,7 +209,7 @@ mod tests {
     #[test]
     fn lint_simple_sql() {
         let sql = "SELECT  id,  name  FROM  users  WHERE  id = 1\n";
-        let linter = SqruffLinter::new("ansi", None).expect("linter should build");
+        let linter = SqruffLinter::new(None).expect("linter should build");
         assert!(linter.lint(sql).is_ok());
     }
 
@@ -226,14 +224,14 @@ mod tests {
 
     #[test]
     fn format_simple_sql() {
-        let linter = SqruffLinter::new("ansi", None).expect("linter should build");
+        let linter = SqruffLinter::new(None).expect("linter should build");
         let formatted = linter.format(FIXABLE_SQL).expect("format should succeed");
         assert_eq!(formatted, FIXED_SQL);
     }
 
     #[test]
     fn lint_and_fix_returns_fixed_sql() {
-        let linter = SqruffLinter::new("ansi", None).expect("linter should build");
+        let linter = SqruffLinter::new(None).expect("linter should build");
         let (violations, fixed) = linter.lint_and_fix(FIXABLE_SQL).expect("lint_and_fix should succeed");
         assert!(!violations.is_empty(), "expected the fixable SQL to violate a rule");
         assert_eq!(fixed, FIXED_SQL);
@@ -246,7 +244,7 @@ mod tests {
             enabled: true,
             rules: ahash::AHashMap::new(),
         };
-        assert!(enabled_linter("ansi", Some(&cfg)).lint(sql).is_ok());
+        assert!(enabled_linter(Some(&cfg)).lint(sql).is_ok());
     }
 
     /// #113: `enabled = false` must fully disable sqruff on the lint path.
@@ -261,12 +259,10 @@ mod tests {
         };
 
         // Sanity check: this SQL does produce a violation when enabled.
-        let baseline = enabled_linter("ansi", None)
-            .lint(sql)
-            .expect("baseline lint should succeed");
+        let baseline = enabled_linter(None).lint(sql).expect("baseline lint should succeed");
         assert!(!baseline.is_empty(), "expected baseline SQL to have violations");
 
-        let built = SqruffLinter::for_linting("ansi", Some(&cfg)).expect("disabled config should not error");
+        let built = SqruffLinter::for_linting(Some(&cfg)).expect("disabled config should not error");
         assert!(
             built.is_none(),
             "enabled = false must build no linter, leaving the lint path nothing to report"
@@ -284,7 +280,7 @@ mod tests {
         };
 
         // Sanity check: the fix path does rewrite this SQL when enabled.
-        let (_, fixed) = enabled_linter("ansi", None)
+        let (_, fixed) = enabled_linter(None)
             .lint_and_fix(FIXABLE_SQL)
             .expect("baseline fix should succeed");
         assert_ne!(
@@ -292,7 +288,7 @@ mod tests {
             "expected baseline SQL to be rewritten by the fix path"
         );
 
-        let built = SqruffLinter::for_linting("ansi", Some(&cfg)).expect("disabled config should not error");
+        let built = SqruffLinter::for_linting(Some(&cfg)).expect("disabled config should not error");
         assert!(
             built.is_none(),
             "enabled = false must build no linter, so the fix path leaves the SQL untouched"
@@ -308,7 +304,7 @@ mod tests {
         rules.insert("LT02".to_string(), "warn".to_string());
         let cfg = SqruffConfig { enabled: true, rules };
 
-        let err = SqruffLinter::for_linting("ansi", Some(&cfg))
+        let err = SqruffLinter::for_linting(Some(&cfg))
             .err()
             .expect("non-off rule value must be rejected");
         match &err {
@@ -337,10 +333,10 @@ mod tests {
 
         // LT01 is already excluded by default; this must not error and
         // must behave identically to the default-excluded case.
-        let violations = enabled_linter("ansi", Some(&cfg))
+        let violations = enabled_linter(Some(&cfg))
             .lint(sql)
             .expect("off value should be accepted");
-        let baseline = enabled_linter("ansi", None).lint(sql).expect("baseline should succeed");
+        let baseline = enabled_linter(None).lint(sql).expect("baseline should succeed");
         assert_eq!(violations.len(), baseline.len());
     }
 
@@ -356,12 +352,10 @@ mod tests {
         let cfg = SqruffConfig { enabled: true, rules };
 
         // Sanity check: this SQL does produce a violation under default config.
-        let baseline = enabled_linter("ansi", None)
-            .lint(sql)
-            .expect("baseline lint should succeed");
+        let baseline = enabled_linter(None).lint(sql).expect("baseline lint should succeed");
         assert!(!baseline.is_empty(), "expected baseline SQL to have violations");
 
-        let err = SqruffLinter::for_linting("ansi", Some(&cfg))
+        let err = SqruffLinter::for_linting(Some(&cfg))
             .err()
             .expect("an unknown rule code must be diagnosed, not silently swallowed");
         assert!(matches!(err, SqruffConfigError::Linter(_)));
@@ -374,12 +368,12 @@ mod tests {
         let cfg = SqruffConfig { enabled: true, rules };
 
         assert!(
-            SqruffLinter::for_linting("ansi", Some(&cfg))
+            SqruffLinter::for_linting(Some(&cfg))
                 .expect("a usable configuration must be accepted")
                 .is_some()
         );
         assert!(
-            SqruffLinter::for_linting("ansi", None)
+            SqruffLinter::for_linting(None)
                 .expect("an absent configuration must be accepted")
                 .is_some()
         );
@@ -396,12 +390,10 @@ mod tests {
         rules.insert("ZZ99-NOT-A-REAL-RULE".to_string(), "off".to_string());
         let cfg = SqruffConfig { enabled: true, rules };
 
-        let err = SqruffLinter::new("ansi", Some(&cfg)).err().expect("must be rejected");
+        let err = SqruffLinter::new(Some(&cfg)).err().expect("must be rejected");
         assert!(matches!(err, SqruffConfigError::Linter(_)));
 
-        let err = SqruffLinter::for_linting("ansi", Some(&cfg))
-            .err()
-            .expect("must be rejected");
+        let err = SqruffLinter::for_linting(Some(&cfg)).err().expect("must be rejected");
         assert!(matches!(err, SqruffConfigError::Linter(_)));
     }
 
@@ -412,7 +404,7 @@ mod tests {
         rules.insert("LT02".to_string(), "warn".to_string());
         let cfg = SqruffConfig { enabled: true, rules };
 
-        let err = SqruffLinter::new("ansi", Some(&cfg)).err().expect("must be rejected");
+        let err = SqruffLinter::new(Some(&cfg)).err().expect("must be rejected");
         match err {
             SqruffConfigError::UnsupportedRuleValue { rule, value } => {
                 assert_eq!(rule, "LT02");
@@ -431,7 +423,7 @@ mod tests {
         rules.insert("ZZ99-NOT-A-REAL-RULE".to_string(), "off".to_string());
         let cfg = SqruffConfig { enabled: false, rules };
 
-        let built = SqruffLinter::for_linting("ansi", Some(&cfg)).expect("disabled config must not error");
+        let built = SqruffLinter::for_linting(Some(&cfg)).expect("disabled config must not error");
         assert!(built.is_none(), "a disabled config must build no linter");
     }
 
@@ -446,11 +438,11 @@ mod tests {
         };
 
         assert!(
-            SqruffLinter::new("ansi", Some(&cfg)).is_ok(),
+            SqruffLinter::new(Some(&cfg)).is_ok(),
             "fmt's constructor must build a linter even when linting is disabled"
         );
         assert!(
-            SqruffLinter::for_linting("ansi", Some(&cfg))
+            SqruffLinter::for_linting(Some(&cfg))
                 .expect("disabled config must not error")
                 .is_none()
         );
@@ -459,11 +451,11 @@ mod tests {
             enabled: true,
             rules: ahash::AHashMap::new(),
         };
-        let disabled_output = SqruffLinter::new("ansi", Some(&cfg))
+        let disabled_output = SqruffLinter::new(Some(&cfg))
             .expect("fmt's constructor must build a linter even when linting is disabled")
             .format(FIXABLE_SQL)
             .expect("fmt must format with linting disabled");
-        let enabled_output = SqruffLinter::new("ansi", Some(&enabled))
+        let enabled_output = SqruffLinter::new(Some(&enabled))
             .expect("linter should build")
             .format(FIXABLE_SQL)
             .expect("fmt must format with linting enabled");

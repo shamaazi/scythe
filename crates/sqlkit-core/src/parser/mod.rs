@@ -1,7 +1,7 @@
 use sqlparser::parser::Parser;
 
-use crate::dialect::SqlDialect;
 use crate::errors::SqlkitError;
+use sqlparser::dialect::PostgreSqlDialect;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -125,7 +125,7 @@ pub struct CustomAnnotation {
     pub suggested_keyword: Option<String>,
 }
 
-/// The annotation keywords [`parse_query_with_dialect`] recognises natively. Anything else
+/// The annotation keywords [`parse_query`] recognises natively. Anything else
 /// becomes a [`CustomAnnotation`]; [`suggest_known_keyword`] checks a rejected name against
 /// this list to flag likely typos.
 const KNOWN_ANNOTATION_KEYWORDS: &[&str] = &[
@@ -287,13 +287,8 @@ fn query_description(lines: &[&str]) -> Option<String> {
     (!kept.is_empty()).then(|| kept.join("\n"))
 }
 
-/// Parse a single annotated SQL query into a `Query` using the PostgreSQL dialect.
+/// Parse a single annotated SQL query into a `Query`.
 pub fn parse_query(query_sql: &str) -> Result<Query, SqlkitError> {
-    parse_query_with_dialect(query_sql, &SqlDialect::PostgreSQL)
-}
-
-/// Parse a single annotated SQL query into a `Query` using the specified dialect.
-pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result<Query, SqlkitError> {
     let mut name: Option<String> = None;
     let mut command: Option<QueryCommand> = None;
     let mut param_docs = Vec::new();
@@ -460,8 +455,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
     let parse_sql =
         spell_out_default_trim_characters(&end_select_list_before_on_conflict(&preprocess_postgres_sql(&sql)));
 
-    let parser_dialect = dialect.to_sqlparser_dialect();
-    let statements = Parser::parse_sql(parser_dialect.as_ref(), &parse_sql)
+    let statements = Parser::parse_sql(&PostgreSqlDialect {}, &parse_sql)
         .map_err(|e| SqlkitError::syntax(format!("syntax error: {}", e)))?;
 
     if statements.len() != 1 {

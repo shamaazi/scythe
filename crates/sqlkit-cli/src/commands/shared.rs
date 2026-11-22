@@ -2,14 +2,11 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
 
 /// Inputs shared by generate, check, lint, and configured audit catalog loading.
 pub struct CatalogLoadRequest<'a> {
     pub command: &'static str,
     pub config_name: &'a str,
-    pub engine: &'a str,
-    pub dialect: SqlDialect,
     pub schema_files: &'a [String],
 }
 
@@ -27,18 +24,18 @@ pub fn load_catalog(request: CatalogLoadRequest<'_>) -> Result<LoadedCatalog, Bo
         .map(|path| {
             std::fs::read_to_string(path).map_err(|error| {
                 format!(
-                    "{} [{}] engine `{}` failed to read schema file `{}`: {}",
-                    request.command, request.config_name, request.engine, path, error
+                    "{} [{}] failed to read schema file `{}`: {}",
+                    request.command, request.config_name, path, error
                 )
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     let schema_refs = schema_contents.iter().map(String::as_str).collect::<Vec<_>>();
-    let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &request.dialect).map_err(|error| {
+    let catalog = Catalog::from_ddl(&schema_refs).map_err(|error| {
         format!(
-            "{} [{}] engine `{}` failed to parse configured schema: {}",
-            request.command, request.config_name, request.engine, error
+            "{} [{}] failed to parse configured schema: {}",
+            request.command, request.config_name, error
         )
     })?;
 
@@ -109,96 +106,24 @@ pub fn has_unannotated_sql(content: &str) -> bool {
     saw_content
 }
 
-/// Map sqlkit engine names to sqruff dialect names.
-pub fn engine_to_sqruff_dialect(engine: &str) -> &str {
-    match engine {
-        "postgresql" | "postgres" | "pg" => "postgres",
-        _ => "ansi",
-    }
-}
-
-/// Every dialect name `sqruff_lib_core::dialects::init::DialectKind` accepts
-/// (`DialectKind::name()`). sqlkit-cli does not depend on sqruff-lib
-/// directly -- `sqlkit-lint` wraps it -- so this list is duplicated here
-/// deliberately: it is what lets [`validate_dialect`] reject a bad
-/// `--dialect` value *before* it reaches `FluffConfig::from_source`, which
-/// resolves an unrecognized dialect string via `DialectKind::from_str(..).unwrap()`
-/// and panics (exit 101) rather than returning an error. See issue #205.
-const KNOWN_SQRUFF_DIALECTS: &[&str] = &["ansi", "postgres"];
-
-/// sqlkit engine aliases [`engine_to_sqruff_dialect`] recognizes -- listed so
-/// [`validate_dialect`] can tell "a recognized sqlkit engine alias" (which
-/// must translate through [`engine_to_sqruff_dialect`], e.g. `postgresql` ->
-/// `postgres`) apart from "unrecognized input" (which must be rejected, not
-/// silently degraded to `ansi` the way [`engine_to_sqruff_dialect`]'s
-/// catch-all does for config-derived engine values).
-const KNOWN_ENGINE_ALIASES: &[&str] = &["postgresql", "postgres", "pg"];
-
-/// Validate and normalize a `--dialect` value supplied on the command line
-/// (`fmt --dialect`, `lint --dialect`) into a sqruff dialect name sqruff-lib
-/// is guaranteed to accept.
-///
-/// Accepts two kinds of input, case-insensitively:
-/// - A sqruff dialect name: `postgres`, or `ansi` for generic SQL.
-/// - A sqlkit engine alias ([`engine_to_sqruff_dialect`]'s canonical
-///   input set, e.g. `postgresql`, `pg`), translated to its
-///   sqruff equivalent.
-///
-/// Anything else -- a typo, another engine's dialect, or gibberish -- is rejected with a message listing every accepted value,
-/// instead of being passed through to sqruff-lib where it panics (see
-/// [`KNOWN_SQRUFF_DIALECTS`]'s doc comment).
-pub fn validate_dialect(raw: &str) -> Result<String, String> {
-    let lower = raw.to_ascii_lowercase();
-    if KNOWN_SQRUFF_DIALECTS.contains(&lower.as_str()) {
-        return Ok(lower);
-    }
-    if KNOWN_ENGINE_ALIASES.contains(&lower.as_str()) {
-        return Ok(engine_to_sqruff_dialect(&lower).to_string());
-    }
-    Err(format!(
-        "unknown SQL dialect '{raw}'; accepted values: {}",
-        KNOWN_SQRUFF_DIALECTS.join(", ")
-    ))
-}
-
-/// Try to read the SQL dialect from a sqlkit.toml config file.
-///
-/// Returns `Ok(None)` when the config file does not exist -- a legitimate,
-/// common case in explicit-file mode (`sqlkit fmt`/`sqlkit lint` on a bare
-/// file list, with no project config at all). Returns `Err` when the file
-/// *does* exist but cannot be read or fails to parse as valid TOML, instead
-/// of silently degrading to `Ok(None)` (which every caller then reads as "no
-/// dialect configured" and defaults to `ansi`).
-///
-/// Before this distinction, `sqlkit lint --config broken.toml pg.sql`
-/// swallowed a genuinely invalid `--config` and linted with the wrong
-/// dialect with no error at all -- see issue #206, item 4.
-pub fn dialect_from_config(config_path: &str) -> Result<Option<String>, String> {
+/// Deserialize a `[[sql]] engine`. The key is optional, since PostgreSQL is the only engine;
+/// when present it must name PostgreSQL. Every command reads `engine` through this function,
+/// so this is the one place it is validated.
+pub fn deserialize_engine<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
     use serde::Deserialize;
 
-    #[derive(Deserialize)]
-    struct MinConfig {
-        sql: Vec<MinSql>,
+    let engine = Option::<String>::deserialize(deserializer)?;
+    if let Some(engine) = &engine
+        && !matches!(engine.to_ascii_lowercase().as_str(), "postgresql" | "postgres" | "pg")
+    {
+        return Err(serde::de::Error::custom(format!(
+            "unsupported engine '{engine}': sqlkit supports PostgreSQL only (`postgresql`, `postgres` or `pg`;              the key may also be omitted)"
+        )));
     }
-
-    #[derive(Deserialize)]
-    struct MinSql {
-        #[serde(default)]
-        engine: Option<String>,
-    }
-
-    let config_str = match std::fs::read_to_string(config_path) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("failed to read config '{config_path}': {e}")),
-    };
-    let config: MinConfig =
-        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{config_path}': {e}"))?;
-    Ok(config
-        .sql
-        .first()
-        .and_then(|s| s.engine.as_deref())
-        .map(|e| engine_to_sqruff_dialect(e).to_string()))
+    Ok(engine)
 }
 
 /// Redact the password component of a connection URL like
@@ -427,13 +352,11 @@ mod tests {
         let schema = "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);";
         std::fs::write(&schema_path, schema).unwrap();
         let schema_files = vec![schema_path.display().to_string()];
-        let expected = Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::PostgreSQL).unwrap();
+        let expected = Catalog::from_ddl(&[schema]).unwrap();
 
         let loaded = load_catalog(CatalogLoadRequest {
             command: "generate",
             config_name: "main",
-            engine: "postgresql",
-            dialect: SqlDialect::PostgreSQL,
             schema_files: &schema_files,
         })
         .unwrap();
@@ -584,34 +507,6 @@ mod tests {
     fn has_unannotated_sql_allows_well_formed_file() {
         let content = "-- name: GetUser :one\nSELECT * FROM users WHERE id = $1;\n\n-- name: ListUsers :many\nSELECT * FROM users;\n";
         assert!(!has_unannotated_sql(content));
-    }
-
-    /// The exact canonical sqlkit engine name (`postgresql`) must validate,
-    /// not just sqruff's own `postgres` spelling -- #205's headline
-    /// reproduction is this alias panicking.
-    #[test]
-    fn validate_dialect_accepts_canonical_sqlkit_engine_aliases() {
-        assert_eq!(validate_dialect("postgresql").unwrap(), "postgres");
-        assert_eq!(validate_dialect("pg").unwrap(), "postgres");
-    }
-
-    /// sqruff-native dialect names not present in sqlkit's own engine alias
-    /// table (e.g. `ansi`) must still validate, case-insensitively.
-    #[test]
-    fn validate_dialect_accepts_native_sqruff_dialect_names() {
-        assert_eq!(validate_dialect("ANSI").unwrap(), "ansi");
-        assert_eq!(validate_dialect("Postgres").unwrap(), "postgres");
-    }
-
-    /// Gibberish must be rejected with a message naming the accepted values,
-    /// never passed through to sqruff-lib where `DialectKind::from_str(..).unwrap()`
-    /// panics (exit 101).
-    #[test]
-    fn validate_dialect_rejects_unknown_values_with_accepted_list() {
-        let err = validate_dialect("klingon").unwrap_err();
-        assert!(err.contains("klingon"));
-        assert!(err.contains("postgres"));
-        assert!(err.contains("ansi"));
     }
 
     #[test]

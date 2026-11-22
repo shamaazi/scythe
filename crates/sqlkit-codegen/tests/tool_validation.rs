@@ -16,8 +16,7 @@ use sqlkit_codegen::validation::{ToolValidation, strict_mode_enabled, validate_s
 use sqlkit_codegen::{CodegenBackend, generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 // ~keep #146: the schema shared by every full generate-and-compile round in
 // this file. Before this it
@@ -58,19 +57,19 @@ const QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
 
 fn generate_full_file(backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").unwrap();
-    generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::PostgreSQL)
+    generate_full_file_from_backend(backend_name, &*backend)
 }
 
 fn generate_full_file_with_options(backend_name: &str, options: &std::collections::HashMap<String, String>) -> String {
     let mut backend = get_backend(backend_name, "postgresql").unwrap();
     backend.apply_options(options).unwrap();
-    generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::PostgreSQL)
+    generate_full_file_from_backend(backend_name, &*backend)
 }
 
-fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBackend, dialect: &SqlDialect) -> String {
+fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBackend) -> String {
     let (schema, queries, engine) = (SCHEMA, [QUERY_ONE, QUERY_MANY, QUERY_EXEC], "postgresql");
 
-    let catalog = Catalog::from_ddl_with_dialect(&[schema], dialect).unwrap();
+    let catalog = Catalog::from_ddl(&[schema]).unwrap();
 
     // ~keep Swallowing a codegen error here (and letting the loop continue with
     // whatever queries did succeed) let a broken backend pass this harness as
@@ -82,7 +81,7 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
     // query that broke, not get logged to a captured stderr no one reads.
     let mut all_codes = Vec::new();
     for query_sql in queries {
-        let parsed = parse_query_with_dialect(query_sql, dialect).unwrap();
+        let parsed = parse_query(query_sql).unwrap();
         let analyzed = analyze(&catalog, &parsed).unwrap();
         let code = generate_with_backend(&analyzed, backend)
             .unwrap_or_else(|e| panic!("codegen error for backend {backend_name} on query {query_sql:?}: {e}"));
@@ -292,16 +291,15 @@ const JS_MODE_GROUPED: &str = "-- @name GetUsersWithOrders\n-- @returns :grouped
 fn generate_js_mode_nullable_and_grouped_file(
     backend_name: &str,
     engine: &str,
-    dialect: &SqlDialect,
     schema: &[&str],
     one_sql: &str,
 ) -> String {
     let backend = get_backend(backend_name, engine).unwrap();
-    let catalog = Catalog::from_ddl_with_dialect(schema, dialect).unwrap();
+    let catalog = Catalog::from_ddl(schema).unwrap();
 
     let mut all_codes = Vec::new();
     for query_sql in [one_sql, JS_MODE_MANY, JS_MODE_GROUPED] {
-        let parsed = parse_query_with_dialect(query_sql, dialect).unwrap();
+        let parsed = parse_query(query_sql).unwrap();
         let analyzed = analyze(&catalog, &parsed).unwrap();
         let code = generate_with_backend(&analyzed, &*backend).unwrap();
         all_codes.push(code);
@@ -374,7 +372,6 @@ fn test_javascript_postgres_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
         "javascript-postgres",
         "postgresql",
-        &SqlDialect::PostgreSQL,
         &JS_MODE_POSTGRES_SCHEMA,
         JS_MODE_POSTGRES_ONE,
     );
@@ -397,7 +394,6 @@ fn test_javascript_bun_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
         "javascript-bun",
         "postgresql",
-        &SqlDialect::PostgreSQL,
         &JS_MODE_POSTGRES_SCHEMA,
         JS_MODE_POSTGRES_ONE,
     );

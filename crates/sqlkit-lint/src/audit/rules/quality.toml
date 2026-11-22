@@ -5,7 +5,6 @@ id = "SC-CHK01"
 name = "check-constraint-always-true"
 category = "antipattern"
 severity = "warn"
-dialects = ["postgres"]
 cwe = []
 description = "CHECK constraint expression is a tautology (`true`, `1 = 1`, …) — enforces nothing, likely a stub or copy-paste mistake"
 message = "CHECK constraint on `{table}` is always true — replace the tautology with the predicate the constraint is supposed to enforce, or drop the constraint"

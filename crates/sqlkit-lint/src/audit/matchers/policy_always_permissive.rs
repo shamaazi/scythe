@@ -94,7 +94,6 @@ mod tests {
     use super::*;
     use sqlkit_core::analyzer::AnalyzedQuery;
     use sqlkit_core::catalog::Catalog;
-    use sqlkit_core::dialect::SqlDialect;
     use sqlkit_core::parser::{Annotations, QueryCommand};
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
@@ -146,7 +145,6 @@ mod tests {
             analyzed,
             catalog,
             annotations,
-            dialect: SqlDialect::PostgreSQL,
         }
     }
 

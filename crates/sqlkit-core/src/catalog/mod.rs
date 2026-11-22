@@ -13,8 +13,8 @@ use sqlparser::ast::{
 };
 use sqlparser::parser::Parser;
 
-use crate::dialect::SqlDialect;
 use crate::errors::SqlkitError;
+use sqlparser::dialect::PostgreSqlDialect;
 
 use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key, object_name_to_raw_name};
 
@@ -35,8 +35,6 @@ pub struct Catalog {
     functions: AHashMap<String, Vec<Function>>,
     /// Domain name -> resolved base type (lowercase)
     domains: AHashMap<String, DomainDef>,
-    /// SQL dialect this catalog was parsed with.
-    dialect: SqlDialect,
     search_path: Option<Vec<String>>,
     relation_names: AHashMap<String, CatalogObjectName>,
     relation_kinds: AHashMap<String, RelationKind>,
@@ -118,7 +116,7 @@ pub struct Table {
     /// This exists because [`Catalog`]'s tables map is keyed by
     /// [`object_name_to_key`], which lowercases every identifier
     /// unconditionally -- quoted or not -- so that lookups stay
-    /// case-insensitive the way every supported SQL dialect treats
+    /// case-insensitive the way PostgreSQL treats
     /// unqualified references. That lowercasing is correct for lookup but
     /// destroys the one signal a naming-convention lint needs: whether the
     /// author actually wrote `"UserProfile"`.
@@ -126,7 +124,7 @@ pub struct Table {
     /// `raw_name` is populated via [`object_name_to_raw_name`], which
     /// mirrors [`ident_to_lower`]'s quote-aware rule: a quoted identifier
     /// keeps its literal casing, an unquoted one is folded to lowercase (the
-    /// same case-folding every dialect here applies to unquoted
+    /// same case-folding PostgreSQL applies to unquoted
     /// identifiers). Concretely: for a bare `CREATE TABLE user_profiles`,
     /// `raw_name` is `"user_profiles"` -- identical to the lookup key's bare
     /// name, so a lint keyed on `raw_name` behaves exactly as it would
@@ -181,17 +179,12 @@ fn input_signature(function: &Function) -> Vec<&str> {
 
 impl Catalog {
     pub fn from_ddl(schema_sql: &[&str]) -> Result<Catalog, SqlkitError> {
-        Self::from_ddl_with_dialect(schema_sql, &SqlDialect::PostgreSQL)
-    }
-
-    pub fn from_ddl_with_dialect(schema_sql: &[&str], dialect: &SqlDialect) -> Result<Catalog, SqlkitError> {
         let mut catalog = Catalog {
             tables: AHashMap::new(),
             enums: AHashMap::new(),
             composites: AHashMap::new(),
             functions: AHashMap::new(),
             domains: AHashMap::new(),
-            dialect: *dialect,
             search_path: None,
             relation_names: AHashMap::new(),
             relation_kinds: AHashMap::new(),
@@ -204,8 +197,6 @@ impl Catalog {
             view_queries: Vec::new(),
         };
 
-        let parser_dialect = dialect.to_sqlparser_dialect();
-
         for sql in schema_sql {
             let filtered = Self::strip_psql_meta_commands(sql);
             let mut cleaned = catalog.extract_unsupported_statements(&filtered);
@@ -217,10 +208,10 @@ impl Catalog {
             }
 
             let statements =
-                Parser::parse_sql(parser_dialect.as_ref(), &cleaned).map_err(|e| SqlkitError::syntax(e.to_string()))?;
+                Parser::parse_sql(&PostgreSqlDialect {}, &cleaned).map_err(|e| SqlkitError::syntax(e.to_string()))?;
 
             for stmt in statements {
-                catalog.process_statement(stmt, dialect)?;
+                catalog.process_statement(stmt)?;
             }
         }
 
@@ -228,11 +219,6 @@ impl Catalog {
         // the schema, so they are analyzed once all of it is loaded.
         catalog.refine_function_results();
         Ok(catalog)
-    }
-
-    /// The SQL dialect this catalog was parsed with.
-    pub(crate) fn dialect(&self) -> SqlDialect {
-        self.dialect
     }
 
     pub fn get_table(&self, name: &str) -> Option<&Table> {
@@ -624,9 +610,8 @@ impl Catalog {
         let not_null = top_level_contains_keyword(rest_upper, "NOT NULL");
 
         let mut constraints = ColumnConstraints::default();
-        let parser_dialect = self.dialect.to_sqlparser_dialect();
         let normalized = match Parser::parse_sql(
-            parser_dialect.as_ref(),
+            &PostgreSqlDialect {},
             &format!("CREATE TABLE _domain_tmp_ (_col_ {})", base_type_raw),
         ) {
             Ok(stmts) => {
@@ -647,7 +632,7 @@ impl Catalog {
 
         for (name, body) in constraints::domain_checks(&rest[end_pos..]) {
             let body = crate::parser::spell_out_default_trim_characters(&body);
-            let parsed = Parser::new(parser_dialect.as_ref())
+            let parsed = Parser::new(&PostgreSqlDialect {})
                 .try_with_sql(&body)
                 .and_then(|mut parser| parser.parse_expr());
             constraints.checks.push(match parsed {
@@ -669,7 +654,7 @@ impl Catalog {
 }
 
 impl Catalog {
-    fn process_statement(&mut self, stmt: Statement, dialect: &SqlDialect) -> Result<(), SqlkitError> {
+    fn process_statement(&mut self, stmt: Statement) -> Result<(), SqlkitError> {
         match stmt {
             Statement::CreateTable(ct) => self.process_create_table(ct),
             Statement::AlterTable(alter_table) => self.process_alter_table(alter_table.name, alter_table.operations),
@@ -682,7 +667,7 @@ impl Catalog {
             }
             Statement::AlterType(alter_type) => self.process_alter_type(alter_type.name, alter_type.operation),
             Statement::CreateView(cv) => self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized),
-            Statement::CreateFunction(function) => self.process_create_function(function, dialect),
+            Statement::CreateFunction(function) => self.process_create_function(function),
             Statement::Comment {
                 object_type,
                 object_name,
@@ -728,7 +713,7 @@ impl Catalog {
         }
     }
 
-    fn process_create_function(&mut self, definition: CreateFunction, dialect: &SqlDialect) -> Result<(), SqlkitError> {
+    fn process_create_function(&mut self, definition: CreateFunction) -> Result<(), SqlkitError> {
         let key = object_name_to_key(&definition.name);
         let mut arguments = Vec::new();
         for argument in definition.args.unwrap_or_default() {
@@ -785,7 +770,6 @@ impl Catalog {
             definition.language.as_ref(),
             returns_set,
             &return_type,
-            *dialect,
         );
         let function = Function {
             arguments,
@@ -1644,13 +1628,10 @@ mod tests {
 
     #[test]
     fn test_postgresql_generated_identity_is_preserved() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE test (
+        let catalog = Catalog::from_ddl(&["CREATE TABLE test (
                 id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 name TEXT NOT NULL
-            );"],
-            &crate::dialect::SqlDialect::PostgreSQL,
-        )
+            );"])
         .unwrap();
 
         let table = catalog.get_table("test").unwrap();
@@ -1662,14 +1643,11 @@ mod tests {
 
     #[test]
     fn test_identity_column_name_is_preserved() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE test (
+        let catalog = Catalog::from_ddl(&["CREATE TABLE test (
                 id BIGINT PRIMARY KEY,
                 identity TEXT NOT NULL,
                 other INTEGER
-            );"],
-            &crate::dialect::SqlDialect::PostgreSQL,
-        )
+            );"])
         .unwrap();
 
         let table = catalog.get_table("test").unwrap();
@@ -1770,8 +1748,8 @@ EXECUTE FUNCTION audit_row('api_key');\n";
 
         let schema = format!("{schema}CREATE TABLE audit_targets (id uuid PRIMARY KEY);\n");
 
-        let catalog = Catalog::from_ddl_with_dialect(&[&schema], &crate::dialect::SqlDialect::PostgreSQL)
-            .expect("PostgreSQL trigger arguments must not prevent catalog construction");
+        let catalog =
+            Catalog::from_ddl(&[&schema]).expect("PostgreSQL trigger arguments must not prevent catalog construction");
 
         assert_eq!(catalog.tables_iter().count(), 2);
         assert_eq!(
@@ -1796,7 +1774,7 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
 
         let schema = format!("{schema}CREATE TABLE audit_targets (id uuid PRIMARY KEY);\n");
 
-        let catalog = Catalog::from_ddl_with_dialect(&[&schema], &crate::dialect::SqlDialect::PostgreSQL)
+        let catalog = Catalog::from_ddl(&[&schema])
             .expect("legacy PostgreSQL procedure trigger arguments must not prevent catalog construction");
 
         assert_eq!(catalog.tables_iter().count(), 2);
@@ -2070,8 +2048,7 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
 
     #[test]
     fn test_postgresql_primary_key_still_implies_not_null() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (k INT PRIMARY KEY);"], &SqlDialect::PostgreSQL).unwrap();
+        let catalog = Catalog::from_ddl(&["CREATE TABLE t (k INT PRIMARY KEY);"]).unwrap();
         let table = catalog.get_table("t").unwrap();
         let k = &table.columns[0];
         assert!(k.primary_key);
@@ -2083,11 +2060,7 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
 
     #[test]
     fn test_postgresql_composite_primary_key_still_implies_not_null() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (a INT, b INT, PRIMARY KEY (a, b));"],
-            &SqlDialect::PostgreSQL,
-        )
-        .unwrap();
+        let catalog = Catalog::from_ddl(&["CREATE TABLE t (a INT, b INT, PRIMARY KEY (a, b));"]).unwrap();
         let table = catalog.get_table("t").unwrap();
         let a = table.columns.iter().find(|c| c.name == "a").unwrap();
         let b = table.columns.iter().find(|c| c.name == "b").unwrap();

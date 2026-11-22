@@ -20,7 +20,6 @@ use sqlkit_core::catalog::{
     Catalog, CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
     DomainDefinition, EnumDefinition, RelationDefinition,
 };
-use sqlkit_core::dialect::SqlDialect;
 use tokio_postgres::Client;
 use tokio_postgres::types::{Kind, Type};
 
@@ -158,7 +157,7 @@ pub async fn fetch_live_catalog(client: &Client, declared_schemas: &[String]) ->
 
     let mut unused_description = SchemaDescription::new();
     let relations = fetch_tables(client, &types, &enum_labels, &scope, &mut unused_description).await?;
-    let mut builder = CatalogBuilder::new(SqlDialect::PostgreSQL).search_path(scope.clone());
+    let mut builder = CatalogBuilder::new().search_path(scope.clone());
     for relation in relations {
         builder = builder.relation(relation);
     }
@@ -813,7 +812,7 @@ mod tests {
         ];
         let winners = std::collections::HashSet::from([composite_oid]);
         let definitions = catalog_composite_definitions(&rows, &HashMap::new(), &winners);
-        let catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let catalog = CatalogBuilder::new()
             .composite(definitions.into_iter().next().expect("composite definition"))
             .build()
             .expect("catalog");

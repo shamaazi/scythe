@@ -199,7 +199,7 @@ pub struct ExpectedQuery {
     /// `Option`, not a plain `Vec`: an omitted key means "this fixture says
     /// nothing about nested structs" and asserts nothing, while an explicit
     /// `[]` asserts there are none — which is the whole point of the
-    /// dialect-gate and `array_agg`/`string_agg` guardrail fixtures.
+    /// `array_agg`/`string_agg` guardrail fixtures.
     #[serde(default)]
     pub nested_structs: Option<Vec<ExpectedNestedStruct>>,
 }

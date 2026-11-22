@@ -23,8 +23,7 @@ use sqlkit_codegen::validation::{ToolValidation, strict_mode_enabled, validate_w
 use sqlkit_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 /// `inner_thing` covers int32/string/bool composite-field conversion; `widget_address` embeds
 /// it as a field (nested-composite recursion). `tag_only` selects `inner_thing` directly, not
@@ -44,8 +43,8 @@ const QUERY: &str = "-- @name GetWidget\n-- @returns :one\n\
     SELECT id, home_address, home_address_required, tag_only FROM widgets WHERE id = $1;";
 
 fn generate(backend: &dyn CodegenBackend, sql: &str) -> GeneratedCode {
-    let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).expect("schema must parse");
-    let parsed = parse_query_with_dialect(sql, &SqlDialect::PostgreSQL).expect("query must parse");
+    let catalog = Catalog::from_ddl(&[SCHEMA]).expect("schema must parse");
+    let parsed = parse_query(sql).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     generate_with_backend(&analyzed, backend).expect("codegen must succeed")
 }

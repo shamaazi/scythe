@@ -129,15 +129,7 @@ impl LintRule for MatcherRule {
         }
     }
 
-    fn is_applicable_to(&self, dialect: sqlkit_core::dialect::SqlDialect) -> bool {
-        self.spec.dialects.is_empty() || self.spec.dialects.contains(&dialect)
-    }
-
     fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
-        if !self.is_applicable_to(ctx.dialect) {
-            return Vec::new();
-        }
-
         (self.matcher_fn)(ctx, &self.spec.matcher_args)
             .into_iter()
             .map(|hit: MatcherHit| Violation {
@@ -196,7 +188,6 @@ mod tests {
 
     use sqlkit_core::analyzer::AnalyzedQuery;
     use sqlkit_core::catalog::Catalog;
-    use sqlkit_core::dialect::SqlDialect;
     use sqlkit_core::parser::{Annotations, QueryCommand};
     use sqlparser::ast::Statement;
     use sqlparser::dialect::PostgreSqlDialect;
@@ -259,7 +250,6 @@ mod tests {
             name: "test-rule".to_string(),
             category: RuleCategory::Security,
             severity,
-            dialects: vec![],
             cwe: vec![],
             description: "test description (CWE-78)".to_string(),
             message: message.to_string(),
@@ -281,7 +271,6 @@ mod tests {
             analyzed,
             catalog,
             annotations,
-            dialect: SqlDialect::PostgreSQL,
         }
     }
 

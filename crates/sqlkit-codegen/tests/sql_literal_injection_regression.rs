@@ -32,8 +32,7 @@ use sqlkit_codegen::validation::strict_mode_enabled;
 use sqlkit_codegen::{GeneratedCode, generate_with_backend, get_backend, provenance};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 const SCHEMA: &str = "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);";
 
@@ -42,20 +41,14 @@ const SCHEMA: &str = "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT N
 /// compilers must see the same bytes `sqlkit generate` would write, not a
 /// hand-trimmed fragment.
 fn generate_full_file(backend_name: &str, query_sql: &str) -> String {
-    generate_full_file_for_engine(backend_name, "postgresql", &SqlDialect::PostgreSQL, SCHEMA, query_sql)
+    generate_full_file_for_engine(backend_name, "postgresql", SCHEMA, query_sql)
 }
 
-fn generate_full_file_for_engine(
-    backend_name: &str,
-    engine: &str,
-    dialect: &SqlDialect,
-    schema: &str,
-    query_sql: &str,
-) -> String {
+fn generate_full_file_for_engine(backend_name: &str, engine: &str, schema: &str, query_sql: &str) -> String {
     let backend = get_backend(backend_name, engine)
         .unwrap_or_else(|e| panic!("backend {backend_name} must support engine {engine}: {e}"));
-    let catalog = Catalog::from_ddl_with_dialect(&[schema], dialect).expect("schema must parse");
-    let parsed = parse_query_with_dialect(query_sql, dialect).expect("query must parse");
+    let catalog = Catalog::from_ddl(&[schema]).expect("schema must parse");
+    let parsed = parse_query(query_sql).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
     let codes = [code];

@@ -16,8 +16,6 @@ use ahash::AHashMap;
 
 use sha2::{Digest, Sha256};
 
-use crate::dialect::SqlDialect;
-
 use super::{Catalog, CatalogObjectName, GeneratedColumnKind, RelationKind};
 
 /// Version tag for the fingerprint algorithm itself.
@@ -51,8 +49,7 @@ impl Catalog {
     /// same tables (name, columns, column order, column type, column
     /// nullability, primary-key flags), the same enum types (name, ordered
     /// values), the same composite types (name, ordered fields), the same
-    /// domain types (name, base type, `NOT NULL`-ness), and the same
-    /// [`SqlDialect`].
+    /// domain types (name, base type, `NOT NULL`-ness).
     ///
     /// # Stability guarantees
     ///
@@ -80,7 +77,6 @@ impl Catalog {
     ///   different file than the table that uses it in a multi-file schema,
     ///   never surfaces through any table's resolved column type -- so it
     ///   needs its own line to be covered at all.
-    /// - The dialect this catalog was parsed with.
     /// - Inspected metadata that changes how a catalog is consumed: views,
     ///   generated-column persistence, materially distinct database-reported
     ///   types, and preserved qualified or case-sensitive object names.
@@ -129,7 +125,8 @@ impl Catalog {
     fn canonical_form(&self) -> String {
         let mut lines: Vec<String> = Vec::new();
 
-        lines.push(format!("dialect\t{}", dialect_tag(self.dialect)));
+        // Kept from when catalogs had a dialect, so released fingerprints do not move.
+        lines.push("dialect\tpostgresql".to_string());
 
         for (key, table) in canonical_entries(&self.tables) {
             let key = escape_component(&key);
@@ -356,13 +353,6 @@ fn generated_column_kind_tag(kind: GeneratedColumnKind) -> &'static str {
     }
 }
 
-/// Stable string tag for a dialect, hashed into the fingerprint.
-fn dialect_tag(dialect: SqlDialect) -> &'static str {
-    match dialect {
-        SqlDialect::PostgreSQL => "postgresql",
-    }
-}
-
 /// Return `(key, value)` pairs from `map`, sorted by key, with a single
 /// leading schema qualifier stripped — mirroring [`Catalog::get_table`]
 /// (`catalog/mod.rs`'s `get_table`), which already treats `myschema.users`
@@ -484,7 +474,6 @@ mod tests {
         CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
         DomainDefinition, EnumDefinition, GeneratedColumnKind, RelationDefinition,
     };
-    use crate::dialect::SqlDialect;
 
     use super::Catalog;
 
@@ -544,7 +533,7 @@ mod tests {
     #[test]
     fn test_inspected_column_default_change_produces_same_hash() {
         let build = |default: &str| {
-            CatalogBuilder::new(SqlDialect::PostgreSQL)
+            CatalogBuilder::new()
                 .relation(RelationDefinition::table(
                     CatalogObjectName::new("items"),
                     vec![ColumnDefinition::new("quantity", "INTEGER", false).default(default)],
@@ -562,14 +551,14 @@ mod tests {
 
     #[test]
     fn test_inspected_table_and_view_produce_different_hashes() {
-        let table = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let table = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("items"),
                 vec![ColumnDefinition::new("id", "INTEGER", false)],
             ))
             .build()
             .expect("valid inspected table");
-        let view = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let view = CatalogBuilder::new()
             .relation(RelationDefinition::view(
                 CatalogObjectName::new("items"),
                 vec![ColumnDefinition::new("id", "INTEGER", false)],
@@ -583,7 +572,7 @@ mod tests {
     #[test]
     fn test_inspected_virtual_and_stored_columns_produce_different_hashes() {
         let build = |kind| {
-            CatalogBuilder::new(SqlDialect::PostgreSQL)
+            CatalogBuilder::new()
                 .relation(RelationDefinition::table(
                     CatalogObjectName::new("items"),
                     vec![ColumnDefinition::new("computed", "INTEGER", false).generated(kind)],
@@ -601,7 +590,7 @@ mod tests {
     #[test]
     fn test_materially_distinct_raw_column_type_changes_hash() {
         let build = |raw_type: &str| {
-            CatalogBuilder::new(SqlDialect::PostgreSQL)
+            CatalogBuilder::new()
                 .relation(RelationDefinition::table(
                     CatalogObjectName::new("items"),
                     vec![ColumnDefinition::new("id", raw_type, false).resolved_sql_type("integer")],
@@ -616,7 +605,7 @@ mod tests {
     #[test]
     fn test_materially_distinct_raw_domain_type_changes_hash() {
         let build = || {
-            CatalogBuilder::new(SqlDialect::PostgreSQL)
+            CatalogBuilder::new()
                 .domain(DomainDefinition::new(
                     CatalogObjectName::new("identifier"),
                     "bigint",
@@ -638,7 +627,7 @@ mod tests {
 
     #[test]
     fn test_preserved_qualified_and_caseful_names_change_hash() {
-        let bare = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let bare = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("items"),
                 vec![ColumnDefinition::new("id", "integer", false)],
@@ -655,7 +644,7 @@ mod tests {
             ))
             .build()
             .expect("valid normalized catalog");
-        let preserved = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let preserved = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::qualified("Public", "Items"),
                 vec![ColumnDefinition::new("id", "integer", false)],
@@ -678,10 +667,8 @@ mod tests {
 
     #[test]
     fn test_default_inspection_metadata_remains_parser_compatible() {
-        let parsed =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE items (id INTEGER NOT NULL);"], &SqlDialect::PostgreSQL)
-                .expect("valid DDL catalog");
-        let inspected = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let parsed = Catalog::from_ddl(&["CREATE TABLE items (id INTEGER NOT NULL);"]).expect("valid DDL catalog");
+        let inspected = CatalogBuilder::new()
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("items"),
                 vec![ColumnDefinition::new("id", "INTEGER", false)],
@@ -714,7 +701,7 @@ mod tests {
     #[test]
     fn test_composite_field_nullability_participates() {
         let build = |nullable| {
-            CatalogBuilder::new(SqlDialect::PostgreSQL)
+            CatalogBuilder::new()
                 .composite(CompositeDefinition::new(
                     CatalogObjectName::new("address"),
                     vec![CompositeFieldDefinition::new("zip", "text", nullable)],
@@ -727,26 +714,21 @@ mod tests {
 
     #[test]
     fn test_public_prefix_stripped_when_no_collision() {
-        let a = Catalog::from_ddl_with_dialect(&["CREATE TABLE public.users (id INTEGER);"], &SqlDialect::PostgreSQL)
-            .unwrap();
-        let b = Catalog::from_ddl_with_dialect(&["CREATE TABLE users (id INTEGER);"], &SqlDialect::PostgreSQL).unwrap();
+        let a = Catalog::from_ddl(&["CREATE TABLE public.users (id INTEGER);"]).unwrap();
+        let b = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER);"]).unwrap();
 
         assert_eq!(a.fingerprint(), b.fingerprint());
     }
 
     #[test]
     fn test_public_schema_collision_falls_back_to_raw_keys() {
-        let base = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE public.users (id INTEGER); CREATE TABLE users (name TEXT);"],
-            &SqlDialect::PostgreSQL,
-        )
-        .unwrap();
+        let base =
+            Catalog::from_ddl(&["CREATE TABLE public.users (id INTEGER); CREATE TABLE users (name TEXT);"]).unwrap();
         let fp_base = base.fingerprint();
 
-        let changed_bare = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE public.users (id INTEGER); CREATE TABLE users (name TEXT, extra BOOLEAN);"],
-            &SqlDialect::PostgreSQL,
-        )
+        let changed_bare = Catalog::from_ddl(&[
+            "CREATE TABLE public.users (id INTEGER); CREATE TABLE users (name TEXT, extra BOOLEAN);",
+        ])
         .unwrap();
         assert_ne!(
             fp_base,
@@ -754,10 +736,9 @@ mod tests {
             "changing the bare `users` table must change the hash even though `public.users` also exists"
         );
 
-        let changed_qualified = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE public.users (id INTEGER, extra BOOLEAN); CREATE TABLE users (name TEXT);"],
-            &SqlDialect::PostgreSQL,
-        )
+        let changed_qualified = Catalog::from_ddl(&[
+            "CREATE TABLE public.users (id INTEGER, extra BOOLEAN); CREATE TABLE users (name TEXT);",
+        ])
         .unwrap();
         assert_ne!(
             fp_base,
@@ -771,11 +752,8 @@ mod tests {
         // The pre-fix strip only recognized the literal `public.` prefix.
         // `get_table` strips *any* single leading qualifier, so
         // `myschema.users` and `users` must fingerprint the same too.
-        let qualified =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE myschema.users (id INTEGER);"], &SqlDialect::PostgreSQL)
-                .unwrap();
-        let bare =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE users (id INTEGER);"], &SqlDialect::PostgreSQL).unwrap();
+        let qualified = Catalog::from_ddl(&["CREATE TABLE myschema.users (id INTEGER);"]).unwrap();
+        let bare = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER);"]).unwrap();
 
         assert_eq!(
             qualified.fingerprint(),
@@ -881,7 +859,7 @@ mod tests {
     /// - `table`/`column` lines, including nullability and primary-key flags
     /// - `enum` lines, whose values are joined with `|`
     /// - `composite` lines, whose fields are joined with `|` and `:`
-    /// - the `dialect` line
+    /// - the constant `dialect` line
     /// - the PostgreSQL `public.` qualifier strip
     ///
     /// **Updating these values is never routine.** A deliberate algorithm
@@ -891,31 +869,27 @@ mod tests {
     /// be observable moved a value, the change was observable; fix the change.
     #[test]
     fn test_fingerprints_are_pinned_to_their_released_values() {
-        let cases: &[(&str, SqlDialect, &str)] = &[
+        let cases: &[(&str, &str)] = &[
             (
                 "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, bio TEXT);",
-                SqlDialect::PostgreSQL,
                 "sch2:4bf6bb703d5818da",
             ),
             (
                 "CREATE TYPE status AS ENUM ('active', 'inactive', 'banned');",
-                SqlDialect::PostgreSQL,
                 "sch2:b23bd2728dc1df1c",
             ),
             (
                 "CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);",
-                SqlDialect::PostgreSQL,
                 "sch2:d6d144db11d41ec2",
             ),
             (
                 "CREATE TABLE public.users (id INTEGER PRIMARY KEY);",
-                SqlDialect::PostgreSQL,
                 "sch2:83901ff72944cf53",
             ),
         ];
 
-        for (ddl, dialect, expected) in cases {
-            let catalog = Catalog::from_ddl_with_dialect(&[ddl], dialect).unwrap_or_else(|e| panic!("{ddl}: {e}"));
+        for (ddl, expected) in cases {
+            let catalog = Catalog::from_ddl(&[ddl]).unwrap_or_else(|e| panic!("{ddl}: {e}"));
             assert_eq!(
                 catalog.fingerprint(),
                 *expected,

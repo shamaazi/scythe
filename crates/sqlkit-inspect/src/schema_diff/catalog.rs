@@ -138,10 +138,9 @@ fn description_key(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlkit_core::dialect::SqlDialect;
 
     fn catalog_from(ddl: &str) -> Catalog {
-        Catalog::from_ddl_with_dialect(&[ddl], &SqlDialect::PostgreSQL).expect("catalog from ddl")
+        Catalog::from_ddl(&[ddl]).expect("catalog from ddl")
     }
 
     #[test]

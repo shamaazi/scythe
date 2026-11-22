@@ -4,7 +4,6 @@ use super::audit;
 use super::rule::LintRule;
 use super::rules;
 use super::types::{LintConfig, RuleCategory, Severity};
-use sqlkit_core::dialect::SqlDialect;
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -77,28 +76,6 @@ impl RuleRegistry {
                     Some((r.as_ref(), sev))
                 }
             })
-            .collect()
-    }
-
-    /// Ids of rules that would have run but cannot, because they do not
-    /// apply to `dialect`.
-    ///
-    /// This is the count `sqlkit audit` needs to stop reporting a clean bill
-    /// of health it did not earn (#167): 28 of the 35 canonical audit rules
-    /// declare `dialects = ["postgres"]`, so an audit of another engine ran
-    /// 7 rules, finds nothing, and prints "No findings" — indistinguishable,
-    /// to the reader, from 35 rules running and finding nothing.
-    ///
-    /// Derived from [`LintRule::is_applicable_to`], the same predicate the
-    /// rules gate themselves on, so what is counted here and what is skipped
-    /// during the run cannot disagree. Rules whose effective severity is
-    /// `Off` are excluded: those did not run for a different reason, and
-    /// attributing them to the engine would misreport why.
-    pub fn rules_inapplicable_to(&self, dialect: SqlDialect) -> Vec<&'static str> {
-        self.active_rules()
-            .iter()
-            .filter(|(rule, _)| !rule.is_applicable_to(dialect))
-            .map(|(rule, _)| rule.id())
             .collect()
     }
 

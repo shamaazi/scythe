@@ -29,8 +29,7 @@
 use sqlkit_codegen::get_backend;
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 const SCHEMA: &str = "CREATE TYPE addr AS (street TEXT, city TEXT); \
     CREATE TABLE things (id SERIAL PRIMARY KEY, home addr NOT NULL);";
@@ -39,8 +38,8 @@ const QUERY: &str = "-- @name GetThing\n-- @returns :one\nSELECT id, home FROM t
 
 fn generated_text_for(schema: &str, query: &str, backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
-    let catalog = Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::PostgreSQL).expect("schema must parse");
-    let parsed = parse_query_with_dialect(query, &SqlDialect::PostgreSQL).expect("query must parse");
+    let catalog = Catalog::from_ddl(&[schema]).expect("schema must parse");
+    let parsed = parse_query(query).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = sqlkit_codegen::generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
 

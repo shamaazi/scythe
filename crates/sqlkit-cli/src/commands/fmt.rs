@@ -1,9 +1,9 @@
 use sqlkit_lint::sqruff_adapter;
 use sqlkit_lint::types::SqruffConfig;
 
-use super::shared::{config_dir, dialect_from_config, engine_to_sqruff_dialect, resolve_globs, validate_dialect};
+use super::shared::{config_dir, resolve_globs};
 
-/// Run the `fmt` command: format SQL files using sqruff.
+/// Run the `fmt` command: format SQL files using sqruff's PostgreSQL dialect.
 ///
 /// - If `files` is non-empty, format those files directly.
 /// - If `files` is empty, read query file paths from the sqlkit config.
@@ -20,32 +20,17 @@ pub fn run_fmt(
     config_path: &str,
     check_only: bool,
     diff: bool,
-    dialect: Option<&str>,
     files: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (file_paths, config_dialect, sqruff_config) = if files.is_empty() {
+    let (file_paths, sqruff_config) = if files.is_empty() {
         let resolved = resolve_files_from_config(config_path)?;
-        (resolved.files, resolved.dialect, resolved.sqruff_config)
+        (resolved.files, resolved.sqruff_config)
     } else {
-        let config_dialect = dialect_from_config(config_path)?;
-        // Explicit-file mode used to hardcode `None` here, which silently
-        // dropped a user's `[lint.sqruff]` table -- only the *dialect* half
-        // of #206 was fixed. `sqruff_config_from_config` mirrors
-        // `dialect_from_config`'s own tolerance for a missing config file
-        // (explicit-file mode with no `sqlkit.toml` at all remains valid
-        // and unaffected), so the real config is threaded through exactly
-        // as the config-file path already does via `resolve_files_from_config`.
+        // Explicit-file mode still honours a `[lint.sqruff]` table when a
+        // config file exists (#206); with no `sqlkit.toml` at all it
+        // formats with the defaults.
         let sqruff_config = sqruff_config_from_config(config_path)?;
-        (files.to_vec(), config_dialect, sqruff_config)
-    };
-
-    // `--dialect` is validated before it can reach sqruff-lib, which panics
-    // (exit 101) on a value `DialectKind::from_str` does not recognize --
-    // see #205. `config_dialect` is already a sqruff-native name (produced
-    // by `engine_to_sqruff_dialect`), so it does not need re-validation.
-    let dialect = match dialect {
-        Some(raw) => validate_dialect(raw)?,
-        None => config_dialect.unwrap_or_else(|| "ansi".to_string()),
+        (files.to_vec(), sqruff_config)
     };
 
     if file_paths.is_empty() {
@@ -69,7 +54,7 @@ pub fn run_fmt(
     // `new`, not `for_linting`: `fmt` formats regardless of
     // `[lint.sqruff].enabled`, so it must reject a rules table it will act
     // on even when sqruff-based *linting* is switched off.
-    let linter = sqruff_adapter::SqruffLinter::new(&dialect, sqruff_config.as_ref())
+    let linter = sqruff_adapter::SqruffLinter::new(sqruff_config.as_ref())
         .map_err(|e| format!("invalid [lint.sqruff] configuration: {}", e))?;
 
     let mut needs_formatting = false;
@@ -114,16 +99,14 @@ pub fn run_fmt(
     Ok(())
 }
 
-/// Resolved files, dialect, and `[lint.sqruff]` config from the sqlkit config.
+/// Resolved files and `[lint.sqruff]` config from the sqlkit config.
 struct ResolvedConfig {
     files: Vec<String>,
-    /// The sqruff dialect derived from the first sql block's engine.
-    dialect: Option<String>,
     /// `[lint.sqruff]`, shared with `sqlkit lint`'s own config struct.
     sqruff_config: Option<SqruffConfig>,
 }
 
-/// Resolve SQL query files and dialect from the sqlkit config.
+/// Resolve SQL query files from the sqlkit config.
 fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dyn std::error::Error>> {
     use serde::Deserialize;
 
@@ -142,8 +125,6 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
         /// partial-projection struct still deserializes it.
         #[serde(default)]
         name: Option<String>,
-        #[serde(default)]
-        engine: Option<String>,
         queries: Vec<String>,
         #[serde(default)]
         schema: Vec<String>,
@@ -153,12 +134,6 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: MinConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
-
-    let dialect = config
-        .sql
-        .first()
-        .and_then(|s| s.engine.as_deref())
-        .map(|e| engine_to_sqruff_dialect(e).to_string());
 
     let sqruff_config = config.lint.and_then(|lc| lc.sqruff);
 
@@ -184,7 +159,6 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
 
     Ok(ResolvedConfig {
         files: all_files,
-        dialect,
         sqruff_config,
     })
 }
@@ -192,8 +166,7 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
 /// Read `[lint.sqruff]` out of `sqlkit.toml` for explicit-file mode, when a
 /// config file is present.
 ///
-/// Returns `Ok(None)` -- not an error -- when `config_path` does not exist,
-/// mirroring `dialect_from_config`'s own tolerance for a missing config:
+/// Returns `Ok(None)` -- not an error -- when `config_path` does not exist:
 /// `sqlkit fmt some/file.sql` with no `sqlkit.toml` at all is a valid,
 /// unaffected mode, and must keep behaving exactly as it did before this
 /// function existed. When the config *does* exist, only its top-level

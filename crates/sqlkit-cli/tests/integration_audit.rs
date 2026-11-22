@@ -12,7 +12,6 @@ use std::io::Write;
 
 use sqlkit_core::analyzer::AnalyzedQuery;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
 use sqlkit_core::parser::Annotations;
 use sqlkit_lint::reporters::Finding;
 use sqlkit_lint::types::RuleCategory;
@@ -21,12 +20,11 @@ use sqlkit_lint::{
     extract_cwe, load_rules_from_file, register_user_rules,
 };
 
-fn run_rules(path: &str, sql: &str, dialect: &SqlDialect, catalog: &Catalog, registry: &RuleRegistry) -> Vec<Finding> {
+fn run_rules(path: &str, sql: &str, catalog: &Catalog, registry: &RuleRegistry) -> Vec<Finding> {
     let rules = registry.active_rules();
     let suppressions = SuppressionSet::parse(sql);
 
-    let parser_dialect = dialect.to_sqlparser_dialect();
-    let statements = match sqlparser::parser::Parser::parse_sql(parser_dialect.as_ref(), sql) {
+    let statements = match sqlparser::parser::Parser::parse_sql(&sqlparser::dialect::PostgreSqlDialect {}, sql) {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
@@ -42,7 +40,6 @@ fn run_rules(path: &str, sql: &str, dialect: &SqlDialect, catalog: &Catalog, reg
             analyzed: &empty_analyzed,
             catalog,
             annotations: &empty_annotations,
-            dialect: *dialect,
         };
         for (rule, severity) in &rules {
             if !matches!(rule.category(), RuleCategory::Security | RuleCategory::Migration) {
@@ -76,8 +73,7 @@ fn run_rules(path: &str, sql: &str, dialect: &SqlDialect, catalog: &Catalog, reg
 
 #[test]
 fn suppression_drops_annotated_grant_and_keeps_plain_grant() {
-    let dialect = SqlDialect::PostgreSQL;
-    let catalog = Catalog::from_ddl_with_dialect(&[], &dialect).expect("empty catalog");
+    let catalog = Catalog::from_ddl(&[]).expect("empty catalog");
     let registry = default_registry();
 
     let sql = concat!(
@@ -87,7 +83,7 @@ fn suppression_drops_annotated_grant_and_keeps_plain_grant() {
         "GRANT ALL ON other TO alice;\n",
     );
 
-    let findings = run_rules("smoke.sql", sql, &dialect, &catalog, &registry);
+    let findings = run_rules("smoke.sql", sql, &catalog, &registry);
 
     let sec02: Vec<_> = findings.iter().filter(|f| f.rule_id == "SC-SEC02").collect();
     assert_eq!(
@@ -101,8 +97,7 @@ fn suppression_drops_annotated_grant_and_keeps_plain_grant() {
 
 #[test]
 fn user_rule_fires_for_custom_function() {
-    let dialect = SqlDialect::PostgreSQL;
-    let catalog = Catalog::from_ddl_with_dialect(&[], &dialect).expect("empty catalog");
+    let catalog = Catalog::from_ddl(&[]).expect("empty catalog");
 
     let mut matcher_args = toml::Table::new();
     matcher_args.insert(
@@ -114,7 +109,6 @@ fn user_rule_fires_for_custom_function() {
         name: "no-debug-print".to_string(),
         category: RuleCategory::Security,
         severity: Severity::Error,
-        dialects: vec![],
         cwe: vec![],
         description: "debug_print should not reach production".to_string(),
         message: "call to {func}".to_string(),
@@ -128,7 +122,7 @@ fn user_rule_fires_for_custom_function() {
         .expect("register_user_rules should succeed");
 
     let sql = "SELECT debug_print('hello');";
-    let findings = run_rules("q.sql", sql, &dialect, &catalog, &registry);
+    let findings = run_rules("q.sql", sql, &catalog, &registry);
 
     let user_findings: Vec<_> = findings.iter().filter(|f| f.rule_id == "USER-001").collect();
     assert!(
@@ -153,7 +147,6 @@ fn user_rule_with_canonical_id_returns_error() {
         name: "collision-test".to_string(),
         category: RuleCategory::Security,
         severity: Severity::Error,
-        dialects: vec![],
         cwe: vec![],
         description: "test".to_string(),
         message: "msg".to_string(),
@@ -191,7 +184,6 @@ fn user_rule_without_user_prefix_returns_error() {
         name: "prefix-test".to_string(),
         category: RuleCategory::Security,
         severity: Severity::Error,
-        dialects: vec![],
         cwe: vec![],
         description: "test".to_string(),
         message: "msg".to_string(),
@@ -211,8 +203,7 @@ fn user_rule_without_user_prefix_returns_error() {
 
 #[test]
 fn multi_rule_suppression_silences_every_listed_id() {
-    let dialect = SqlDialect::PostgreSQL;
-    let catalog = Catalog::from_ddl_with_dialect(&[], &dialect).expect("empty catalog");
+    let catalog = Catalog::from_ddl(&[]).expect("empty catalog");
     let registry = default_registry();
 
     let sql = concat!(
@@ -220,7 +211,7 @@ fn multi_rule_suppression_silences_every_listed_id() {
         "GRANT ALL ON users TO PUBLIC;\n",
     );
 
-    let findings = run_rules("multi.sql", sql, &dialect, &catalog, &registry);
+    let findings = run_rules("multi.sql", sql, &catalog, &registry);
 
     let sec02_03: Vec<_> = findings
         .iter()
@@ -271,9 +262,8 @@ functions = ["extra_fn"]
     )
     .expect("register_user_rules");
 
-    let dialect = SqlDialect::PostgreSQL;
-    let catalog = Catalog::from_ddl_with_dialect(&[], &dialect).expect("empty catalog");
-    let findings = run_rules("q.sql", "SELECT extra_fn();", &dialect, &catalog, &registry);
+    let catalog = Catalog::from_ddl(&[]).expect("empty catalog");
+    let findings = run_rules("q.sql", "SELECT extra_fn();", &catalog, &registry);
     assert!(
         findings.iter().any(|f| f.rule_id == "USER-EXTRA-001"),
         "expected USER-EXTRA-001 to fire; got: {:#?}",
@@ -296,14 +286,14 @@ fn malformed_extra_rules_file_returns_error_with_path() {
 }
 
 #[test]
-fn pg_only_rule_skipped_on_non_pg_dialect() {
-    let catalog_pg = Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog");
+fn security_definer_and_set_role_trip_their_rules() {
+    let catalog_pg = Catalog::from_ddl(&[]).expect("empty catalog");
 
     // CREATE FUNCTION … SECURITY DEFINER trips SC-SEC10 on Postgres.
     let sql = "CREATE FUNCTION elevate() RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN END $$;";
 
     let registry = default_registry();
-    let pg_findings = run_rules("pg.sql", sql, &SqlDialect::PostgreSQL, &catalog_pg, &registry);
+    let pg_findings = run_rules("pg.sql", sql, &catalog_pg, &registry);
     assert!(
         pg_findings.iter().any(|f| f.rule_id == "SC-SEC10"),
         "expected SC-SEC10 on Postgres; got: {:#?}",
@@ -311,7 +301,7 @@ fn pg_only_rule_skipped_on_non_pg_dialect() {
     );
 
     let set_role_sql = "SET ROLE admin;";
-    let pg_set = run_rules("pg2.sql", set_role_sql, &SqlDialect::PostgreSQL, &catalog_pg, &registry);
+    let pg_set = run_rules("pg2.sql", set_role_sql, &catalog_pg, &registry);
     assert!(
         pg_set.iter().any(|f| f.rule_id == "SC-SEC11"),
         "expected SC-SEC11 on Postgres for SET ROLE; got: {:#?}",

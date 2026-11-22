@@ -6,11 +6,8 @@
 //!   rule happens to repeat its declared ids in its description prose, so the
 //!   two agreed by hand-maintained coincidence; a user rule that declares
 //!   `cwe` without restating it in prose got no CWE at all.
-//! - `LintRule::is_applicable_to` gates a rule to the dialects its spec
-//!   declares, and `MatcherRule::check_query` applies that gate internally by
-//!   returning an empty `Vec` -- indistinguishable from "the rule ran and
-//!   found nothing". A whole dialect's worth of rules could vanish silently,
-//!   including all of them.
+//! - An audit whose every rule is configured off examined nothing yet
+//!   reported a clean result.
 
 use std::fs;
 
@@ -18,8 +15,7 @@ use assert_cmd::Command;
 use serde_json::Value;
 use tempfile::TempDir;
 
-/// Trips SC-SEC01 (`dangerous-function`, `cwe = ["CWE-78"]`), which declares
-/// no `dialects` restriction and so applies to every engine.
+/// Trips SC-SEC01 (`dangerous-function`, `cwe = ["CWE-78"]`).
 const DANGEROUS_SQL: &str = "SELECT pg_read_file('/etc/passwd');\n";
 
 fn run_audit(args: &[&str]) -> std::process::Output {
@@ -39,28 +35,25 @@ fn absent_config(dir: &TempDir) -> String {
 /// A user rule that declares `cwe = ["CWE-89"]` but never writes "CWE" in its
 /// description. Scraping the description finds nothing; reading
 /// `LintRule::cwe()` finds the declaration.
-fn write_user_rule_config(dir: &TempDir, dialects: &str) -> String {
+fn write_user_rule_config(dir: &TempDir) -> String {
     fs::write(
         dir.path().join("sqlkit.toml"),
-        format!(
-            r#"[sqlkit]
+        r#"[sqlkit]
 version = "1"
 
 [[audit.rule]]
 id = "USER-PG01"
-name = "postgres-only-rule"
+name = "declared-cwe-rule"
 category = "security"
 severity = "error"
 cwe = ["CWE-89"]
-{dialects}
 description = "a rule whose prose never names the weakness it maps to"
-message = "call to `{{func}}`"
+message = "call to `{func}`"
 matcher = "function_name_in_set"
 
 [audit.rule.matcher_args]
 functions = ["my_dangerous_call"]
-"#
-        ),
+"#,
     )
     .expect("write sqlkit.toml");
     dir.path().join("sqlkit.toml").to_string_lossy().into_owned()
@@ -71,7 +64,7 @@ fn audit_sarif_carries_the_cwe_the_rule_declares() {
     let dir = TempDir::new().expect("tempdir");
     let sql_path = dir.path().join("q.sql");
     fs::write(&sql_path, "SELECT my_dangerous_call(1);\n").expect("write q.sql");
-    let config = write_user_rule_config(&dir, "");
+    let config = write_user_rule_config(&dir);
 
     let output = run_audit(&[
         "audit",
@@ -102,7 +95,7 @@ fn audit_sarif_carries_the_cwe_the_rule_declares() {
 #[test]
 fn audit_explain_prints_the_cwe_the_rule_declares() {
     let dir = TempDir::new().expect("tempdir");
-    let config = write_user_rule_config(&dir, "");
+    let config = write_user_rule_config(&dir);
 
     let output = run_audit(&["audit", "--config", &config, "--explain", "USER-PG01"]);
     let stdout = String::from_utf8_lossy(&output.stdout);

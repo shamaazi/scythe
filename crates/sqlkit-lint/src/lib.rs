@@ -16,7 +16,4 @@ pub use registry::{RuleRegistry, default_registry, drift_registry, parse_registr
 pub use reporters::{Finding, Format, emit as emit_findings, extract_cwe};
 pub use rule::LintRule;
 pub use sqruff_adapter::{SqruffConfigError, SqruffLinter, SqruffViolation};
-pub use types::{
-    KNOWN_ENGINE_ALIASES, LintConfig, LintContext, LintFix, RuleCategory, Severity, SqruffConfig, Violation,
-    parse_engine_dialect,
-};
+pub use types::{LintConfig, LintContext, LintFix, RuleCategory, Severity, SqruffConfig, Violation};

@@ -1257,7 +1257,7 @@ SELECT name, age FROM users WHERE id = $1;",
     // producer now, exercised end to end by the json_agg/row_to_json tests
     // further down. These tests instead exercise the resolver directly
     // with a hand-built `pending` list and column set, to pin name
-    // derivation, collision handling, and the dialect gate in isolation
+    // derivation and collision handling in isolation
     // from expression inference.
     // -----------------------------------------------------------------
 
@@ -2498,7 +2498,7 @@ SELECT id, moods FROM t WHERE id = $1;",
             FunctionDefinition, FunctionReturnDefinition, RelationDefinition,
         };
 
-        let catalog = CatalogBuilder::new(crate::dialect::SqlDialect::PostgreSQL)
+        let catalog = CatalogBuilder::new()
             .domain(DomainDefinition::new(
                 CatalogObjectName::new("user_id"),
                 "integer",

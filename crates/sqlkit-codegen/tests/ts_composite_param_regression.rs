@@ -24,8 +24,7 @@
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::{AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, analyze};
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::{QueryCommand, parse_query_with_dialect};
+use sqlkit_core::parser::{QueryCommand, parse_query};
 
 /// A composite type with two fields, one of which (`zip_code`) is not
 /// already camelCase -- so a test that only used single-word fields could
@@ -189,7 +188,7 @@ fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
 /// `nested_field_types` but never from `params`, so a composite bound only as a query parameter
 /// (never returned as a column, e.g. the torture schema's `CreateWidget` INSERT) never reached
 /// `analyzed.composites` at all, and `pg_composite_bind_expr` took its silent whole-object
-/// fallback. This test runs the full `Catalog::from_ddl` -> `parse_query_with_dialect` -> `analyze`
+/// fallback. This test runs the full `Catalog::from_ddl` -> `parse_query` -> `analyze`
 /// -> `generate_with_backend` pipeline -- the only way to prove the analyzer itself, not a test
 /// fixture standing in for it, produces the composite.
 #[test]
@@ -204,8 +203,8 @@ fn analyzer_populates_composites_for_a_param_only_composite() {
     let query = "-- @name CreateWidget\n-- @returns :one\n\
         INSERT INTO torture_widgets (home_address) VALUES ($1) RETURNING widget_id, scheduled_at;";
 
-    let catalog = Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::PostgreSQL).expect("schema must parse");
-    let parsed = parse_query_with_dialect(query, &SqlDialect::PostgreSQL).expect("query must parse");
+    let catalog = Catalog::from_ddl(&[schema]).expect("schema must parse");
+    let parsed = parse_query(query).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     assert!(
         analyzed.composites.iter().any(|c| c.sql_name == "torture_address"),

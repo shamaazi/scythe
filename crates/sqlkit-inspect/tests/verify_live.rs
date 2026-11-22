@@ -14,8 +14,7 @@
 
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 use sqlkit_inspect::verify_queries;
 use tokio_postgres::{Client, NoTls};
 
@@ -39,9 +38,8 @@ async fn client() -> Client {
 /// Analyze `query` against `ddl` exactly as `sqlkit check` does, then verify
 /// the result against the live database.
 async fn findings_for(client: &Client, ddl: &str, query: &str) -> Vec<sqlkit_lint::reporters::Finding> {
-    let dialect = SqlDialect::PostgreSQL;
-    let catalog = Catalog::from_ddl_with_dialect(&[ddl], &dialect).expect("catalog from ddl");
-    let parsed = parse_query_with_dialect(query, &dialect).expect("parse query");
+    let catalog = Catalog::from_ddl(&[ddl]).expect("catalog from ddl");
+    let parsed = parse_query(query).expect("parse query");
     let analyzed = analyze(&catalog, &parsed).expect("analyze query");
 
     verify_queries(client, "test", &[analyzed]).await

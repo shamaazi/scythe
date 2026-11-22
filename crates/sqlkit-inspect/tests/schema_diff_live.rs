@@ -17,8 +17,7 @@
 
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 use sqlkit_inspect::schema_diff::{
     DriftSeverities, describe_catalog, diff_schemas, fetch_live_catalog, fetch_live_schema,
 };
@@ -63,7 +62,7 @@ async fn client_with_schema(schema: &str, ddl: &str) -> Client {
 /// Compare `ddl` against the schemas in scope: the connection's `search_path`
 /// plus whatever schemas the DDL qualifies its own objects with.
 async fn drift_for(client: &Client, ddl: &str) -> Vec<Finding> {
-    let catalog = Catalog::from_ddl_with_dialect(&[ddl], &SqlDialect::PostgreSQL).expect("catalog from ddl");
+    let catalog = Catalog::from_ddl(&[ddl]).expect("catalog from ddl");
     let ddl_schema = describe_catalog(&catalog).expect("describe catalog");
     let declared = declared_schemas(&ddl_schema);
 
@@ -223,12 +222,9 @@ async fn reports_nullability_drift_that_query_verification_cannot_see() {
 
     // The other half of the claim: the existing verifier is silent on exactly
     // this schema, so drift is the only thing that catches it.
-    let catalog = Catalog::from_ddl_with_dialect(&[ddl], &SqlDialect::PostgreSQL).expect("catalog");
-    let parsed = parse_query_with_dialect(
-        "-- @name GetEmail\n-- @returns :one\nSELECT email FROM users WHERE id = $1;",
-        &SqlDialect::PostgreSQL,
-    )
-    .expect("parse query");
+    let catalog = Catalog::from_ddl(&[ddl]).expect("catalog");
+    let parsed = parse_query("-- @name GetEmail\n-- @returns :one\nSELECT email FROM users WHERE id = $1;")
+        .expect("parse query");
     let analyzed = analyze(&catalog, &parsed).expect("analyze query");
 
     let verify_findings = sqlkit_inspect::verify_queries(&client, "test", &[analyzed]).await;
@@ -423,15 +419,12 @@ async fn reports_every_composite_drift_rule_from_live_catalog_metadata() {
     )
     .await;
 
-    let catalog = Catalog::from_ddl_with_dialect(
-        &["CREATE TYPE changed AS (
+    let catalog = Catalog::from_ddl(&["CREATE TYPE changed AS (
                  type_field text,
                  nullability_field text,
                  ddl_only_field text
              );
-             CREATE TYPE ddl_only_type AS (value text);"],
-        &SqlDialect::PostgreSQL,
-    )
+             CREATE TYPE ddl_only_type AS (value text);"])
     .expect("catalog from committed DDL");
     let mut ddl = describe_catalog(&catalog).expect("describe committed DDL");
     // ~keep PostgreSQL composite DDL has no field-level NOT NULL syntax; mutate the portable model to exercise

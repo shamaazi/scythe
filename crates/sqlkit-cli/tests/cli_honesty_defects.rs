@@ -2,8 +2,7 @@
 //! actually did" defects:
 //!
 //! 1. `sqlkit fmt <file>` (explicit-file mode) hardcoded `sqruff_config:
-//!    None`, silently dropping a user's `[lint.sqruff]` table -- only the
-//!    *dialect* half of #206 was ever fixed.
+//!    None`, silently dropping a user's `[lint.sqruff]` table.
 //! 2. `sqlkit lint <file>` (explicit-file mode) never constructed a
 //!    `LintEngine`, so it ran zero sqlkit-native rules (SC-*) even when
 //!    `sqlkit.toml`'s schema was sitting right next to the file passed on

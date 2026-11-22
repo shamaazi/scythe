@@ -25,8 +25,7 @@ use sqlkit_codegen::validation::{strict_mode_enabled, validate_with_tools};
 use sqlkit_codegen::{CodegenBackend, generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 const SCHEMA: &str = "CREATE TABLE notes (\
     id SERIAL PRIMARY KEY, \
@@ -61,8 +60,8 @@ const SINGLE_PARAM_BATCH_QUERY_WITH_FIELD_NAME_IN_LITERAL: &str = "-- @name TagN
 fn query_fn(backend_name: &str, sql: &str) -> String {
     let backend: Box<dyn CodegenBackend> =
         get_backend(backend_name, "postgresql").expect("backend must support postgresql");
-    let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).expect("schema must parse");
-    let parsed = parse_query_with_dialect(sql, &SqlDialect::PostgreSQL).expect("query must parse");
+    let catalog = Catalog::from_ddl(&[SCHEMA]).expect("schema must parse");
+    let parsed = parse_query(sql).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
     code.query_fn.expect("expected a query fn")
@@ -162,8 +161,8 @@ fn the_non_batch_paths_remain_literal_aware() {
 fn the_generated_batch_file_passes_tool_validation() {
     for backend_name in ["typescript-postgres", "javascript-postgres"] {
         let backend = get_backend(backend_name, "postgresql").unwrap();
-        let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).unwrap();
-        let parsed = parse_query_with_dialect(BATCH_QUERY, &SqlDialect::PostgreSQL).unwrap();
+        let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
+        let parsed = parse_query(BATCH_QUERY).unwrap();
         let analyzed = analyze(&catalog, &parsed).unwrap();
         let code = generate_with_backend(&analyzed, &*backend).unwrap();
 

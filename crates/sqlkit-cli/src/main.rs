@@ -84,9 +84,6 @@ enum Commands {
         /// Show diff of formatting changes
         #[arg(long)]
         diff: bool,
-        /// SQL dialect: postgres or ansi (default: the config's engine, else ansi)
-        #[arg(long)]
-        dialect: Option<String>,
         /// SQL files to format (if empty, uses config)
         files: Vec<String>,
     },
@@ -100,9 +97,6 @@ enum Commands {
         /// Auto-fix violations where possible
         #[arg(long)]
         fix: bool,
-        /// SQL dialect: postgres or ansi (default: the config's engine, else ansi)
-        #[arg(long)]
-        dialect: Option<String>,
         /// SQL files to lint (if empty, uses config)
         files: Vec<String>,
         /// Database URL for the auto-run `inspect` pass (live operational
@@ -161,9 +155,6 @@ enum Commands {
         /// PostgreSQL grammar for --cluster-scope: 15 or 18 (default 18)
         #[arg(long, value_name = "MAJOR")]
         pg_version: Option<String>,
-        /// SQL dialect for explicit-file mode (postgres)
-        #[arg(long)]
-        dialect: Option<String>,
         /// SQL files to audit (if empty, uses config schema + queries)
         files: Vec<String>,
     },
@@ -232,13 +223,11 @@ fn main() {
             config,
             check,
             diff,
-            dialect,
             files,
-        } => commands::fmt::run_fmt(&config, check, diff, dialect.as_deref(), &files),
+        } => commands::fmt::run_fmt(&config, check, diff, &files),
         Commands::Lint {
             config,
             fix,
-            dialect,
             files,
             database_url,
             format,
@@ -247,7 +236,6 @@ fn main() {
         } => commands::lint_cmd::run_lint(commands::lint_cmd::RunLintOpts {
             config_path: config,
             fix,
-            dialect,
             files,
             database_url,
             format,
@@ -265,7 +253,6 @@ fn main() {
             ignore_suppressions,
             cluster_scope,
             pg_version,
-            dialect,
             files,
         } => commands::audit::run_audit(commands::audit::RunAuditOpts {
             config_path: config,
@@ -278,7 +265,6 @@ fn main() {
             ignore_suppressions,
             cluster_scope,
             pg_version,
-            dialect,
             files,
         }),
         Commands::Inspect {

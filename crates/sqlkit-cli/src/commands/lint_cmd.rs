@@ -9,8 +9,7 @@ use sqlkit_lint::{SuppressionSet, emit_findings};
 
 use super::inspect::{build_driver_with_config, build_registry};
 use super::shared::{
-    CatalogLoadRequest, ParseSeverities, config_dir, engine_to_sqruff_dialect, load_catalog, resolve_globs,
-    split_query_file, validate_dialect,
+    CatalogLoadRequest, ParseSeverities, config_dir, deserialize_engine, load_catalog, resolve_globs, split_query_file,
 };
 
 /// A combined lint violation that can come from either sqlkit rules, sqruff,
@@ -36,7 +35,6 @@ struct FileViolation {
 pub struct RunLintOpts {
     pub config_path: String,
     pub fix: bool,
-    pub dialect: Option<String>,
     pub files: Vec<String>,
     /// Explicit live-DB URL for the auto-run `inspect` pass. Opt-in only --
     /// see [`try_run_inspect`]'s doc comment for why this is no longer
@@ -64,7 +62,6 @@ pub fn run_lint(opts: RunLintOpts) -> Result<(), Box<dyn std::error::Error>> {
     let RunLintOpts {
         config_path,
         fix,
-        dialect,
         files,
         database_url,
         format,
@@ -79,16 +76,7 @@ pub fn run_lint(opts: RunLintOpts) -> Result<(), Box<dyn std::error::Error>> {
     let has_config = Path::new(config_path).exists();
 
     let violations = if !files.is_empty() {
-        let config_dialect = if has_config {
-            super::shared::dialect_from_config(config_path)?
-        } else {
-            None
-        };
-        let d = match dialect.as_deref() {
-            Some(raw) => validate_dialect(raw)?,
-            None => config_dialect.unwrap_or_else(|| "ansi".to_string()),
-        };
-        lint_files(&files, &d, fix, config_path, database_url.as_deref())?
+        lint_files(&files, fix, config_path, database_url.as_deref())?
     } else if !has_config {
         return Err(format!(
             "No files specified and config '{}' not found. Provide files or a config path.",
@@ -96,25 +84,10 @@ pub fn run_lint(opts: RunLintOpts) -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     } else {
-        lint_from_config(config_path, dialect.as_deref(), fix, database_url.as_deref())?
+        lint_from_config(config_path, fix, database_url.as_deref())?
     };
 
     report_violations(&violations, format, output.as_deref(), exit_zero)
-}
-
-/// Resolve a `[[sql]] engine = "..."` value to a [`sqlkit_core::dialect::SqlDialect`],
-/// treating an empty string (the field's default when the key is omitted) as
-/// `"postgresql"` -- sqlkit's own documented default -- and rejecting
-/// anything else [`sqlkit_lint::parse_engine_dialect`] does not recognize.
-///
-/// Before this, both call sites below used
-/// `SqlDialect::from_str(engine).unwrap_or(SqlDialect::PostgreSQL)`: a typo'd
-/// engine (`mysql8`) was silently analyzed as PostgreSQL -- wrong catalog
-/// parsing, wrong dialect-gated rule set -- with `sqlkit lint` reporting
-/// success regardless (#165, item 3).
-fn resolve_sql_dialect(engine: &str) -> Result<sqlkit_core::dialect::SqlDialect, String> {
-    let engine = if engine.is_empty() { "postgresql" } else { engine };
-    sqlkit_lint::parse_engine_dialect(engine)
 }
 
 /// Schema-aware context for running sqlkit-native lint rules against
@@ -123,7 +96,6 @@ fn resolve_sql_dialect(engine: &str) -> Result<sqlkit_core::dialect::SqlDialect,
 struct NativeLintContext {
     engine: sqlkit_lint::LintEngine,
     catalog: sqlkit_core::catalog::Catalog,
-    sql_dialect: sqlkit_core::dialect::SqlDialect,
     /// Effective `SC-PARSE01`/`SC-PARSE02` severities for this run, resolved
     /// from the same `[lint]` table applied to `engine`'s registry -- see
     /// [`ParseSeverities`].
@@ -134,8 +106,7 @@ struct NativeLintContext {
 /// one is present and its first `[[sql]]` block has a resolvable schema.
 ///
 /// Returns `Ok(None)` -- not an error -- when the config file does not
-/// exist, mirroring `dialect_from_config`'s tolerance for a missing config:
-/// explicit-file mode is valid with no config at all (pure sqruff formatting
+/// exist: explicit-file mode is valid with no config at all (pure sqruff formatting
 /// of arbitrary SQL), and that must keep working exactly as it did before
 /// this function existed. It also returns `Ok(None)` when a config exists
 /// but declares no schema for its first block, for the same reason: no
@@ -143,12 +114,7 @@ struct NativeLintContext {
 ///
 /// The *first* `[[sql]]` block is used, not every block: explicit-file mode
 /// gives no indication which block (if any) a given file belongs to, so
-/// there is no principled way to pick a schema per file. This matches the
-/// same first-block fallback `dialect_from_config` and the inspect-engine
-/// default already use elsewhere in this module -- on a single-engine
-/// project (the common case) it is exactly right, and on a mixed-engine
-/// project it is the best available default rather than running no native
-/// rules at all.
+/// there is no principled way to pick a schema per file.
 ///
 /// Before this function existed, explicit-file mode never attempted to
 /// build a catalog or a [`sqlkit_lint::LintEngine`] at all -- the call site
@@ -171,7 +137,8 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
     #[derive(Deserialize)]
     struct MinSqlConfig {
         name: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "deserialize_engine")]
+        #[allow(dead_code)]
         engine: Option<String>,
         #[serde(default)]
         schema: Vec<String>,
@@ -189,20 +156,15 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
         return Ok(None);
     };
 
-    let engine_label = first.engine.as_deref().unwrap_or("");
-
     let base_dir = config_dir(config_path);
     let schema_files = resolve_globs(&first.schema, base_dir, "[native lint] schema")?;
     if schema_files.is_empty() {
         return Ok(None);
     }
 
-    let sql_dialect = resolve_sql_dialect(engine_label).map_err(|e| format!("[native lint] {}", e))?;
     let catalog = load_catalog(CatalogLoadRequest {
         command: "lint",
         config_name: &first.name,
-        engine: engine_label,
-        dialect: sql_dialect,
         schema_files: &schema_files,
     })?
     .catalog;
@@ -225,7 +187,6 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
     Ok(Some(NativeLintContext {
         engine,
         catalog,
-        sql_dialect,
         parse_severities,
     }))
 }
@@ -270,27 +231,26 @@ fn sqruff_config_from_config(config_path: &str) -> Result<Option<sqlkit_lint::ty
 /// no longer enough on its own (#210).
 fn lint_files(
     files: &[String],
-    dialect: &str,
     fix: bool,
     config_path: &str,
     database_url: Option<&str>,
 ) -> Result<Vec<FileViolation>, Box<dyn std::error::Error>> {
     use sqlkit_core::analyzer::analyze;
-    use sqlkit_core::parser::parse_query_with_dialect;
+    use sqlkit_core::parser::parse_query;
     use sqlkit_lint::LintContext;
 
     let mut all_violations: Vec<FileViolation> = Vec::new();
 
     // One linter for the whole file list, not one per file: building it
-    // compiles the dialect's lexer, which is what a multi-file run actually
+    // compiles sqruff's lexer, which is what a multi-file run actually
     // spends its time on (#130). `sqruff_config_from_config` mirrors
     // `fmt.rs`'s own fix for the same gap: explicit-file mode used to always
     // pass `None` here, silently dropping a user's `[lint.sqruff]` rule
     // table whenever files were named directly on the command line instead
     // of resolved from `sqlkit.toml`.
     let sqruff_config = sqruff_config_from_config(config_path)?;
-    let linter = sqruff_adapter::SqruffLinter::new(dialect, sqruff_config.as_ref())
-        .map_err(|e| format!("sqruff rejected dialect '{}': {}", dialect, e))?;
+    let linter = sqruff_adapter::SqruffLinter::new(sqruff_config.as_ref())
+        .map_err(|e| format!("invalid [lint.sqruff] configuration: {}", e))?;
 
     // sqlkit-native rules, run alongside sqruff when a schema is available
     // to build a catalog from -- see `load_native_lint_context`'s doc
@@ -387,7 +347,7 @@ fn lint_files(
             // keep doing that even when a `sqlkit.toml` happens to sit
             // alongside it.
             for block in split_query_file(&sql) {
-                match parse_query_with_dialect(&block, &ctx.sql_dialect) {
+                match parse_query(&block) {
                     Ok(parsed) => match analyze(&ctx.catalog, &parsed) {
                         Ok(analyzed) => prepared.push(PreparedQuery {
                             file: path.clone(),
@@ -443,7 +403,6 @@ fn lint_files(
                 analyzed: &p.analyzed,
                 catalog: &ctx.catalog,
                 annotations: &p.query.annotations,
-                dialect: ctx.sql_dialect,
             })
             .collect();
         let report = ctx.engine.build_report(contexts.into_iter(), &ctx.catalog);
@@ -500,15 +459,13 @@ fn lint_files(
 /// no longer enough on its own (#210).
 fn lint_from_config(
     config_path: &str,
-    cli_dialect: Option<&str>,
     fix: bool,
     database_url: Option<&str>,
 ) -> Result<Vec<FileViolation>, Box<dyn std::error::Error>> {
     use serde::Deserialize;
 
     use sqlkit_core::analyzer::analyze;
-    use sqlkit_core::dialect::SqlDialect;
-    use sqlkit_core::parser::parse_query_with_dialect;
+    use sqlkit_core::parser::parse_query;
     use sqlkit_lint::{LintContext, LintEngine, default_registry};
 
     /// One query that parsed and analyzed, kept alive for the whole
@@ -539,8 +496,8 @@ fn lint_from_config(
         schema: Vec<String>,
         queries: Vec<String>,
         #[allow(dead_code)]
-        #[serde(default)]
-        engine: String,
+        #[serde(default, deserialize_with = "deserialize_engine")]
+        engine: Option<String>,
     }
 
     let config_str =
@@ -576,38 +533,6 @@ fn lint_from_config(
         .map(|(rule, _)| (rule.id().to_string(), rule.cwe()))
         .collect();
 
-    // Resolved once, per block, before any rule-applicability or catalog
-    // work: `resolve_sql_dialect` errors on an engine `SqlDialect::from_str`
-    // does not recognize instead of silently defaulting to PostgreSQL
-    // (#165, item 3), and every later use of a block's dialect (the
-    // applicability filter just below, and the catalog build in the loop)
-    // reuses this same resolved value rather than re-parsing `sc.engine` and
-    // risking the two falling out of sync.
-    let block_dialects: Vec<SqlDialect> = config
-        .sql
-        .iter()
-        .map(|sc| resolve_sql_dialect(&sc.engine).map_err(|e| format!("[{}] {}", sc.name, e)))
-        .collect::<Result<_, _>>()?;
-
-    // Rules that will not fire for a `[[sql]]` block because
-    // `LintRule::is_applicable_to` excludes the block's engine -- most
-    // canonical security and migration rules declare `dialects =
-    // ["postgres"]`. `MatcherRule::check_query` applies the same gate
-    // internally and returns an empty `Vec`, which is indistinguishable from
-    // "the rule ran and found nothing"; reporting the ids here is what makes
-    // the difference visible (#167). Indexed in `config.sql` order.
-    let inapplicable_rules_per_block: Vec<Vec<&'static str>> = block_dialects
-        .iter()
-        .map(|&block_dialect| {
-            registry
-                .active_rules()
-                .iter()
-                .filter(|(rule, _)| !rule.is_applicable_to(block_dialect))
-                .map(|(rule, _)| rule.id())
-                .collect()
-        })
-        .collect();
-
     let engine = LintEngine::new(registry);
 
     let sqruff_config = config.lint.as_ref().and_then(|lc| lc.sqruff.as_ref());
@@ -616,44 +541,13 @@ fn lint_from_config(
 
     let base_dir = config_dir(config_path);
 
-    for (block_index, sql_config) in config.sql.iter().enumerate() {
+    for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
-
-        let inapplicable = inapplicable_rules_per_block
-            .get(block_index)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        if !inapplicable.is_empty() {
-            let engine_label = if sql_config.engine.is_empty() {
-                "postgres"
-            } else {
-                sql_config.engine.as_str()
-            };
-            eprintln!(
-                "[{}] {} rule(s) skipped: not applicable to engine '{}' ({})",
-                sql_config.name,
-                inapplicable.len(),
-                engine_label,
-                inapplicable.join(", ")
-            );
-        }
-
-        // An explicit `--dialect` is validated (and, for a sqlkit engine
-        // alias like `postgresql`, translated to sqruff's own spelling)
-        // before it can reach sqruff-lib, which panics on an unrecognized
-        // dialect string rather than returning an error (#205). A
-        // config-derived dialect is already a sqruff-native name (produced
-        // by `engine_to_sqruff_dialect`), so it needs no re-validation.
-        let sqruff_dialect = match cli_dialect {
-            Some(raw) => validate_dialect(raw)?,
-            None => engine_to_sqruff_dialect(&sql_config.engine).to_string(),
-        };
-        let sqruff_dialect = sqruff_dialect.as_str();
 
         // One linter for the whole `[[sql]]` block, built before any query
         // file is read. Two reasons, and they are the same reason:
         //
-        // - Construction is what is expensive. It compiles the dialect's
+        // - Construction is what is expensive. It compiles sqruff's
         //   lexer; the per-file calls this replaces paid that cost once per
         //   query file, which on a large project is most of what `sqlkit
         //   lint` does (#130).
@@ -669,17 +563,14 @@ fn lint_from_config(
         // not fail the run. `None` is that case, and the call sites below
         // reproduce what the disabled path returned -- no violations, and
         // the query file left untouched.
-        let sqruff_linter = sqruff_adapter::SqruffLinter::for_linting(sqruff_dialect, sqruff_config)
+        let sqruff_linter = sqruff_adapter::SqruffLinter::for_linting(sqruff_config)
             .map_err(|e| format!("[{}] invalid [lint.sqruff] configuration: {}", sql_config.name, e))?;
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
 
-        let sql_dialect = block_dialects[block_index];
         let catalog = load_catalog(CatalogLoadRequest {
             command: "lint",
             config_name: &sql_config.name,
-            engine: &sql_config.engine,
-            dialect: sql_dialect,
             schema_files: &schema_files,
         })?
         .catalog;
@@ -792,7 +683,7 @@ fn lint_from_config(
                 // though `sqlkit check` on the same project exited 1 (#158).
                 // The rule ids match the ones `sqlkit check` already uses for
                 // the same two failures, so the two commands agree.
-                let parsed = match parse_query_with_dialect(block, &sql_dialect) {
+                let parsed = match parse_query(block) {
                     Ok(p) => p,
                     Err(e) => {
                         all_violations.push(FileViolation {
@@ -852,7 +743,6 @@ fn lint_from_config(
                 analyzed: &p.analyzed,
                 catalog: &catalog,
                 annotations: &p.query.annotations,
-                dialect: sql_dialect,
             })
             .collect();
         let report = engine.build_report(contexts.into_iter(), &catalog);
@@ -909,20 +799,7 @@ fn lint_from_config(
         }
     }
 
-    // The engine of the first `[[sql]]` block, not a hardcoded "postgres":
-    // `try_run_inspect` used to always build a PostgreSQL driver regardless
-    // of what the config declared (#210). A config with more than one
-    // engine still only gets one inspect pass -- inspect (like `sqlkit
-    // inspect` itself) connects to a single database, so there is no
-    // single "right" engine for a genuinely mixed-engine config; the first
-    // block's is the best available default.
-    let inspect_engine = config
-        .sql
-        .first()
-        .map(|s| engine_to_sqruff_dialect(&s.engine))
-        .unwrap_or("postgres");
-
-    let inspect_findings = try_run_inspect(config_path, database_url, Some(inspect_engine));
+    let inspect_findings = try_run_inspect(config_path, database_url, None);
     all_violations.extend(inspect_findings);
 
     Ok(all_violations)

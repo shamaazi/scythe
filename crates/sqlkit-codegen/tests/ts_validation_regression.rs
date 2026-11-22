@@ -13,9 +13,8 @@ use std::collections::HashMap;
 use sqlkit_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
 use sqlkit_core::errors::ErrorCode;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 const SCHEMA: &str = "
 CREATE DOMAIN slug AS text CHECK (VALUE ~ '^[a-z0-9-]+$');
@@ -57,8 +56,8 @@ fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
 }
 
 fn generate(backend: &dyn CodegenBackend, sql: &str) -> Result<GeneratedCode, sqlkit_core::errors::SqlkitError> {
-    let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).unwrap();
-    let parsed = parse_query_with_dialect(sql, &SqlDialect::PostgreSQL).unwrap();
+    let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
+    let parsed = parse_query(sql).unwrap();
     let analyzed = analyze(&catalog, &parsed).unwrap();
     generate_with_backend(&analyzed, backend)
 }

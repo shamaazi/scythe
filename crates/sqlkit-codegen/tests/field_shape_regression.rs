@@ -30,8 +30,7 @@
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 const SCHEMA: &str = "CREATE TABLE items (\
     id INT PRIMARY KEY, \
@@ -48,8 +47,8 @@ const MANGLING_BACKENDS: [&str; 1] = ["rust-sqlx"];
 
 fn generate(backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
-    let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).expect("schema must parse");
-    let parsed = parse_query_with_dialect(QUERY, &SqlDialect::PostgreSQL).expect("query must parse");
+    let catalog = Catalog::from_ddl(&[SCHEMA]).expect("schema must parse");
+    let parsed = parse_query(QUERY).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
     [code.row_struct, code.query_fn, code.model_struct]

@@ -8,8 +8,7 @@ use sqlkit_codegen::schema_types::generate_schema_types;
 use sqlkit_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 const SCHEMA: &str = "CREATE TYPE currency AS ENUM ('gbp', 'usd'); \
     CREATE TYPE operating_country AS ENUM ('gb', 'us'); \
@@ -33,7 +32,7 @@ const CREATE: &str = "-- @name CreateDonor\n-- @returns :exec\n\
     INSERT INTO donors (id, email, country, currency, total) VALUES ($1, $2, $3, $4, $5);";
 
 fn catalog(schema: &str) -> Catalog {
-    Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::PostgreSQL).unwrap()
+    Catalog::from_ddl(&[schema]).unwrap()
 }
 
 fn backend(options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
@@ -49,11 +48,7 @@ fn generate(backend: &dyn CodegenBackend) -> GeneratedCode {
 
 fn generate_query(backend: &dyn CodegenBackend, sql: &str) -> GeneratedCode {
     let catalog = catalog(SCHEMA);
-    let analyzed = analyze(
-        &catalog,
-        &parse_query_with_dialect(sql, &SqlDialect::PostgreSQL).unwrap(),
-    )
-    .unwrap();
+    let analyzed = analyze(&catalog, &parse_query(sql).unwrap()).unwrap();
     generate_with_backend(&analyzed, backend).unwrap()
 }
 

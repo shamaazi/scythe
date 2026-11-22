@@ -1,7 +1,6 @@
 use sqlparser::ast::{self, BinaryOperator, Expr, FunctionArg, FunctionArgExpr, UnaryOperator};
 
 use crate::catalog::{Function, FunctionArgumentMode, FunctionReturn};
-use crate::dialect::SqlDialect;
 
 use super::builtins::builtin_functions;
 use super::helpers::*;
@@ -1050,7 +1049,7 @@ impl<'a> Analyzer<'a> {
     /// The PostgreSQL built-in overloads of `name`, unless the schema defines
     /// a function by that name.
     pub(super) fn builtin_overloads(&self, name: &str) -> Option<&'static [Function]> {
-        if self.catalog.dialect() != SqlDialect::PostgreSQL || self.catalog.get_functions(name).is_some() {
+        if self.catalog.get_functions(name).is_some() {
             return None;
         }
         builtin_functions(name)
@@ -1229,8 +1228,8 @@ impl<'a> Analyzer<'a> {
     /// `WrapArray::Yes` -- `to_json(json_build_object(...))` would just be
     /// redundant, not a shape worth a dedicated struct for.
     ///
-    /// Returns `None` whenever the nested shape can't be established — wrong
-    /// dialect or engine, zero or more than one argument, or an argument that
+    /// Returns `None` whenever the nested shape can't be established — zero or
+    /// more than one argument, or an argument that
     /// isn't a `FuncArgShape::Relation` and isn't a recognized inline
     /// `json_build_object(...)` call (a bare wildcard, some other scalar
     /// expression, or a relation alias that somehow resolved to no scope

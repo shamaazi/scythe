@@ -7,7 +7,6 @@ use super::rule::LintRule;
 use super::rules::codegen::DuplicateQueryNames;
 use super::types::{LintContext, Severity, Violation};
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
 
 // ---------------------------------------------------------------------------
 
@@ -65,23 +64,6 @@ impl LintEngine {
             }
         }
         results
-    }
-
-    /// Rules registered here that cannot run against `dialect`, by id.
-    ///
-    /// A dialect-gated rule contributes nothing to a run and says nothing
-    /// about why. `sqlkit audit` on another engine reported "No findings"
-    /// while most canonical rules were gated to `postgres` and never executed
-    /// (#167) — a caller that wants to say "N rule(s) skipped: not
-    /// applicable to engine '<e>'" needs the gate to be answerable *before*
-    /// the run, which is what this is for.
-    ///
-    /// Only rules that would otherwise have run are listed: a rule switched
-    /// off through `[lint.rules]` is not "skipped for the engine", it is off,
-    /// and reporting it here would double-count the two reasons a rule
-    /// produced nothing.
-    pub fn rules_inapplicable_to(&self, dialect: SqlDialect) -> Vec<&'static str> {
-        self.registry.rules_inapplicable_to(dialect)
     }
 
     /// The cross-query duplicate-`@name` check (`SC-C03`).
@@ -338,7 +320,6 @@ mod tests {
             analyzed,
             catalog,
             annotations,
-            dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
         }
     }
 

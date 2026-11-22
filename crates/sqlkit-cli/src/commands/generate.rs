@@ -14,8 +14,7 @@ use sqlkit_codegen::{
 };
 use sqlkit_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 use sqlkit_lint::{QueryViolation, RuleRegistry, Severity};
 
 use super::shared::{
@@ -504,12 +503,9 @@ fn run_generate_inner(
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
 
-        let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
         let catalog = load_catalog(CatalogLoadRequest {
             command: "generate",
             config_name: &sql_config.name,
-            engine: &sql_config.engine,
-            dialect,
             schema_files: &schema_files,
         })?
         .catalog;
@@ -549,7 +545,7 @@ fn run_generate_inner(
 
         let mut analyzed_queries: Vec<AnalyzedQuery> = Vec::new();
         for block in &all_query_blocks {
-            let parsed = parse_query_with_dialect(block, &dialect)?;
+            let parsed = parse_query(block)?;
             let analyzed = analyze(&catalog, &parsed)?;
             analyzed_queries.push(analyzed);
         }
@@ -1733,12 +1729,9 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
 
-        let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
         let catalog = load_catalog(CatalogLoadRequest {
             command: "check",
             config_name: &sql_config.name,
-            engine: &sql_config.engine,
-            dialect,
             schema_files: &schema_files,
         })?
         .catalog;
@@ -1822,7 +1815,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             // treats an unconstructible backend: unable to fully validate
             // this one query is not the same as nothing being wrong with
             // the rest of the file. See #209, item 4.
-            let parsed = match parse_query_with_dialect(block, &dialect) {
+            let parsed = match parse_query(block) {
                 Ok(p) => p,
                 Err(e) => {
                     all_violations.push(QueryViolation {
@@ -1859,7 +1852,6 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                 analyzed: &analyzed,
                 catalog: &catalog,
                 annotations: &parsed.annotations,
-                dialect,
             };
             let violations = engine.check_query(&ctx);
             for (v, sev) in violations {

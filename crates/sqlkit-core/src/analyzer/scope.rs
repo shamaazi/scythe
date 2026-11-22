@@ -1,7 +1,6 @@
 use sqlparser::ast::{self, JoinOperator, TableFactor};
 
 use crate::catalog::FunctionReturn;
-use crate::dialect::SqlDialect;
 use crate::errors::SqlkitError;
 
 use super::builtins::builtin_relation;
@@ -149,7 +148,6 @@ impl<'a> Analyzer<'a> {
                         })
                         .collect()
                 } else if args.is_none()
-                    && self.catalog.dialect() == SqlDialect::PostgreSQL
                     && let Some(columns) = builtin_relation(&table_name)
                 {
                     columns

@@ -39,18 +39,13 @@ use sqlkit_codegen::validation::{strict_mode_enabled, validate_with_tools};
 use sqlkit_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend, provenance};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
-/// Every TypeScript backend, with an engine it supports and the dialect
-/// fixtures below are written in.
-const TS_BACKENDS: [(&str, &str, SqlDialect); 2] = [
-    ("typescript-postgres", "postgresql", SqlDialect::PostgreSQL),
-    ("typescript-bun", "postgresql", SqlDialect::PostgreSQL),
-];
+/// Every TypeScript backend and an engine it supports.
+const TS_BACKENDS: [(&str, &str); 2] = [("typescript-postgres", "postgresql"), ("typescript-bun", "postgresql")];
 
 /// A schema/query pair whose column names need quoting.
-fn fixture(_dialect: &SqlDialect) -> (&'static str, [&'static str; 3]) {
+fn fixture() -> (&'static str, [&'static str; 3]) {
     (
         "CREATE TABLE weird (\
                 id INT PRIMARY KEY, \
@@ -73,10 +68,7 @@ fn fixture(_dialect: &SqlDialect) -> (&'static str, [&'static str; 3]) {
 /// Each pairs with the same engine its `typescript-*` sibling in
 /// [`TS_BACKENDS`] uses, since `get_backend` dispatches both names to the
 /// same per-engine constructor (`new` vs. `new_js`).
-const JS_BACKENDS: [(&str, &str, SqlDialect); 2] = [
-    ("javascript-postgres", "postgresql", SqlDialect::PostgreSQL),
-    ("javascript-bun", "postgresql", SqlDialect::PostgreSQL),
-];
+const JS_BACKENDS: [(&str, &str); 2] = [("javascript-postgres", "postgresql"), ("javascript-bun", "postgresql")];
 
 /// The three keys every fixture projects, spelled as they must appear in the
 /// generated file: quoted.
@@ -91,13 +83,13 @@ const QUOTED_KEYS: [&str; 3] = ["\"with-dash\"", "\"my col\"", "\"2fa\""];
 /// now emits, which is the fix and not the defect.
 const BARE_KEYS: [&str; 3] = ["\twith-dash:", "\tmy col:", "\t2fa:"];
 
-fn generate_all(backend: &dyn CodegenBackend, dialect: &SqlDialect) -> Vec<GeneratedCode> {
-    let (schema, queries) = fixture(dialect);
-    let catalog = Catalog::from_ddl_with_dialect(&[schema], dialect).expect("schema must parse");
+fn generate_all(backend: &dyn CodegenBackend) -> Vec<GeneratedCode> {
+    let (schema, queries) = fixture();
+    let catalog = Catalog::from_ddl(&[schema]).expect("schema must parse");
     queries
         .iter()
         .map(|sql| {
-            let parsed = parse_query_with_dialect(sql, dialect).expect("query must parse");
+            let parsed = parse_query(sql).expect("query must parse");
             let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
             generate_with_backend(&analyzed, backend).expect("codegen must succeed")
         })
@@ -162,9 +154,9 @@ fn tool_check(backend_name: &str, file: &str) {
 #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn every_typescript_backend_quotes_non_identifier_column_names() {
-    for (backend_name, engine, dialect) in TS_BACKENDS {
+    for (backend_name, engine) in TS_BACKENDS {
         let backend = build(backend_name, engine, &HashMap::new());
-        let codes = generate_all(&*backend, &dialect);
+        let codes = generate_all(&*backend);
         let file = assemble(&*backend, engine, &codes);
 
         for quoted in QUOTED_KEYS {
@@ -202,9 +194,9 @@ fn every_typescript_backend_quotes_non_identifier_column_names() {
 #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn every_javascript_backend_describes_non_identifier_columns_with_a_quoted_typedef_key() {
-    for (backend_name, engine, dialect) in JS_BACKENDS {
+    for (backend_name, engine) in JS_BACKENDS {
         let backend = build(backend_name, engine, &HashMap::new());
-        let codes = generate_all(&*backend, &dialect);
+        let codes = generate_all(&*backend);
         let file = assemble(&*backend, engine, &codes);
 
         // The row typedef must keep the driver's own key spelling. A
@@ -264,8 +256,8 @@ fn an_apostrophe_in_a_column_name_is_escaped_in_bracket_reads() {
     let options = HashMap::from([("field_case".to_string(), "camelCase".to_string())]);
     for backend_name in ["typescript-postgres", "typescript-bun"] {
         let backend = build(backend_name, "postgresql", &options);
-        let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).unwrap();
-        let parsed = parse_query_with_dialect(QUERY, &SqlDialect::PostgreSQL).unwrap();
+        let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
+        let parsed = parse_query(QUERY).unwrap();
         let analyzed = analyze(&catalog, &parsed).unwrap();
         let code = generate_with_backend(&analyzed, &*backend).unwrap();
         let query_fn = code.query_fn.expect("expected a query fn");

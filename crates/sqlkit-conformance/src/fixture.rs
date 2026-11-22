@@ -41,23 +41,6 @@ impl Engine {
     pub fn schema_file_name(self) -> String {
         format!("{}.sql", self.as_str())
     }
-
-    /// The parser dialect this engine's DDL must be read with.
-    ///
-    /// Written as an exhaustive `match` rather than routed through
-    /// [`sqlkit_core::dialect::SqlDialect::from_str`] with a fallback: that
-    /// function returns `Option`, and any fallback for the `None` arm --
-    /// `unwrap_or_default()` in particular -- would parse an unrecognised
-    /// engine's DDL as PostgreSQL. In a crate whose whole purpose is to stop
-    /// a green result being produced by examining the wrong thing, silently
-    /// checking another engine's DDL against PostgreSQL's grammar is precisely the
-    /// failure mode. Adding an `Engine` variant is a compile error here.
-    pub fn dialect(self) -> sqlkit_core::dialect::SqlDialect {
-        use sqlkit_core::dialect::SqlDialect;
-        match self {
-            Engine::Postgresql => SqlDialect::PostgreSQL,
-        }
-    }
 }
 
 impl std::fmt::Display for Engine {
@@ -637,16 +620,14 @@ fn validate_schema_reconciliation(
             path: schema_path.clone(),
             source,
         })?;
-        let dialect = engine.dialect();
-        let catalog =
-            sqlkit_core::catalog::Catalog::from_ddl_with_dialect(&[contents.as_str()], &dialect).map_err(|source| {
-                FixtureError::LiveSchemaParse {
-                    name: fixture.name.clone(),
-                    engine,
-                    path: schema_path.clone(),
-                    source,
-                }
-            })?;
+        let catalog = sqlkit_core::catalog::Catalog::from_ddl(&[contents.as_str()]).map_err(|source| {
+            FixtureError::LiveSchemaParse {
+                name: fixture.name.clone(),
+                engine,
+                path: schema_path.clone(),
+                source,
+            }
+        })?;
 
         for &column in &declared {
             let Some(source) = shape.source_column(column) else {

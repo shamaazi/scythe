@@ -13,8 +13,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 use std::hint::black_box;
 
 const SCHEMA: &str = "\
@@ -89,7 +88,7 @@ const QUERIES: &[&str] = &[
 ];
 
 fn build_catalog() -> Catalog {
-    Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).expect("valid schema")
+    Catalog::from_ddl(&[SCHEMA]).expect("valid schema")
 }
 
 /// Parse + analyze the full query set against the catalog. This is the path
@@ -98,7 +97,7 @@ fn analyze_all(catalog: &Catalog) -> Vec<sqlkit_core::analyzer::AnalyzedQuery> {
     QUERIES
         .iter()
         .map(|sql| {
-            let parsed = parse_query_with_dialect(sql, &SqlDialect::PostgreSQL).expect("valid query");
+            let parsed = parse_query(sql).expect("valid query");
             analyze(catalog, &parsed).expect("analyzable query")
         })
         .collect()
@@ -119,7 +118,7 @@ fn bench_analyze_only(c: &mut Criterion) {
     let catalog = build_catalog();
     let parsed: Vec<_> = QUERIES
         .iter()
-        .map(|sql| parse_query_with_dialect(sql, &SqlDialect::PostgreSQL).expect("valid query"))
+        .map(|sql| parse_query(sql).expect("valid query"))
         .collect();
 
     c.bench_function("analyze_only_query_set", |b| {

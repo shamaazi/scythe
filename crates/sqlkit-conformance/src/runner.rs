@@ -383,10 +383,8 @@ async fn evaluate_fixture<E: Executor>(
     let engine = E::ENGINE;
     let err_ctx = || (fixture.name.clone(), engine);
 
-    // The analyzer runs under the dialect of the engine this leg queries.
-    let dialect = engine.dialect();
     let schema_refs: Vec<&str> = fixture.schema_sql.iter().map(String::as_str).collect();
-    let catalog = sqlkit_core::catalog::Catalog::from_ddl_with_dialect(&schema_refs, &dialect).map_err(|source| {
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(&schema_refs).map_err(|source| {
         let (fixture, engine) = err_ctx();
         RunnerError::Analysis {
             fixture,
@@ -394,7 +392,7 @@ async fn evaluate_fixture<E: Executor>(
             source,
         }
     })?;
-    let query = sqlkit_core::parser::parse_query_with_dialect(&fixture.query_sql, &dialect).map_err(|source| {
+    let query = sqlkit_core::parser::parse_query(&fixture.query_sql).map_err(|source| {
         let (fixture, engine) = err_ctx();
         RunnerError::Analysis {
             fixture,

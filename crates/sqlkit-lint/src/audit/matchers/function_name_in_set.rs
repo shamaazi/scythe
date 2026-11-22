@@ -93,7 +93,6 @@ mod tests {
     use super::*;
     use sqlkit_core::analyzer::AnalyzedQuery;
     use sqlkit_core::catalog::Catalog;
-    use sqlkit_core::dialect::SqlDialect;
     use sqlkit_core::parser::{Annotations, QueryCommand};
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
@@ -156,7 +155,6 @@ mod tests {
             analyzed: &analyzed,
             catalog: &catalog,
             annotations: &annotations,
-            dialect: SqlDialect::PostgreSQL,
         };
         let args = make_args(&["pg_read_file"]);
         let hits = match_function_name_in_set(&ctx, &args);
@@ -174,7 +172,6 @@ mod tests {
             analyzed: &analyzed,
             catalog: &catalog,
             annotations: &annotations,
-            dialect: SqlDialect::PostgreSQL,
         };
         let args = make_args(&["pg_read_file"]);
         let hits = match_function_name_in_set(&ctx, &args);
@@ -194,7 +191,6 @@ mod tests {
             analyzed: &analyzed,
             catalog: &catalog,
             annotations: &annotations,
-            dialect: SqlDialect::PostgreSQL,
         };
         let args = make_args(&["dblink"]);
         let hits = match_function_name_in_set(&ctx, &args);
@@ -214,7 +210,6 @@ mod tests {
             analyzed: &analyzed,
             catalog: &catalog,
             annotations: &annotations,
-            dialect: SqlDialect::PostgreSQL,
         };
         let args = make_args(&["pg_ls_dir"]);
         let hits = match_function_name_in_set(&ctx, &args);
@@ -235,7 +230,6 @@ mod tests {
             analyzed: &analyzed,
             catalog: &catalog,
             annotations: &annotations,
-            dialect: SqlDialect::PostgreSQL,
         };
         let args = make_args(&["dblink", "pg_ls_dir"]);
         let hits = match_function_name_in_set(&ctx, &args);
@@ -252,7 +246,6 @@ mod tests {
             analyzed: &analyzed,
             catalog: &catalog,
             annotations: &annotations,
-            dialect: SqlDialect::PostgreSQL,
         };
         let args = make_args(&["pg_read_file"]);
         let hits = match_function_name_in_set(&ctx, &args);

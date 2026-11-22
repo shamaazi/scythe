@@ -229,7 +229,6 @@ mod tests {
             analyzed,
             catalog,
             annotations: &query.annotations,
-            dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
         }
     }
 

@@ -7,7 +7,6 @@
 use std::path::Path;
 
 use serde::Deserialize;
-use sqlkit_core::dialect::SqlDialect;
 
 use crate::types::{RuleCategory, Severity};
 
@@ -25,20 +24,6 @@ pub const CANONICAL_RULE_IDS: &[&str] = &[
 
 fn default_category() -> RuleCategory {
     RuleCategory::Security
-}
-
-fn deserialize_dialects<'de, D>(deserializer: D) -> Result<Vec<SqlDialect>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let strs: Vec<String> = Vec::deserialize(deserializer)?;
-    strs.iter()
-        .map(|s| SqlDialect::from_str(s).ok_or_else(|| serde::de::Error::custom(format!("unknown SQL dialect: {s:?}"))))
-        .collect()
-}
-
-fn default_dialects() -> Vec<SqlDialect> {
-    Vec::new()
 }
 
 /// Top-level structure of a rule TOML file.
@@ -63,9 +48,6 @@ pub struct RuleSpec {
     pub category: RuleCategory,
     /// Default severity.
     pub severity: Severity,
-    /// Dialects this rule applies to.  Empty means all dialects.
-    #[serde(default = "default_dialects", deserialize_with = "deserialize_dialects")]
-    pub dialects: Vec<SqlDialect>,
     /// CWE identifiers (e.g. `["CWE-78"]`).
     #[serde(default)]
     pub cwe: Vec<String>,
@@ -220,24 +202,5 @@ functions = ["pg_read_file"]
         assert!(CANONICAL_RULE_IDS.contains(&"SC-RLS03"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG19"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-CHK01"));
-    }
-
-    #[test]
-    fn rule_with_dialects_parses() {
-        let toml_str = r#"
-schema_version = 1
-
-[[rule]]
-id = "SC-SEC01"
-name = "test"
-severity = "warn"
-description = "desc"
-message = "msg"
-matcher = "function_name_in_set"
-dialects = ["postgres"]
-"#;
-        let file: RuleFile = toml::from_str(toml_str).unwrap();
-        assert_eq!(file.rules[0].dialects.len(), 1);
-        assert_eq!(file.rules[0].dialects[0], SqlDialect::PostgreSQL);
     }
 }

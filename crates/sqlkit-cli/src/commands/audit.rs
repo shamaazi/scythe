@@ -15,16 +15,16 @@ mod cluster_scope;
 
 use sqlkit_core::analyzer::AnalyzedQuery;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
 use sqlkit_core::parser::Annotations;
 use sqlkit_lint::reporters::{Finding, Format};
 use sqlkit_lint::{
-    AuditConfigError, KNOWN_ENGINE_ALIASES, LintContext, LintRule, MatcherRegistry, RuleCategory, RuleRegistry,
-    RuleSpec, Severity, SuppressionSet, default_registry, emit_findings, load_rules_from_file, parse_engine_dialect,
-    register_user_rules,
+    AuditConfigError, LintContext, LintRule, MatcherRegistry, RuleCategory, RuleRegistry, RuleSpec, Severity,
+    SuppressionSet, default_registry, emit_findings, load_rules_from_file, register_user_rules,
 };
 
-use super::shared::{CatalogLoadRequest, LoadedCatalog, ParseSeverities, config_dir, load_catalog, resolve_globs};
+use super::shared::{
+    CatalogLoadRequest, LoadedCatalog, ParseSeverities, config_dir, deserialize_engine, load_catalog, resolve_globs,
+};
 
 const TOOL_NAME: &str = "sqlkit-audit";
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -42,13 +42,12 @@ pub struct RunAuditOpts {
     pub ignore_suppressions: bool,
     pub cluster_scope: bool,
     pub pg_version: Option<String>,
-    pub dialect: Option<String>,
     pub files: Vec<String>,
 }
 
 pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
     // Every input that can be wrong is validated *before* any output sink is
-    // opened -- `--format`/`--severity`/`--dialect`/`--explain`'s rule id --
+    // opened -- `--format`/`--severity`/`--explain`'s rule id --
     // so a bad flag is reported as a bad flag instead of truncating
     // `--output`'s file to 0 bytes and then erroring (#212): `File::create`
     // truncates immediately on open, so opening it ahead of validation
@@ -60,15 +59,6 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
         Some(s) => Some(
             Severity::parse_cli(s).ok_or_else(|| format!("unknown --severity '{}' (expected off|warn|error)", s))?,
         ),
-        None => None,
-    };
-
-    // Validated even though `--list-rules`/`--explain` do not use it,
-    // because clap parses every flag on the same invocation regardless of
-    // which subcommand-like mode is active -- `--list-rules --dialect
-    // klingon` must still fail rather than silently ignore `--dialect`.
-    let dialect = match opts.dialect.as_deref() {
-        Some(raw) => Some(validate_audit_dialect(raw)?),
         None => None,
     };
 
@@ -106,10 +96,8 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
     if opts.files.is_empty() {
         findings.extend(audit_from_config(&opts.config_path, opts.ignore_suppressions)?);
     } else {
-        let engine = dialect.as_deref().unwrap_or("postgres");
         findings.extend(audit_explicit_files(
             &opts.files,
-            engine,
             opts.ignore_suppressions,
             &opts.config_path,
         )?);
@@ -207,28 +195,6 @@ fn cluster_scope_description(code: &str) -> &'static str {
         "SC-CLUSTER02" => "statement kind is outside the database-local allow-list",
         "SC-CLUSTER03" => "dynamic SQL could not be proven database-local",
         _ => "planned-schema statement or routine body could not be inspected (fail closed)",
-    }
-}
-
-/// Validates against [`KNOWN_ENGINE_ALIASES`] -- the same list
-/// [`parse_engine_dialect`] validates the config's `engine = "..."` against
-/// (#165, item 3) -- so `--dialect` and `engine` reject exactly the same
-/// set, with one list to keep in sync with `SqlDialect::from_str` instead of
-/// two drifting independently.
-///
-/// Before this, an unrecognized `--dialect` (a typo, or literal gibberish
-/// like `klingon`) fell through `SqlDialect::from_str(..).unwrap_or(PostgreSQL)`
-/// and silently became PostgreSQL -- identical output to `--dialect
-/// postgres`, with no error either way. See #212.
-fn validate_audit_dialect(raw: &str) -> Result<String, String> {
-    let lower = raw.to_ascii_lowercase();
-    if KNOWN_ENGINE_ALIASES.contains(&lower.as_str()) {
-        Ok(lower)
-    } else {
-        Err(format!(
-            "unknown --dialect '{raw}' (expected {})",
-            KNOWN_ENGINE_ALIASES.join("|")
-        ))
     }
 }
 
@@ -397,20 +363,8 @@ pub(crate) fn print_rule_explanation(
     Ok(())
 }
 
-/// Select the rules `sqlkit audit` will actually execute against `dialect`,
-/// and report -- out loud -- everything that was dropped on the way.
-///
-/// Two filters decide what runs, and before this neither was observable:
-///
-/// - **Category.** `audit` only executes Security, Migration and Antipattern
-///   rules; the rest of the registry is irrelevant here.
-/// - **Dialect.** [`LintRule::is_applicable_to`] gates a rule to the dialects
-///   its spec declares. Most canonical migration rules (and several security
-///   rules) declare `dialects = ["postgres"]`, so auditing another engine
-///   silently ran a much smaller rule set than the one `--list-rules`
-///   advertises. `MatcherRule::check_query` applies the same gate internally
-///   and returns an empty `Vec`, which is indistinguishable from "the rule
-///   ran and found nothing" -- exactly the invisible skip #167 describes.
+/// Select the rules `sqlkit audit` will actually execute: the Security, Migration and
+/// Antipattern rules; the rest of the registry is irrelevant here.
 ///
 /// Returns the rules to run plus, when *nothing* is left to run, an
 /// error-severity [`Finding`]. A zero-rule audit that prints no findings and
@@ -419,10 +373,8 @@ pub(crate) fn print_rule_explanation(
 /// `--exit-zero` still suppresses the exit code, as for any other finding.
 fn prepare_audit_rules<'a>(
     rules: &[(&'a dyn LintRule, Severity)],
-    dialect: SqlDialect,
-    engine_label: &str,
 ) -> (Vec<(&'a dyn LintRule, Severity)>, Option<Finding>) {
-    let in_category: Vec<(&'a dyn LintRule, Severity)> = rules
+    let applicable: Vec<(&'a dyn LintRule, Severity)> = rules
         .iter()
         .filter(|(rule, _)| {
             matches!(
@@ -432,25 +384,6 @@ fn prepare_audit_rules<'a>(
         })
         .copied()
         .collect();
-
-    let mut applicable: Vec<(&'a dyn LintRule, Severity)> = Vec::with_capacity(in_category.len());
-    let mut skipped: Vec<&'static str> = Vec::new();
-    for (rule, severity) in in_category {
-        if rule.is_applicable_to(dialect) {
-            applicable.push((rule, severity));
-        } else {
-            skipped.push(rule.id());
-        }
-    }
-
-    if !skipped.is_empty() {
-        eprintln!(
-            "audit: {} rule(s) skipped: not applicable to engine '{}' ({})",
-            skipped.len(),
-            engine_label,
-            skipped.join(", ")
-        );
-    }
 
     if applicable.is_empty() {
         let finding = Finding {
@@ -465,12 +398,9 @@ fn prepare_audit_rules<'a>(
                     .to_string(),
             ),
             severity: Severity::Error,
-            message: format!(
-                "no audit rule applies to engine '{}': {} rule(s) are restricted to other dialects and \
-                 the rest are configured off — audit examined 0 rules and cannot report on this project",
-                engine_label,
-                skipped.len()
-            ),
+            message: "every audit rule is configured off — audit examined 0 rules and cannot report on this \
+                      project"
+                .to_string(),
             line: None,
             column: None,
             cwe: Vec::new(),
@@ -515,8 +445,9 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         name: String,
         schema: Vec<String>,
         queries: Vec<String>,
-        #[serde(default)]
-        engine: String,
+        #[serde(default, deserialize_with = "deserialize_engine")]
+        #[allow(dead_code)]
+        engine: Option<String>,
     }
 
     if !Path::new(config_path).exists() {
@@ -567,30 +498,12 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
     }
 
     let rules = registry.active_rules();
+    let (rules, no_rules_finding) = prepare_audit_rules(&rules);
 
     let mut findings = Vec::new();
+    findings.extend(no_rules_finding);
 
     for sql_config in &config.sql {
-        // Per `[[sql]]` block, because the dialect gate is per block: the
-        // same registry can yield a different executable rule set for a
-        // postgres block and a block of another engine.
-        let engine_label = if sql_config.engine.is_empty() {
-            "postgres"
-        } else {
-            sql_config.engine.as_str()
-        };
-        // `parse_engine_dialect`, not `SqlDialect::from_str(..).unwrap_or(PostgreSQL)`:
-        // a typo'd engine (`mysql8`) used to be silently audited as
-        // PostgreSQL -- wrong catalog parsing and a wrong dialect-gated rule
-        // set, with `sqlkit audit` reporting success regardless (#165, item
-        // 3). `--dialect` already rejects this same mistake via
-        // `validate_audit_dialect`; the config's `engine` field did not.
-        let sql_dialect = parse_engine_dialect(engine_label).map_err(|e| format!("[{}] {}", sql_config.name, e))?;
-        let (rules, no_rules_finding) = prepare_audit_rules(&rules, sql_dialect, engine_label);
-        if let Some(finding) = no_rules_finding {
-            findings.push(finding);
-        }
-
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
         let LoadedCatalog {
             catalog,
@@ -599,8 +512,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         } = load_catalog(CatalogLoadRequest {
             command: "audit",
             config_name: &sql_config.name,
-            engine: engine_label,
-            dialect: sql_dialect,
             schema_files: &schema_files,
         })?;
 
@@ -608,7 +519,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
             findings.extend(run_security_rules_over_sql(
                 path,
                 content,
-                &sql_dialect,
                 &catalog,
                 &rules,
                 ignore_suppressions,
@@ -623,7 +533,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
             findings.extend(run_security_rules_over_sql(
                 query_file,
                 &content,
-                &sql_dialect,
                 &catalog,
                 &rules,
                 ignore_suppressions,
@@ -644,21 +553,10 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
 
 pub(crate) fn audit_explicit_files(
     files: &[String],
-    engine: &str,
     ignore_suppressions: bool,
     config_path: &str,
 ) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
-    // `parse_engine_dialect`, not `SqlDialect::from_str(..).unwrap_or(PostgreSQL)`
-    // (#165, item 3). `engine` is always already-validated here in practice
-    // -- `run_audit` passes either its `--dialect` value (validated by
-    // `validate_audit_dialect`) or the literal default `"postgres"` -- but
-    // this function is `pub(crate)`, so a future in-crate caller that skips
-    // that validation must still get an error naming the bad value instead
-    // of a silent PostgreSQL fallback.
-    let sql_dialect = parse_engine_dialect(engine).map_err(|e| format!("audit: {e}"))?;
-
-    let catalog = Catalog::from_ddl_with_dialect(&[], &sql_dialect)
-        .unwrap_or_else(|_| Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog"));
+    let catalog = Catalog::from_ddl(&[]).expect("empty catalog");
 
     // Loads `sqlkit.toml`'s `[lint]`/`[audit]` sections when `config_path`
     // exists, falling back to the canonical registry when it does not --
@@ -668,7 +566,7 @@ pub(crate) fn audit_explicit_files(
     // user rules never ran (#206, item 2).
     let registry = load_registry(config_path)?;
     let all_active = registry.active_rules();
-    let (rules, no_rules_finding) = prepare_audit_rules(&all_active, sql_dialect, engine);
+    let (rules, no_rules_finding) = prepare_audit_rules(&all_active);
     let parse_severity = load_parse_severity(config_path)?;
 
     let mut findings = Vec::new();
@@ -680,7 +578,6 @@ pub(crate) fn audit_explicit_files(
         findings.extend(run_security_rules_over_sql(
             path,
             &content,
-            &sql_dialect,
             &catalog,
             &rules,
             ignore_suppressions,
@@ -715,14 +612,11 @@ struct StatementParseFailure {
 /// separate post-hoc token walk keyed by statement *index*, which would
 /// drift out of sync with `sql`'s real line numbers the moment any
 /// statement is skipped), plus every statement that could not be parsed.
-fn parse_statements_lenient(
-    dialect: &dyn sqlparser::dialect::Dialect,
-    sql: &str,
-) -> (Vec<(sqlparser::ast::Statement, usize)>, Vec<StatementParseFailure>) {
+fn parse_statements_lenient(sql: &str) -> (Vec<(sqlparser::ast::Statement, usize)>, Vec<StatementParseFailure>) {
     use sqlparser::parser::Parser;
     use sqlparser::tokenizer::Token;
 
-    let mut parser = match Parser::new(dialect).try_with_sql(sql) {
+    let mut parser = match Parser::new(&sqlparser::dialect::PostgreSqlDialect {}).try_with_sql(sql) {
         Ok(p) => p,
         Err(e) => {
             return (
@@ -786,11 +680,7 @@ fn parse_statements_lenient(
 ///
 /// # Rule set
 ///
-/// `rules` must already be narrowed by [`prepare_audit_rules`] -- category
-/// *and* dialect. Filtering here as well would be a second derivation of the
-/// same fact, and the dialect half of it would once more be invisible: the
-/// count of skipped rules has to be reported where the audit knows what it is
-/// about to run, not buried in a per-statement loop.
+/// `rules` must already be narrowed to audit's categories by [`prepare_audit_rules`].
 ///
 /// # Suppression
 ///
@@ -812,7 +702,6 @@ fn parse_statements_lenient(
 pub(crate) fn run_security_rules_over_sql(
     path: &str,
     sql: &str,
-    dialect: &SqlDialect,
     catalog: &Catalog,
     rules: &[(&dyn sqlkit_lint::LintRule, Severity)],
     ignore_suppressions: bool,
@@ -822,8 +711,7 @@ pub(crate) fn run_security_rules_over_sql(
 
     let suppressions = SuppressionSet::parse(sql);
 
-    let parser_dialect = dialect.to_sqlparser_dialect();
-    let (statements, failures) = parse_statements_lenient(parser_dialect.as_ref(), sql);
+    let (statements, failures) = parse_statements_lenient(sql);
 
     for failure in &failures {
         eprintln!(
@@ -865,7 +753,6 @@ pub(crate) fn run_security_rules_over_sql(
             analyzed: &empty_analyzed,
             catalog,
             annotations: &empty_annotations,
-            dialect: *dialect,
         };
 
         for (rule, severity) in rules {

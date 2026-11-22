@@ -25,8 +25,7 @@
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
-use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::parse_query_with_dialect;
+use sqlkit_core::parser::parse_query;
 
 const SCHEMA: [&str; 2] = [
     "CREATE TYPE widget_status AS ENUM ('active', 'inactive');",
@@ -37,8 +36,8 @@ const QUERY: &str = "-- @name GetWidget\n-- @returns :one\nSELECT id, \"my col\"
 
 fn generate_query_fn() -> String {
     let backend = get_backend("rust-sqlx", "postgresql").expect("backend must support postgresql");
-    let catalog = Catalog::from_ddl_with_dialect(&SCHEMA, &SqlDialect::PostgreSQL).expect("schema must parse");
-    let parsed = parse_query_with_dialect(QUERY, &SqlDialect::PostgreSQL).expect("query must parse");
+    let catalog = Catalog::from_ddl(&SCHEMA).expect("schema must parse");
+    let parsed = parse_query(QUERY).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
     code.query_fn.expect("expected a query function")
