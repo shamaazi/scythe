@@ -796,9 +796,7 @@ impl Catalog {
             return Some(key.to_string());
         }
         let suffix = format!(".{key}");
-        let mut candidates: Vec<&String> = self.domains.keys().filter(|k| k.ends_with(&suffix)).collect();
-        candidates.sort();
-        candidates.first().map(|k| (*k).clone())
+        self.domains.keys().filter(|k| k.ends_with(&suffix)).min().cloned()
     }
 }
 

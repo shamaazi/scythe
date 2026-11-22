@@ -157,15 +157,6 @@ pub fn like_to_ecmascript(pattern: &str, escape: Option<char>) -> Result<String,
     Ok(out)
 }
 
-/// Escape `pattern` so it matches itself literally.
-pub fn escape_literal(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        push_literal(&mut out, c);
-    }
-    out
-}
-
 fn push_literal(out: &mut String, c: char) {
     if SYNTAX.contains(c) {
         out.push('\\');

@@ -3,6 +3,11 @@
 //! PostgreSQL inlines a SQL function into the query that calls it, so the
 //! planner sees through it; sqlkit likewise analyzes the body and types the
 //! function's results as the body produces them instead of as nullable.
+//!
+//! The body is analyzed by the query analyzer itself ([`analyze_function_body`]),
+//! so building the catalog calls into [`crate::analyzer`] here, as the view
+//! resolver does to type a view's columns: the analyzer reads the catalog,
+//! and these two steps of building it run the analyzer.
 
 use std::ops::ControlFlow;
 

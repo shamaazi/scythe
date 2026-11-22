@@ -16,18 +16,19 @@
 //! values written into a column ([`Catalog::written_column_constraints`])
 //! but not values read from one ([`Catalog::column_constraints`]).
 //!
-//! [`Catalog::written_column_constraints`]: crate::catalog::Catalog::written_column_constraints
-//! [`Catalog::column_constraints`]: crate::catalog::Catalog::column_constraints The analyzer then
-//! attaches the resolved [`ValueConstraints`] to result columns read straight
-//! from a column and to parameters written straight into one, for code
-//! generators to render as validation.
+//! The analyzer then attaches the resolved [`ValueConstraints`] to result
+//! columns read straight from a column and to parameters written straight into
+//! one, for code generators to render as validation.
 //!
 //! Rules describe non-null values only: PostgreSQL passes a `CHECK` whose
 //! expression is NULL, and nullability is already part of the generated type.
+//!
+//! [`Catalog::written_column_constraints`]: crate::catalog::Catalog::written_column_constraints
+//! [`Catalog::column_constraints`]: crate::catalog::Catalog::column_constraints
 
 use std::cmp::Ordering;
 
-pub mod pattern;
+mod pattern;
 mod translate;
 
 pub(crate) use translate::{TextComparison, referenced_columns, translate_check};
