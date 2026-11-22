@@ -1,0 +1,1672 @@
+use ahash::{AHashMap, AHashSet};
+use sqlparser::ast::{
+    self, BinaryOperator, Expr, GroupByExpr, ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, Value,
+};
+
+use crate::errors::{ErrorCode, SqlkitError};
+
+use super::types::{AnalyzedColumn, AnalyzedParam, Scope, TypeInfo};
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+/// The name [`expr_to_name`] falls back to for a projected expression that
+/// carries no name of its own (`SELECT 1, 2` yields two of them). Several in
+/// one projection are normal rather than a genuine collision, so the
+/// duplicate-name pass skips them.
+pub(super) const UNNAMED_COLUMN: &str = "unknown";
+
+/// Marker written into a `TypeInfo::neutral_type` when a bare column name
+/// resolves against more than one relation in scope.
+///
+/// These six markers are *internal*: they are not neutral types any backend
+/// can resolve, and every statement path that produces user-visible result
+/// columns must convert them back into a user-facing [`SqlkitError`] before
+/// returning (see [`reject_unresolved_columns`]). Both the producers (in
+/// `expressions.rs`/`scope.rs`) and the single consumer read them from these
+/// constants, so a marker cannot be renamed on one side and silently leak on
+/// the other -- which is exactly how RETURNING ended up reporting a typo'd
+/// column as `INTERNAL_ERROR: unknown neutral type: __unknown_col__:...`
+/// (#173), and how `jsonb_each` in select-list position ended up reporting
+/// `INTERNAL_ERROR: unknown neutral type: unknown` (#223).
+pub(super) const AMBIGUOUS_COLUMN_MARKER: &str = "__ambiguous__:";
+
+/// Marker written into a `TypeInfo::neutral_type` when a column name resolves
+/// against no relation in scope. See [`AMBIGUOUS_COLUMN_MARKER`].
+pub(super) const UNKNOWN_COLUMN_MARKER: &str = "__unknown_col__:";
+
+/// Marker written into a `TypeInfo::neutral_type` for a function call sqlkit
+/// has no return type for. See [`AMBIGUOUS_COLUMN_MARKER`].
+pub(super) const UNKNOWN_FUNCTION_MARKER: &str = "__unknown_func__:";
+
+pub(super) const AMBIGUOUS_FUNCTION_MARKER: &str = "__ambiguous_func__:";
+
+/// Marker written into a `TypeInfo::neutral_type` for a set-returning
+/// function's anonymous `record` column referenced in select-list position
+/// (`json_each`/`jsonb_each`/`json_each_text`/`jsonb_each_text`,
+/// `json_populate_record`/`jsonb_populate_record`/`json_populate_recordset`/
+/// `jsonb_populate_recordset`) rather than expanded via its FROM-clause form.
+/// Carries the function name so [`unresolved_type_error`] can name it. See
+/// [`AMBIGUOUS_COLUMN_MARKER`] and #223.
+pub(super) const UNTYPEABLE_RECORD_MARKER: &str = "__untypeable_record__:";
+
+pub(super) const UNTYPEABLE_CATALOG_RECORD_MARKER: &str = "__untypeable_catalog_record__:";
+
+/// Marker written into a `TypeInfo::neutral_type` for a multi-element
+/// `ROW(...)`/tuple constructor -- `(a, b)` (`Expr::Tuple`) or the explicit
+/// `ROW(a, b)` call (the function named `row`) -- neither of which has a
+/// single neutral type (#117, #223). See [`AMBIGUOUS_COLUMN_MARKER`].
+pub(super) const UNTYPEABLE_ROW_MARKER: &str = "__untypeable_row__:";
+
+/// Marker written into a `TypeInfo::neutral_type` for every other expression
+/// `infer_expr_type` genuinely cannot resolve to a type: an unresolved
+/// composite field access, `unnest` over a non-array argument, a subquery
+/// producing no columns, a table-valued function sqlkit has no column-type
+/// mapping for, and the handful of AST shapes with no dedicated inference
+/// arm. See [`AMBIGUOUS_COLUMN_MARKER`] and #223.
+pub(super) const UNRESOLVED_EXPR_MARKER: &str = "__unresolved_expr__:";
+
+/// Find `marker` anywhere in `neutral_type`, not just at position 0, and
+/// return the payload that follows it, bounded by the next `<`/`>` wrapper
+/// delimiter (or the end of the string when there is none).
+///
+/// A marker is not always the *entire* neutral type: `array_agg(ROW(a, b))`
+/// widens `ROW(...)`'s own marker into `array<{marker}>` the same way it
+/// would widen any other element type (`infer_function_type`'s
+/// `"array_agg"` arm has no special case for it, nor should it -- that arm's
+/// job is wrapping an element type, not policing whether the element type
+/// resolved). A plain `strip_prefix`/`starts_with` check only catches a
+/// marker sitting at the very start of the string, so `reject_unresolved_columns`
+/// would miss it here and let `array<__untypeable_row__:>` leak into codegen
+/// as an unresolvable type name -- the exact defect shape #223 exists to
+/// close, just one level of `array<...>` deeper.
+fn find_marker_payload<'a>(neutral_type: &'a str, marker: &str) -> Option<&'a str> {
+    let start = neutral_type.find(marker)? + marker.len();
+    let end = neutral_type[start..]
+        .find(['<', '>'])
+        .map(|rel| start + rel)
+        .unwrap_or(neutral_type.len());
+    Some(&neutral_type[start..end])
+}
+
+/// Translate an internal resolution marker embedded in a column's neutral
+/// type back into the user-facing error it stands for, or `None` when the
+/// type resolved normally. `column_name` is the already-known output column
+/// name (`AnalyzedColumn::name`) -- the three newer markers rely on it rather
+/// than embedding the name in the marker themselves, since (unlike a bare
+/// column reference) the function/construct they describe does not carry one
+/// naturally at the point the marker is produced.
+pub(super) fn unresolved_type_error(neutral_type: &str, subject: &str, column_name: &str) -> Option<SqlkitError> {
+    if let Some(name) = find_marker_payload(neutral_type, AMBIGUOUS_COLUMN_MARKER) {
+        return Some(SqlkitError::ambiguous_column(name));
+    }
+    if let Some(name) = find_marker_payload(neutral_type, UNKNOWN_COLUMN_MARKER) {
+        return Some(SqlkitError::unknown_column(name));
+    }
+    if let Some(name) = find_marker_payload(neutral_type, UNKNOWN_FUNCTION_MARKER) {
+        return Some(SqlkitError::unknown_function(name));
+    }
+    if let Some(name) = find_marker_payload(neutral_type, AMBIGUOUS_FUNCTION_MARKER) {
+        return Some(SqlkitError::ambiguous_function(name));
+    }
+    if let Some(function) = find_marker_payload(neutral_type, UNTYPEABLE_RECORD_MARKER) {
+        return Some(SqlkitError::untypeable_record(subject, column_name, function));
+    }
+    if let Some(function) = find_marker_payload(neutral_type, UNTYPEABLE_CATALOG_RECORD_MARKER) {
+        return Some(SqlkitError::new(
+            ErrorCode::UnresolvedType,
+            format!(
+                "{subject} \"{column_name}\": function {function}(...) returns PostgreSQL's anonymous `record` type; \
+                 declare a named composite return type or explicit RETURNS TABLE/OUT columns so sqlkit can resolve \
+                 the result fields"
+            ),
+        ));
+    }
+    if neutral_type.contains(UNTYPEABLE_ROW_MARKER) {
+        return Some(SqlkitError::untypeable_row_constructor(subject, column_name));
+    }
+    if neutral_type.contains(UNRESOLVED_EXPR_MARKER) {
+        return Some(SqlkitError::unresolved_expression_type(subject, column_name));
+    }
+    None
+}
+
+/// Reject a projected column list that still carries an internal resolution
+/// marker, reporting the user error the marker stands for.
+///
+/// Every path that hands result columns back to `analyze()` runs this --
+/// `SELECT` and `RETURNING` alike. A marker that escapes here reaches codegen
+/// as a neutral type no manifest can resolve, where it surfaces as
+/// `INTERNAL_ERROR` (or, on a backend that tolerates unknown neutral types,
+/// as the raw marker string written into generated source).
+pub(super) fn reject_unresolved_columns(columns: &[AnalyzedColumn]) -> Result<(), SqlkitError> {
+    for col in columns {
+        if let Some(err) = unresolved_type_error(&col.neutral_type, "column", &col.name) {
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
+/// The same rejection for query parameters, which reach codegen through a
+/// different door.
+///
+/// #223 fixed the column path only, and that was not enough: a marker lands on
+/// a *parameter's* neutral type whenever a placeholder sits inside a function
+/// whose result is untypeable, because `register_param` adopts that result as
+/// the parameter's type. `COALESCE`'s arm guards on the literal string
+/// `"unknown"`, which a marker is not, so it registers cleanly and nothing
+/// rejects it afterwards -- `resolve_params` in `sqlkit-codegen` has no
+/// equivalent of this check at all.
+///
+/// `SELECT id FROM documents WHERE data::text = COALESCE($1, ROW(id, data))::text`
+/// reported `INTERNAL_ERROR: type resolution failed for param 'row': unknown
+/// neutral type: __untypeable_row__:` -- sqlkit's internal marker spelling,
+/// verbatim, in front of a user, which is the exact failure #173 and #223 each
+/// set out to remove. `GREATEST`/`LEAST`, `NULLIF` and `CASE` reach it the same
+/// way.
+pub(super) fn reject_unresolved_params(params: &[AnalyzedParam]) -> Result<(), SqlkitError> {
+    for param in params {
+        if let Some(err) = unresolved_type_error(&param.neutral_type, "parameter", &param.name) {
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
+/// Rename every name that occurs more than once so the whole list is unique,
+/// suffixing each occurrence with `_1`, `_2`, ... in positional order.
+///
+/// One rule for both name spaces sqlkit generates identifiers from: query
+/// parameters (`WHERE id = $1 OR id = $2` -> `id_1`, `id_2`) and result
+/// columns (`SELECT u.id, p.id` -> `id_1`, `id_2`). Those two paths used to
+/// disagree -- the parameter path suffixed silently while the column path
+/// hard-rejected an ordinary join projection with `DUPLICATE_ALIAS` (#175) --
+/// so they are now one function with one behaviour.
+///
+/// A generated suffix never lands on a name the list already contains:
+/// `SELECT a AS id, b AS id, c AS id_1` yields `id_1` for the existing
+/// `id_1` column and `id_2`/`id_3` for the two `id`s, rather than minting a
+/// second `id_1`.
+pub(super) fn disambiguate_duplicate_names<'a>(names: impl IntoIterator<Item = &'a mut String>) {
+    let mut names: Vec<&'a mut String> = names.into_iter().collect();
+
+    let mut occurrences: AHashMap<String, usize> = AHashMap::new();
+    for name in &names {
+        *occurrences.entry((*name).clone()).or_insert(0) += 1;
+    }
+
+    // Seeded with every original name so a suffix can never collide with one
+    // the caller already uses; grows as suffixed names are handed out so two
+    // different bases cannot converge on the same result either.
+    let mut taken: AHashSet<String> = occurrences.keys().cloned().collect();
+    let mut next_suffix: AHashMap<String, usize> = AHashMap::new();
+
+    for name in &mut names {
+        if occurrences.get(name.as_str()).copied().unwrap_or(0) < 2 {
+            continue;
+        }
+        let base = (**name).clone();
+        let suffix = next_suffix.entry(base.clone()).or_insert(0);
+        let renamed = loop {
+            *suffix += 1;
+            let candidate = format!("{base}_{suffix}");
+            if taken.insert(candidate.clone()) {
+                break candidate;
+            }
+        };
+        **name = renamed;
+    }
+
+    debug_assert!(
+        {
+            let mut unique: AHashSet<&str> = AHashSet::new();
+            names.iter().all(|name| unique.insert(name.as_str()))
+        },
+        "disambiguate_duplicate_names must leave every name unique"
+    );
+}
+
+pub(super) fn value_is_placeholder(vws: &ast::ValueWithSpan) -> Option<&str> {
+    match &vws.value {
+        Value::Placeholder(s) => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+pub(super) fn value_is_string(vws: &ast::ValueWithSpan) -> bool {
+    matches!(&vws.value, Value::SingleQuotedString(_) | Value::DoubleQuotedString(_))
+}
+
+pub(super) fn value_is_boolean(vws: &ast::ValueWithSpan) -> bool {
+    matches!(&vws.value, Value::Boolean(_))
+}
+
+pub(super) fn value_is_null(vws: &ast::ValueWithSpan) -> bool {
+    matches!(&vws.value, Value::Null)
+}
+
+pub(super) fn object_name_to_string(name: &ObjectName) -> String {
+    name.0
+        .iter()
+        .map(|part| match part {
+            ast::ObjectNamePart::Identifier(ident) => ident.value.clone(),
+            _ => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// An identifier as the database resolves it: PostgreSQL (and the SQL
+/// standard) folds an unquoted name and keeps a quoted one exactly, so
+/// `"userId"` names a different column than `userId`. The catalog stores
+/// column names by the same rule.
+pub(super) fn ident_name(ident: &ast::Ident) -> String {
+    if ident.quote_style.is_some() {
+        ident.value.clone()
+    } else {
+        ident.value.to_lowercase()
+    }
+}
+
+/// A column named by an object name (an INSERT column list entry, a SET
+/// target), folded per part by [`ident_name`].
+pub(super) fn object_column_name(name: &ObjectName) -> String {
+    name.0
+        .iter()
+        .map(|part| match part {
+            ast::ObjectNamePart::Identifier(ident) => ident_name(ident),
+            _ => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+pub(super) fn table_factor_name(tf: &TableFactor) -> String {
+    match tf {
+        TableFactor::Table { name, .. } => object_name_to_string(name).to_lowercase(),
+        _ => String::new(),
+    }
+}
+
+/// The alias a DML target table is given (`UPDATE schedules s`), folded by
+/// [`ident_name`].
+pub(super) fn table_factor_alias(tf: &TableFactor) -> Option<String> {
+    match tf {
+        TableFactor::Table { alias: Some(alias), .. } => Some(ident_name(&alias.name)),
+        _ => None,
+    }
+}
+
+pub(super) fn assignment_target_name(target: &ast::AssignmentTarget) -> String {
+    match target {
+        ast::AssignmentTarget::ColumnName(name) => object_column_name(name),
+        ast::AssignmentTarget::Tuple(names) => names.first().map(object_column_name).unwrap_or_default(),
+    }
+}
+
+pub(super) fn expr_to_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Identifier(ident) => ident_name(ident),
+        Expr::CompoundIdentifier(parts) => parts.last().map(ident_name).unwrap_or_else(|| "unknown".to_string()),
+        Expr::Function(func) => object_name_to_string(&func.name).to_lowercase(),
+        Expr::Cast { expr: inner, .. } => expr_to_name(inner),
+        Expr::Nested(inner) => expr_to_name(inner),
+        Expr::UnaryOp { expr: inner, .. } => expr_to_name(inner),
+        Expr::Case { .. } => "case".to_string(),
+        Expr::Subquery(_) => "subquery".to_string(),
+        Expr::Value(vws) => {
+            if let Some(p) = value_is_placeholder(vws)
+                && let Some(pos) = parse_placeholder(p)
+            {
+                return format!("p{}", pos);
+            }
+            "unknown".to_string()
+        }
+        Expr::BinaryOp { left, .. } => expr_to_name(left),
+        Expr::CompoundFieldAccess { access_chain, .. } => {
+            if let Some(last) = access_chain.last()
+                && let ast::AccessExpr::Dot(inner) = last
+            {
+                return expr_to_name(inner);
+            }
+            "unknown".to_string()
+        }
+        _ => "unknown".to_string(),
+    }
+}
+
+/// Functions whose result means the same thing as their (first non-literal)
+/// argument, so a parameter compared with the call is named after that
+/// argument: `lower(email) = $1` takes `email`.
+const VALUE_PRESERVING_FUNCTIONS: &[&str] = &[
+    "lower",
+    "upper",
+    "initcap",
+    "trim",
+    "btrim",
+    "ltrim",
+    "rtrim",
+    "unaccent",
+    "normalize",
+    "coalesce",
+    "nullif",
+    "greatest",
+    "least",
+    "abs",
+    "round",
+    "trunc",
+    "floor",
+    "ceil",
+    "ceiling",
+    "date_trunc",
+    "left",
+    "right",
+    "substring",
+    "substr",
+    "lpad",
+    "rpad",
+    "replace",
+    "regexp_replace",
+    "translate",
+];
+
+/// The name a parameter compared with, or bound to, `expr` takes.
+///
+/// Like [`expr_to_name`], except that it looks through functions that keep
+/// their argument's meaning (`lower(email)` names `email`,
+/// `coalesce(s.widget, false)` names `widget`) and names a JSON field read by
+/// its key (`metadata ->> 'product'` names `product`), and a `CASE` by the
+/// column its branches return. Result columns keep
+/// [`expr_to_name`], which follows the names PostgreSQL gives them.
+pub(super) fn param_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Nested(inner) | Expr::Cast { expr: inner, .. } => param_name(inner),
+        Expr::BinaryOp {
+            op: BinaryOperator::Arrow | BinaryOperator::LongArrow,
+            right,
+            ..
+        } if let Expr::Value(vws) = right.as_ref()
+            && let Value::SingleQuotedString(key) = &vws.value =>
+        {
+            key.clone()
+        }
+        Expr::Function(func)
+            if VALUE_PRESERVING_FUNCTIONS
+                .iter()
+                .any(|name| object_name_to_string(&func.name).eq_ignore_ascii_case(name)) =>
+        {
+            let args = match &func.args {
+                ast::FunctionArguments::List(list) => function_arg_exprs(&list.args),
+                _ => Vec::new(),
+            };
+            args.iter()
+                .find(|arg| !matches!(arg, Expr::Value(_)))
+                .map(param_name)
+                .filter(|name| name != "unknown")
+                .unwrap_or_else(|| expr_to_name(expr))
+        }
+        Expr::Case {
+            conditions,
+            else_result,
+            ..
+        } => conditions
+            .iter()
+            .map(|when| &when.result)
+            .chain(else_result.as_deref())
+            .find(|result| !matches!(result, Expr::Value(_)))
+            .map(param_name)
+            .filter(|name| name != "unknown")
+            .unwrap_or_else(|| expr_to_name(expr)),
+        _ => expr_to_name(expr),
+    }
+}
+
+/// Detect if a statement is a SELECT * from a single table (for model struct reuse)
+pub(super) fn detect_select_star_source(stmt: &Statement) -> Option<String> {
+    if let Statement::Query(query) = stmt
+        && let SetExpr::Select(select) = query.body.as_ref()
+    {
+        let is_star = select.projection.len() == 1 && matches!(select.projection[0], SelectItem::Wildcard(_));
+        if is_star
+            && select.from.len() == 1
+            && select.from[0].joins.is_empty()
+            && let TableFactor::Table { name, .. } = &select.from[0].relation
+        {
+            let table_name = object_name_to_string(name).to_lowercase();
+            return Some(table_name);
+        }
+    }
+    None
+}
+
+/// Parse a placeholder string into a position number.
+/// Handles PostgreSQL `$N` placeholders (returns the number).
+/// For MySQL `?` placeholders, returns `None` — the caller must
+/// use `Analyzer::resolve_placeholder_position` to assign a sequential position.
+/// Oracle `:N` placeholders are preprocessed to `?` before parsing.
+pub(super) fn parse_placeholder(s: &str) -> Option<i64> {
+    if s == "?" {
+        return None;
+    }
+    s.strip_prefix('$')?.parse::<i64>().ok()
+}
+
+/// Returns `true` when the placeholder string is a MySQL-style `?`.
+pub(super) fn is_positional_placeholder(s: &str) -> bool {
+    s == "?"
+}
+
+/// Whether `expr` is a placeholder, parenthesised or cast, and nothing more.
+pub(super) fn is_placeholder_operand(expr: &Expr) -> bool {
+    match expr {
+        Expr::Nested(inner) | Expr::Cast { expr: inner, .. } => is_placeholder_operand(inner),
+        Expr::Value(vws) => value_is_placeholder(vws).is_some(),
+        _ => false,
+    }
+}
+
+/// Derive a param name from a comparison context.
+/// For aggregate functions in HAVING (e.g., COUNT(*) > $1), adds a semantic prefix.
+pub(super) fn derive_param_name_from_comparison(
+    col_name: &str,
+    col_side: &Expr,
+    _param_side: &Expr,
+    op: Option<&BinaryOperator>,
+) -> String {
+    if let Expr::Function(_) = col_side
+        && let Some(op) = op
+    {
+        match op {
+            BinaryOperator::Gt | BinaryOperator::GtEq => {
+                return format!("min_{}", col_name);
+            }
+            BinaryOperator::Lt | BinaryOperator::LtEq => {
+                return format!("max_{}", col_name);
+            }
+            _ => {}
+        }
+    }
+    col_name.to_string()
+}
+
+/// Check if a CASE WHEN condition guards the result from being null.
+/// e.g., `WHEN bio IS NOT NULL THEN bio` - the IS NOT NULL condition guarantees bio is non-null.
+///
+/// Compares *qualified* column identity (table alias/name + column), not the
+/// bare column name: `WHEN u.deleted_at IS NOT NULL THEN o.deleted_at` must
+/// not be treated as a guard just because both sides end in `deleted_at`
+/// (see #124). An unqualified identifier on either side only counts as a
+/// match when `scope` has a single source in play, since that is the only
+/// case where "the column named X" is unambiguous.
+pub(super) fn is_not_null_guard(condition: &Expr, result: &Expr, scope: &Scope) -> bool {
+    match condition {
+        Expr::IsNotNull(inner) => same_column_identity(inner, result, scope),
+        _ => false,
+    }
+}
+
+/// Split an expression into `(qualifier, bare_name)` for column-identity
+/// comparison: `u.deleted_at` -> `(Some("u"), "deleted_at")`, `deleted_at` ->
+/// `(None, "deleted_at")`. Anything else falls back to [`expr_to_name`] with
+/// no qualifier, matching its existing "best-effort name" behaviour.
+fn expr_to_qualified_name(expr: &Expr) -> (Option<String>, String) {
+    match expr {
+        Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
+            let qualifier = ident_name(&parts[parts.len() - 2]);
+            let name = ident_name(&parts[parts.len() - 1]);
+            (Some(qualifier), name)
+        }
+        _ => (None, expr_to_name(expr)),
+    }
+}
+
+/// Whether `a` and `b` name the same column, per [`is_not_null_guard`]'s
+/// qualified-identity rule.
+fn same_column_identity(a: &Expr, b: &Expr, scope: &Scope) -> bool {
+    let (qual_a, name_a) = expr_to_qualified_name(a);
+    let (qual_b, name_b) = expr_to_qualified_name(b);
+    if name_a != name_b {
+        return false;
+    }
+    match (qual_a, qual_b) {
+        (Some(qa), Some(qb)) => qa == qb,
+        // At least one side is unqualified: only safe to treat this as the
+        // same column when the query has a single table in scope, so the
+        // bare name cannot mean a different table's column of the same
+        // name.
+        _ => scope.sources.len() <= 1,
+    }
+}
+
+pub(super) fn is_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::Value(vws) => {
+            matches!(
+                &vws.value,
+                Value::Number(_, _) | Value::SingleQuotedString(_) | Value::DoubleQuotedString(_) | Value::Boolean(_)
+            )
+        }
+        _ => false,
+    }
+}
+
+/// Whether `func` carries a `RESPECT NULLS` / `IGNORE NULLS` clause, in either
+/// of the two positions sqlparser recognizes: the postfix `Function::null_treatment`
+/// (`FIRST_VALUE(x) IGNORE NULLS OVER (...)`) or the BigQuery-style in-argument-list
+/// clause (`FIRST_VALUE(x IGNORE NULLS)`).
+///
+/// `IGNORE NULLS` changes which rows an offset function counts over, so it can
+/// exhaust the partition and fall back to the row default (or to NULL) even when
+/// every operand is proven non-null. Any caller that narrows nullability from
+/// operand types must bail out to nullable whenever this returns `true`.
+pub(super) fn function_has_null_treatment(func: &ast::Function) -> bool {
+    if func.null_treatment.is_some() {
+        return true;
+    }
+    match &func.args {
+        ast::FunctionArguments::List(arg_list) => arg_list
+            .clauses
+            .iter()
+            .any(|clause| matches!(clause, ast::FunctionArgumentClause::IgnoreOrRespectNulls(_))),
+        _ => false,
+    }
+}
+
+/// Simple pluralization: add 's' to a name
+pub(super) fn pluralize(name: &str) -> String {
+    if name.ends_with('s') || name.ends_with('x') || name.ends_with("sh") || name.ends_with("ch") {
+        format!("{}es", name)
+    } else if name.ends_with('y') && !name.ends_with("ey") && !name.ends_with("ay") && !name.ends_with("oy") {
+        format!("{}ies", &name[..name.len() - 1])
+    } else {
+        format!("{}s", name)
+    }
+}
+
+pub(super) fn is_integer_type(t: &str) -> bool {
+    matches!(t, "int16" | "int32" | "int64")
+}
+
+pub(super) fn is_float_type(t: &str) -> bool {
+    matches!(t, "float32" | "float64")
+}
+
+/// `sum(x)` result-type widening.
+///
+/// Mirrors PostgreSQL's aggregate signatures (`sum(smallint|integer) ->
+/// bigint`, `sum(bigint) -> numeric`, `sum(numeric) -> numeric`, `sum(real)
+/// -> real`, `sum(double precision) -> double precision`). The analyzer has
+/// no engine identifier available at this point in the pipeline, so the
+/// mapping is applied uniformly for every target engine; Postgres is the
+/// most permissive/widely-referenced of the supported engines here and this
+/// choice avoids silently narrowing floating-point sums to `decimal`, which
+/// is what caused the false-positive SC-VER03 mismatch this fix addresses.
+pub(super) fn sum_result_type(neutral: &str) -> String {
+    if is_integer_type(neutral) {
+        // "int64" (bigint) widens to arbitrary-precision "decimal"; the
+        // narrower integer widths widen to "int64" (bigint).
+        if neutral == "int64" {
+            "decimal".to_string()
+        } else {
+            "int64".to_string()
+        }
+    } else if is_float_type(neutral) {
+        neutral.to_string()
+    } else {
+        // Already "decimal", or an unresolved/unknown column type: fall
+        // back to "decimal" as the widest safe numeric type.
+        "decimal".to_string()
+    }
+}
+
+/// `avg(x)` result-type widening.
+///
+/// Exact numeric inputs (`int16`/`int32`/`int64`/`decimal`) widen to
+/// `decimal`, matching PostgreSQL (`avg(smallint|integer|bigint|numeric) ->
+/// numeric`) and MySQL (`AVG()` on exact-value args -> `DECIMAL`).
+/// Approximate float inputs are preserved as `float64`, matching PostgreSQL
+/// (`avg(real|double precision) -> double precision`), MySQL (`AVG()` on
+/// `FLOAT`/`DOUBLE` -> `DOUBLE`), and SQL Server (`float`/`real` categories
+/// -> `float`). No engine identifier is available here, so this mapping is
+/// applied uniformly; it matches all three of those engines exactly.
+pub(super) fn avg_result_type(neutral: &str) -> String {
+    if is_float_type(neutral) {
+        "float64".to_string()
+    } else {
+        "decimal".to_string()
+    }
+}
+
+pub(super) fn is_comparable_types(a: &str, b: &str) -> bool {
+    let numeric = ["int16", "int32", "int64", "float32", "float64", "decimal"];
+    if numeric.contains(&a) && numeric.contains(&b) {
+        return true;
+    }
+    if a == "string" && b == "string" {
+        return true;
+    }
+    let temporal = ["date", "datetime", "datetime_tz", "time", "time_tz"];
+    if temporal.contains(&a) && temporal.contains(&b) {
+        return true;
+    }
+    if (a.starts_with("enum::") && b == "string") || (b.starts_with("enum::") && a == "string") {
+        return true;
+    }
+    if a.starts_with("enum::") && b.starts_with("enum::") {
+        return true;
+    }
+    false
+}
+
+pub(super) fn neutral_to_sql_label(neutral: &str) -> &str {
+    match neutral {
+        "int16" => "smallint",
+        "int32" => "integer",
+        "int64" => "bigint",
+        "float32" => "real",
+        "float64" => "double precision",
+        "decimal" => "numeric",
+        "string" => "text",
+        "bool" => "boolean",
+        "bytes" => "bytea",
+        "date" => "date",
+        "time" => "time",
+        "time_tz" => "timetz",
+        "datetime" => "timestamp",
+        "datetime_tz" => "timestamptz",
+        "interval" => "interval",
+        "json" => "json",
+        "uuid" => "uuid",
+        _ => neutral,
+    }
+}
+
+/// The aggregate function names `infer_function_type` (in `expressions.rs`)
+/// assigns dedicated nullability rules to. `COUNT` never returns NULL (it
+/// yields `0` over an empty set); every other name here is already given
+/// `nullable: true` for the non-window case in `infer_function_type`, because
+/// it returns SQL NULL — not zero — over an empty set (a scalar
+/// `SUM`/`AVG`/`MIN`/`MAX`/... of zero rows is NULL).
+pub(super) fn is_aggregate_function_name(name: &str) -> bool {
+    matches!(
+        name,
+        "count"
+            | "sum"
+            | "avg"
+            | "min"
+            | "max"
+            | "string_agg"
+            | "array_agg"
+            | "bool_and"
+            | "bool_or"
+            | "every"
+            | "json_agg"
+            | "jsonb_agg"
+            | "json_object_agg"
+            | "jsonb_object_agg"
+    )
+}
+
+/// Unwraps parenthesized expressions, e.g. `(COUNT(*))` -> `COUNT(*)`.
+fn unwrap_nested(expr: &Expr) -> &Expr {
+    match expr {
+        Expr::Nested(inner) => unwrap_nested(inner),
+        _ => expr,
+    }
+}
+
+/// `true` when `query` is guaranteed to return exactly one row: an ungrouped
+/// `SELECT` (no `GROUP BY` — `GROUP BY ALL` counts as grouped too; no
+/// `HAVING`, since `HAVING` can filter the lone row of an ungrouped aggregate
+/// away, e.g. `SELECT COUNT(*) FROM t HAVING COUNT(*) > 10`) whose single
+/// projected expression is a call to an aggregate function.
+///
+/// This is what makes a scalar subquery like
+/// `(SELECT COUNT(*) FROM orders WHERE user_id = users.id)` genuinely
+/// non-nullable even though the inner query can match zero rows: SQL
+/// guarantees an ungrouped aggregate query always returns exactly one row, so
+/// the only remaining question is whether *that* aggregate's value can itself
+/// be NULL — which `infer_function_type` already answers correctly per
+/// function (see [`is_aggregate_function_name`]). Any other scalar subquery
+/// shape (a plain column, an arithmetic expression, a non-aggregate function
+/// call, ...) carries no such row-count guarantee: zero matching rows means
+/// the subquery itself evaluates to SQL NULL, regardless of the projected
+/// expression's own nullability.
+pub(super) fn is_single_row_aggregate_query(query: &Query) -> bool {
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        return false;
+    };
+    if select.having.is_some() {
+        return false;
+    }
+    if !matches!(&select.group_by, GroupByExpr::Expressions(exprs, _) if exprs.is_empty()) {
+        return false;
+    }
+    if select.projection.len() != 1 {
+        return false;
+    }
+    let expr = match &select.projection[0] {
+        SelectItem::UnnamedExpr(e) | SelectItem::ExprWithAlias { expr: e, .. } => e,
+        _ => return false,
+    };
+    match unwrap_nested(expr) {
+        // ~keep A windowed aggregate is not an aggregate query: `COUNT(*) OVER ()`
+        // produces one row per input row, so zero input rows means zero
+        // result rows and the scalar subquery is NULL. `infer_function_type`
+        // types windowed aggregates as non-nullable (correctly, since within
+        // a row the window value exists), which would otherwise be inherited
+        // here as a false guarantee.
+        Expr::Function(func) if func.over.is_none() => {
+            is_aggregate_function_name(&object_name_to_string(&func.name).to_lowercase())
+        }
+        _ => false,
+    }
+}
+
+/// Find the first `__nested__{id}` placeholder embedded in a neutral-type
+/// string (e.g. `json_nested<array<__nested__7>>`) and return its numeric id.
+/// `__nested__` with no digits following it is treated as absent rather than
+/// malformed input.
+///
+/// Shared by phase-2 nested-struct naming (`analyzer/mod.rs`) and UNION arm
+/// widening (`analyze_set_expr`, `statements.rs`), which both need to
+/// recognize a nested-aggregate placeholder rather than treat it as an
+/// ordinary opaque type name.
+pub(super) fn find_nested_placeholder_id(neutral_type: &str) -> Option<u32> {
+    const MARKER: &str = "__nested__";
+    let start = neutral_type.find(MARKER)?;
+    let digits_start = start + MARKER.len();
+    let digits_end = neutral_type[digits_start..]
+        .find(|c: char| !c.is_ascii_digit())
+        .map(|rel| digits_start + rel)
+        .unwrap_or(neutral_type.len());
+    if digits_end == digits_start {
+        return None;
+    }
+    neutral_type[digits_start..digits_end].parse::<u32>().ok()
+}
+
+/// Widen two numeric types to the wider one, for UNION type widening and
+/// every other place two SQL types meet (arithmetic, `CASE`, `COALESCE`,
+/// `GREATEST`/`LEAST`, multi-row `VALUES`) -- see [`widen_neutral_type`] and
+/// [`widen_type_info`], the thin wrappers those call sites actually use.
+///
+/// `int16 < int32 < int64 < decimal < float32 < float64` for same-family or
+/// adjacent-family pairs; an exact numeric (`int*`/`decimal`) mixed with any
+/// approximate float always promotes straight to `float64`, mirroring
+/// PostgreSQL's implicit `numeric`/`integer` -> `float8` cast when the two
+/// meet in one expression (`1::numeric + 1.0::float4` is `float8`, not
+/// `float4`). A resolved type absorbs `unknown` in either position. Two
+/// genuinely incompatible resolved types (`string` vs `int32`) fall through
+/// to the left argument, unchanged from the original behaviour.
+pub(super) fn widen_type(a: &str, b: &str) -> String {
+    if a == b {
+        return a.to_string();
+    }
+    if a == "unknown" {
+        return b.to_string();
+    }
+    if b == "unknown" {
+        return a.to_string();
+    }
+    let int_rank = |t: &str| -> Option<u8> {
+        match t {
+            "int16" => Some(0),
+            "int32" => Some(1),
+            "int64" => Some(2),
+            _ => None,
+        }
+    };
+    let float_rank = |t: &str| -> Option<u8> {
+        match t {
+            "float32" => Some(0),
+            "float64" => Some(1),
+            _ => None,
+        }
+    };
+    let is_decimal = |t: &str| t == "decimal";
+
+    if let (Some(ra), Some(rb)) = (int_rank(a), int_rank(b)) {
+        return if ra >= rb { a.to_string() } else { b.to_string() };
+    }
+    if let (Some(ra), Some(rb)) = (float_rank(a), float_rank(b)) {
+        return if ra >= rb { a.to_string() } else { b.to_string() };
+    }
+    // decimal (exact, arbitrary precision) vs. an integer type: decimal
+    // wins, matching PostgreSQL's `integer * numeric -> numeric`. Without
+    // this, `int64` vs. `decimal` fell through to the final `a.to_string()`
+    // fallback below and silently picked whichever operand was on the left
+    // (see #121).
+    if (is_decimal(a) && int_rank(b).is_some()) || (int_rank(a).is_some() && is_decimal(b)) {
+        return "decimal".to_string();
+    }
+    // Mixing any approximate float with any exact numeric (int or decimal)
+    // always promotes to the widest float.
+    if (int_rank(a).is_some() || is_decimal(a)) && float_rank(b).is_some() {
+        return "float64".to_string();
+    }
+    if float_rank(a).is_some() && (int_rank(b).is_some() || is_decimal(b)) {
+        return "float64".to_string();
+    }
+    a.to_string()
+}
+
+/// [`widen_type`] plus the "an `unknown` operand contributes nothing"
+/// absorption rule that every fold-over-arguments call site (`CASE`,
+/// `COALESCE`, `GREATEST`/`LEAST`, `generate_series`) needs: the running
+/// accumulator starts as `"unknown"` and must not out-rank a real type once
+/// one is seen, and a genuinely unresolved argument must not downgrade an
+/// already-resolved accumulator back to `"unknown"`.
+///
+/// This is the single type-resolution rule every widening call site in the
+/// analyzer is meant to route through, per #121 -- do not reintroduce a
+/// second "take the first non-unknown" or "take the left operand" idiom
+/// alongside it.
+///
+/// ~keep The absorption itself now lives in [`widen_type`], which #227 made
+/// symmetric for `unknown` in either position, so this is a routing point
+/// rather than a second implementation -- duplicating the checks here would
+/// be exactly the "second idiom alongside it" the paragraph above forbids.
+/// `test_widen_neutral_type_unknown_absorbed` pins the behaviour at this
+/// name, so moving it back out of `widen_type` fails here and not only there.
+pub(super) fn widen_neutral_type(a: &str, b: &str) -> String {
+    widen_type(a, b)
+}
+
+/// [`widen_neutral_type`] lifted to [`TypeInfo`], for call sites where the
+/// combined nullability is simply "nullable if either side is" (binary
+/// arithmetic, multi-row `VALUES`). Call sites with a more specific
+/// nullability rule (`CASE`'s not-null-guard exception, `COALESCE`'s
+/// any-non-null-arg exception) compute nullability themselves and use
+/// [`widen_neutral_type`] directly for the type half only.
+pub(super) fn widen_type_info(a: &TypeInfo, b: &TypeInfo) -> TypeInfo {
+    TypeInfo::new(
+        widen_neutral_type(&a.neutral_type, &b.neutral_type),
+        a.nullable || b.nullable,
+    )
+}
+
+/// Neutral type for a SQL numeric literal's raw text (`Value::Number`'s
+/// first field), e.g. `"1"`, `"1.5"`, `"1e10"`.
+///
+/// A `.` means the literal is exact-but-inexact -- PostgreSQL types `0.5` as
+/// `numeric` -- and exponent notation (`e`/`E`) means PostgreSQL parses it
+/// as `double precision`. See #122: every numeric literal used to be typed
+/// `int64` regardless of its text, so `1.5` was silently an integer.
+///
+/// A plain integer literal is typed by magnitude, matching PostgreSQL's own
+/// literal typing (`SELECT pg_typeof(1)` is `integer`, not `bigint`): `int32`
+/// when it fits, `int64` when it needs the extra range, and `decimal` (an
+/// arbitrary-precision numeric) past `i64::MAX`. Widening (#121) makes this
+/// matter beyond the literal's own column: universally typing every integer
+/// literal `int64` used to be masked by arithmetic's "left operand wins"
+/// bug, which happened to keep `age + 1` (an `int32` column) at `int32`
+/// only because the literal's true type was never consulted. Once widening
+/// is fixed, an over-wide literal type would widen `age + 1` to `int64` --
+/// a regression, not a fix -- so the literal itself has to be right first.
+pub(super) fn literal_number_neutral_type(text: &str) -> &'static str {
+    if text.contains(['e', 'E']) {
+        return "float64";
+    }
+    if text.contains('.') {
+        return "decimal";
+    }
+    match text.parse::<i64>() {
+        Ok(v) if (i32::MIN as i64..=i32::MAX as i64).contains(&v) => "int32",
+        Ok(_) => "int64",
+        // Overflows i64: PostgreSQL types a literal this large `numeric`.
+        Err(_) => "decimal",
+    }
+}
+
+/// `EXTRACT(field FROM source)` result type: PostgreSQL 14+ returns `numeric` (see #123).
+pub(super) fn extract_result_type() -> &'static str {
+    "decimal"
+}
+
+/// `ROUND`/`TRUNC` result type: PostgreSQL's `round(double precision)`
+/// returns `double precision`, not `numeric` -- only the `numeric` overload
+/// (int/decimal input) returns `numeric` (see #123). A float input type is
+/// preserved as-is; anything else (int, decimal, or an unresolved column)
+/// widens to `decimal`, matching the previous universal behaviour for those
+/// inputs.
+pub(super) fn round_result_type(input_neutral_type: &str) -> String {
+    if is_float_type(input_neutral_type) {
+        input_neutral_type.to_string()
+    } else {
+        "decimal".to_string()
+    }
+}
+
+/// Extract the plain expressions from a function argument list, dropping
+/// named-argument names and any `FunctionArg` shape this doesn't recognize
+/// (wildcards -- see [`super::expressions::FuncArgShape`] for the caller
+/// that needs those preserved). Shared by
+/// [`super::Analyzer::get_function_args`] (`ast::Function`'s argument list)
+/// and table-function argument lists like `generate_series(...)`'s, so the
+/// two don't carry two separate copies of the same `filter_map`.
+pub(super) fn function_arg_exprs(args: &[ast::FunctionArg]) -> Vec<Expr> {
+    args.iter()
+        .filter_map(|arg| match arg {
+            ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(e))
+            | ast::FunctionArg::Named {
+                arg: ast::FunctionArgExpr::Expr(e),
+                ..
+            } => Some(e.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::{ScopeColumn, ScopeSource};
+    use super::*;
+    use sqlparser::ast::{Ident, ObjectNamePart, ValueWithSpan};
+    use sqlparser::tokenizer::Span;
+
+    fn single_source_scope() -> Scope {
+        Scope {
+            sources: vec![ScopeSource {
+                alias: "t".to_string(),
+                table_name: "t".to_string(),
+                columns: vec![ScopeColumn::new("bio", "string", true)],
+                nullable_from_join: false,
+            }],
+        }
+    }
+
+    fn two_source_scope() -> Scope {
+        Scope {
+            sources: vec![
+                ScopeSource {
+                    alias: "u".to_string(),
+                    table_name: "users".to_string(),
+                    columns: vec![ScopeColumn::new("deleted_at", "datetime_tz", true)],
+                    nullable_from_join: false,
+                },
+                ScopeSource {
+                    alias: "o".to_string(),
+                    table_name: "orders".to_string(),
+                    columns: vec![ScopeColumn::new("deleted_at", "datetime_tz", true)],
+                    nullable_from_join: false,
+                },
+            ],
+        }
+    }
+
+    fn compound(qualifier: &str, name: &str) -> Expr {
+        Expr::CompoundIdentifier(vec![Ident::new(qualifier), Ident::new(name)])
+    }
+
+    #[test]
+    fn test_widen_type_same() {
+        assert_eq!(widen_type("int32", "int32"), "int32");
+        assert_eq!(widen_type("float64", "float64"), "float64");
+        assert_eq!(widen_type("string", "string"), "string");
+    }
+
+    #[test]
+    fn test_widen_type_integer_widening() {
+        assert_eq!(widen_type("int16", "int32"), "int32");
+        assert_eq!(widen_type("int16", "int64"), "int64");
+        assert_eq!(widen_type("int32", "int64"), "int64");
+        assert_eq!(widen_type("int64", "int16"), "int64");
+        assert_eq!(widen_type("int32", "int16"), "int32");
+    }
+
+    #[test]
+    fn test_widen_type_float_widening() {
+        assert_eq!(widen_type("float32", "float64"), "float64");
+        assert_eq!(widen_type("float64", "float32"), "float64");
+    }
+
+    #[test]
+    fn test_widen_type_int_float_mix() {
+        assert_eq!(widen_type("int32", "float64"), "float64");
+        assert_eq!(widen_type("int64", "float32"), "float64");
+        assert_eq!(widen_type("float32", "int16"), "float64");
+        assert_eq!(widen_type("float64", "int64"), "float64");
+    }
+
+    #[test]
+    fn test_widen_type_default_fallback() {
+        assert_eq!(widen_type("string", "int32"), "string");
+        assert_eq!(widen_type("bool", "string"), "bool");
+    }
+
+    /// Regression for #121: `decimal` used to be in neither `int_rank` nor
+    /// `float_rank`, so int-vs-decimal fell through to the "left wins"
+    /// fallback instead of widening.
+    #[test]
+    fn test_widen_type_decimal_vs_int_widens_to_decimal() {
+        assert_eq!(widen_type("int64", "decimal"), "decimal");
+        assert_eq!(widen_type("decimal", "int64"), "decimal");
+        assert_eq!(widen_type("int16", "decimal"), "decimal");
+        assert_eq!(widen_type("decimal", "int32"), "decimal");
+    }
+
+    #[test]
+    fn test_widen_type_decimal_vs_float_widens_to_float64() {
+        assert_eq!(widen_type("decimal", "float64"), "float64");
+        assert_eq!(widen_type("float64", "decimal"), "float64");
+        assert_eq!(widen_type("decimal", "float32"), "float64");
+        assert_eq!(widen_type("float32", "decimal"), "float64");
+    }
+
+    #[test]
+    fn test_widen_type_is_symmetric_for_supported_types() {
+        let types = ["unknown", "int16", "int32", "int64", "decimal", "float32", "float64"];
+
+        for a in types {
+            for b in types {
+                assert_eq!(
+                    widen_type(a, b),
+                    widen_type(b, a),
+                    "widening {a} with {b} must not depend on operand order"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_widen_neutral_type_unknown_absorbed() {
+        assert_eq!(widen_neutral_type("unknown", "int32"), "int32");
+        assert_eq!(widen_neutral_type("int32", "unknown"), "int32");
+        assert_eq!(widen_neutral_type("unknown", "unknown"), "unknown");
+    }
+
+    #[test]
+    fn test_widen_neutral_type_delegates_to_widen_type() {
+        assert_eq!(widen_neutral_type("int32", "decimal"), "decimal");
+        assert_eq!(widen_neutral_type("string", "string"), "string");
+    }
+
+    #[test]
+    fn test_widen_type_info_ors_nullability() {
+        let a = TypeInfo::new("int32", false);
+        let b = TypeInfo::new("decimal", true);
+        let widened = widen_type_info(&a, &b);
+        assert_eq!(widened.neutral_type, "decimal");
+        assert!(widened.nullable);
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_small_integer_is_int32() {
+        // ~keep Matches PostgreSQL: `SELECT pg_typeof(1)` is `integer`, not `bigint`.
+        // The citation is the justification for these exact boundaries; without it
+        // the i32 limits below read as arbitrary and invite "simplification" to i64.
+        assert_eq!(literal_number_neutral_type("1"), "int32");
+        assert_eq!(literal_number_neutral_type("42"), "int32");
+        assert_eq!(literal_number_neutral_type("-2147483648"), "int32");
+        assert_eq!(literal_number_neutral_type("2147483647"), "int32");
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_large_integer_is_int64() {
+        assert_eq!(literal_number_neutral_type("2147483648"), "int64");
+        assert_eq!(literal_number_neutral_type("9223372036854775807"), "int64");
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_overflowing_i64_is_decimal() {
+        assert_eq!(literal_number_neutral_type("99999999999999999999999999999"), "decimal");
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_decimal() {
+        assert_eq!(literal_number_neutral_type("0.5"), "decimal");
+        assert_eq!(literal_number_neutral_type("1.0"), "decimal");
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_exponent() {
+        assert_eq!(literal_number_neutral_type("1e10"), "float64");
+        assert_eq!(literal_number_neutral_type("1.5E-3"), "float64");
+    }
+
+    #[test]
+    fn test_extract_result_type_postgresql_is_decimal() {
+        assert_eq!(extract_result_type(), "decimal");
+    }
+
+    #[test]
+    fn test_round_result_type_preserves_float() {
+        assert_eq!(round_result_type("float64"), "float64");
+        assert_eq!(round_result_type("float32"), "float32");
+    }
+
+    #[test]
+    fn test_round_result_type_int_and_decimal_widen_to_decimal() {
+        assert_eq!(round_result_type("int32"), "decimal");
+        assert_eq!(round_result_type("decimal"), "decimal");
+    }
+
+    #[test]
+    fn test_is_comparable_types_numeric() {
+        assert!(is_comparable_types("int16", "int32"));
+        assert!(is_comparable_types("int32", "int64"));
+        assert!(is_comparable_types("int64", "float64"));
+        assert!(is_comparable_types("float32", "decimal"));
+        assert!(is_comparable_types("decimal", "int16"));
+    }
+
+    #[test]
+    fn test_is_comparable_types_string() {
+        assert!(is_comparable_types("string", "string"));
+    }
+
+    #[test]
+    fn test_is_comparable_types_temporal() {
+        assert!(is_comparable_types("date", "datetime"));
+        assert!(is_comparable_types("datetime", "datetime_tz"));
+        assert!(is_comparable_types("time", "time_tz"));
+    }
+
+    #[test]
+    fn test_is_comparable_types_incompatible() {
+        assert!(!is_comparable_types("string", "int32"));
+        assert!(!is_comparable_types("bool", "int64"));
+        assert!(!is_comparable_types("date", "string"));
+        assert!(!is_comparable_types("json", "string"));
+    }
+
+    #[test]
+    fn test_parse_placeholder_valid() {
+        assert_eq!(parse_placeholder("$1"), Some(1));
+        assert_eq!(parse_placeholder("$99"), Some(99));
+        assert_eq!(parse_placeholder("$0"), Some(0));
+    }
+
+    #[test]
+    fn test_parse_placeholder_invalid() {
+        assert_eq!(parse_placeholder("1"), None);
+        assert_eq!(parse_placeholder("$abc"), None);
+        assert_eq!(parse_placeholder(""), None);
+        assert_eq!(parse_placeholder("$$"), None);
+        assert_eq!(parse_placeholder("?"), None);
+    }
+
+    #[test]
+    fn test_is_positional_placeholder() {
+        assert!(is_positional_placeholder("?"));
+        assert!(!is_positional_placeholder("$1"));
+        assert!(!is_positional_placeholder(""));
+        assert!(!is_positional_placeholder("??"));
+    }
+
+    #[test]
+    fn test_expr_to_name_identifier() {
+        let expr = Expr::Identifier(Ident::new("my_column"));
+        assert_eq!(expr_to_name(&expr), "my_column");
+    }
+
+    #[test]
+    fn test_expr_to_name_compound() {
+        let expr = Expr::CompoundIdentifier(vec![Ident::new("t"), Ident::new("my_col")]);
+        assert_eq!(expr_to_name(&expr), "my_col");
+    }
+
+    #[test]
+    fn test_expr_to_name_function() {
+        use sqlparser::ast::{Function, FunctionArguments};
+        let func = Function {
+            name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("count"))]),
+            args: FunctionArguments::None,
+            filter: None,
+            over: None,
+            null_treatment: None,
+            within_group: Vec::new(),
+            parameters: FunctionArguments::None,
+            uses_odbc_syntax: false,
+        };
+        let expr = Expr::Function(func);
+        assert_eq!(expr_to_name(&expr), "count");
+    }
+
+    #[test]
+    fn test_expr_to_name_nested() {
+        let inner = Expr::Identifier(Ident::new("x"));
+        let expr = Expr::Nested(Box::new(inner));
+        assert_eq!(expr_to_name(&expr), "x");
+    }
+
+    #[test]
+    fn test_expr_to_name_placeholder() {
+        let vws = ValueWithSpan {
+            value: Value::Placeholder("$3".to_string()),
+            span: Span::empty(),
+        };
+        let expr = Expr::Value(vws);
+        assert_eq!(expr_to_name(&expr), "p3");
+    }
+
+    #[test]
+    fn test_expr_to_name_unknown_fallback() {
+        let vws = ValueWithSpan {
+            value: Value::Null,
+            span: Span::empty(),
+        };
+        let expr = Expr::Value(vws);
+        assert_eq!(expr_to_name(&expr), "unknown");
+    }
+
+    #[test]
+    fn test_pluralize_regular() {
+        assert_eq!(pluralize("user"), "users");
+        assert_eq!(pluralize("post"), "posts");
+        assert_eq!(pluralize("comment"), "comments");
+    }
+
+    #[test]
+    fn test_pluralize_s_x_sh_ch() {
+        assert_eq!(pluralize("status"), "statuses");
+        assert_eq!(pluralize("box"), "boxes");
+        assert_eq!(pluralize("wish"), "wishes");
+        assert_eq!(pluralize("match"), "matches");
+    }
+
+    #[test]
+    fn test_pluralize_y_ending() {
+        assert_eq!(pluralize("category"), "categories");
+        assert_eq!(pluralize("city"), "cities");
+        assert_eq!(pluralize("key"), "keys");
+        assert_eq!(pluralize("day"), "days");
+        assert_eq!(pluralize("boy"), "boys");
+    }
+
+    #[test]
+    fn test_is_integer_type() {
+        assert!(is_integer_type("int16"));
+        assert!(is_integer_type("int32"));
+        assert!(is_integer_type("int64"));
+        assert!(!is_integer_type("float32"));
+        assert!(!is_integer_type("string"));
+    }
+
+    #[test]
+    fn test_is_float_type() {
+        assert!(is_float_type("float32"));
+        assert!(is_float_type("float64"));
+        assert!(!is_float_type("int64"));
+        assert!(!is_float_type("decimal"));
+    }
+
+    #[test]
+    fn test_sum_result_type() {
+        assert_eq!(sum_result_type("int16"), "int64");
+        assert_eq!(sum_result_type("int32"), "int64");
+        assert_eq!(sum_result_type("int64"), "decimal");
+        assert_eq!(sum_result_type("decimal"), "decimal");
+        assert_eq!(sum_result_type("float32"), "float32");
+        assert_eq!(sum_result_type("float64"), "float64");
+    }
+
+    #[test]
+    fn test_avg_result_type() {
+        assert_eq!(avg_result_type("int16"), "decimal");
+        assert_eq!(avg_result_type("int32"), "decimal");
+        assert_eq!(avg_result_type("int64"), "decimal");
+        assert_eq!(avg_result_type("decimal"), "decimal");
+        assert_eq!(avg_result_type("float32"), "float64");
+        assert_eq!(avg_result_type("float64"), "float64");
+    }
+
+    #[test]
+    fn test_neutral_to_sql_label() {
+        assert_eq!(neutral_to_sql_label("int32"), "integer");
+        assert_eq!(neutral_to_sql_label("int64"), "bigint");
+        assert_eq!(neutral_to_sql_label("string"), "text");
+        assert_eq!(neutral_to_sql_label("bool"), "boolean");
+        assert_eq!(neutral_to_sql_label("datetime_tz"), "timestamptz");
+        assert_eq!(neutral_to_sql_label("uuid"), "uuid");
+        assert_eq!(neutral_to_sql_label("custom_type"), "custom_type");
+    }
+
+    #[test]
+    fn test_derive_param_name_from_comparison_no_function() {
+        let col_side = Expr::Identifier(Ident::new("age"));
+        let param_side = Expr::Identifier(Ident::new("dummy"));
+        assert_eq!(
+            derive_param_name_from_comparison("age", &col_side, &param_side, Some(&BinaryOperator::Gt)),
+            "age"
+        );
+    }
+
+    #[test]
+    fn test_derive_param_name_from_comparison_function_gt() {
+        use sqlparser::ast::{Function, FunctionArguments};
+        let func = Function {
+            name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("count"))]),
+            args: FunctionArguments::None,
+            filter: None,
+            over: None,
+            null_treatment: None,
+            within_group: Vec::new(),
+            parameters: FunctionArguments::None,
+            uses_odbc_syntax: false,
+        };
+        let col_side = Expr::Function(func);
+        let param_side = Expr::Identifier(Ident::new("dummy"));
+        assert_eq!(
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::Gt)),
+            "min_count"
+        );
+        assert_eq!(
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::GtEq)),
+            "min_count"
+        );
+    }
+
+    #[test]
+    fn test_derive_param_name_from_comparison_function_lt() {
+        use sqlparser::ast::{Function, FunctionArguments};
+        let func = Function {
+            name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("count"))]),
+            args: FunctionArguments::None,
+            filter: None,
+            over: None,
+            null_treatment: None,
+            within_group: Vec::new(),
+            parameters: FunctionArguments::None,
+            uses_odbc_syntax: false,
+        };
+        let col_side = Expr::Function(func);
+        let param_side = Expr::Identifier(Ident::new("dummy"));
+        assert_eq!(
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::Lt)),
+            "max_count"
+        );
+        assert_eq!(
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::LtEq)),
+            "max_count"
+        );
+    }
+
+    #[test]
+    fn test_derive_param_name_from_comparison_function_eq() {
+        use sqlparser::ast::{Function, FunctionArguments};
+        let func = Function {
+            name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("count"))]),
+            args: FunctionArguments::None,
+            filter: None,
+            over: None,
+            null_treatment: None,
+            within_group: Vec::new(),
+            parameters: FunctionArguments::None,
+            uses_odbc_syntax: false,
+        };
+        let col_side = Expr::Function(func);
+        let param_side = Expr::Identifier(Ident::new("dummy"));
+        assert_eq!(
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::Eq)),
+            "count"
+        );
+    }
+
+    #[test]
+    fn test_is_not_null_guard_matching() {
+        let inner = Expr::Identifier(Ident::new("bio"));
+        let condition = Expr::IsNotNull(Box::new(inner));
+        let result = Expr::Identifier(Ident::new("bio"));
+        assert!(is_not_null_guard(&condition, &result, &single_source_scope()));
+    }
+
+    #[test]
+    fn test_is_not_null_guard_non_matching() {
+        let inner = Expr::Identifier(Ident::new("bio"));
+        let condition = Expr::IsNotNull(Box::new(inner));
+        let result = Expr::Identifier(Ident::new("name"));
+        assert!(!is_not_null_guard(&condition, &result, &single_source_scope()));
+    }
+
+    #[test]
+    fn test_is_not_null_guard_not_is_not_null() {
+        let condition = Expr::Identifier(Ident::new("bio"));
+        let result = Expr::Identifier(Ident::new("bio"));
+        assert!(!is_not_null_guard(&condition, &result, &single_source_scope()));
+    }
+
+    /// Regression for #124: `WHEN u.deleted_at IS NOT NULL THEN o.deleted_at`
+    /// must NOT be treated as a guard -- the two sides are different
+    /// columns on different tables that only share a bare name.
+    #[test]
+    fn test_is_not_null_guard_different_tables_same_bare_name_is_not_a_guard() {
+        let inner = compound("u", "deleted_at");
+        let condition = Expr::IsNotNull(Box::new(inner));
+        let result = compound("o", "deleted_at");
+        assert!(!is_not_null_guard(&condition, &result, &two_source_scope()));
+    }
+
+    /// The same qualified column on both sides of a multi-table query is
+    /// still a real guard.
+    #[test]
+    fn test_is_not_null_guard_same_qualified_column_is_a_guard() {
+        let inner = compound("u", "deleted_at");
+        let condition = Expr::IsNotNull(Box::new(inner));
+        let result = compound("u", "deleted_at");
+        assert!(is_not_null_guard(&condition, &result, &two_source_scope()));
+    }
+
+    /// An unqualified reference in a multi-table scope can't be proven to
+    /// mean the same column as a qualified one on the other side, even when
+    /// the bare names match -- ambiguous, so no guard.
+    #[test]
+    fn test_is_not_null_guard_unqualified_in_multi_table_scope_is_not_a_guard() {
+        let inner = Expr::Identifier(Ident::new("deleted_at"));
+        let condition = Expr::IsNotNull(Box::new(inner));
+        let result = compound("o", "deleted_at");
+        assert!(!is_not_null_guard(&condition, &result, &two_source_scope()));
+    }
+
+    #[test]
+    fn test_is_literal() {
+        let num = Expr::Value(ValueWithSpan {
+            value: Value::Number("42".to_string(), false),
+            span: Span::empty(),
+        });
+        assert!(is_literal(&num));
+
+        let s = Expr::Value(ValueWithSpan {
+            value: Value::SingleQuotedString("hello".to_string()),
+            span: Span::empty(),
+        });
+        assert!(is_literal(&s));
+
+        let b = Expr::Value(ValueWithSpan {
+            value: Value::Boolean(true),
+            span: Span::empty(),
+        });
+        assert!(is_literal(&b));
+
+        let n = Expr::Value(ValueWithSpan {
+            value: Value::Null,
+            span: Span::empty(),
+        });
+        assert!(!is_literal(&n));
+
+        let ident = Expr::Identifier(Ident::new("x"));
+        assert!(!is_literal(&ident));
+    }
+
+    #[test]
+    fn test_object_name_to_string_single() {
+        let name = ObjectName(vec![ObjectNamePart::Identifier(Ident::new("users"))]);
+        assert_eq!(object_name_to_string(&name), "users");
+    }
+
+    #[test]
+    fn test_object_name_to_string_qualified() {
+        let name = ObjectName(vec![
+            ObjectNamePart::Identifier(Ident::new("public")),
+            ObjectNamePart::Identifier(Ident::new("users")),
+        ]);
+        assert_eq!(object_name_to_string(&name), "public.users");
+    }
+
+    #[test]
+    fn test_value_is_string() {
+        let vws = ValueWithSpan {
+            value: Value::SingleQuotedString("hello".to_string()),
+            span: Span::empty(),
+        };
+        assert!(value_is_string(&vws));
+    }
+
+    #[test]
+    fn test_value_is_boolean() {
+        let vws = ValueWithSpan {
+            value: Value::Boolean(true),
+            span: Span::empty(),
+        };
+        assert!(value_is_boolean(&vws));
+    }
+
+    #[test]
+    fn test_value_is_null() {
+        let vws = ValueWithSpan {
+            value: Value::Null,
+            span: Span::empty(),
+        };
+        assert!(value_is_null(&vws));
+    }
+
+    #[test]
+    fn test_value_is_placeholder() {
+        let vws = ValueWithSpan {
+            value: Value::Placeholder("$1".to_string()),
+            span: Span::empty(),
+        };
+        assert_eq!(value_is_placeholder(&vws), Some("$1"));
+        let vws2 = ValueWithSpan {
+            value: Value::Number("1".to_string(), false),
+            span: Span::empty(),
+        };
+        assert_eq!(value_is_placeholder(&vws2), None);
+    }
+
+    fn disambiguated(names: &[&str]) -> Vec<String> {
+        let mut names: Vec<String> = names.iter().map(|n| (*n).to_string()).collect();
+        disambiguate_duplicate_names(names.iter_mut());
+        names
+    }
+
+    #[test]
+    fn test_disambiguate_leaves_unique_names_untouched() {
+        assert_eq!(disambiguated(&["id", "name", "email"]), ["id", "name", "email"]);
+    }
+
+    #[test]
+    fn test_disambiguate_suffixes_every_occurrence_in_positional_order() {
+        assert_eq!(disambiguated(&["id", "id"]), ["id_1", "id_2"]);
+        assert_eq!(
+            disambiguated(&["id", "name", "id", "id"]),
+            ["id_1", "name", "id_2", "id_3"]
+        );
+    }
+
+    #[test]
+    fn test_disambiguate_handles_two_independent_collisions() {
+        assert_eq!(
+            disambiguated(&["id", "total", "id", "total"]),
+            ["id_1", "total_1", "id_2", "total_2"]
+        );
+    }
+
+    /// A generated suffix must not land on a name the list already uses --
+    /// `SELECT a AS id, b AS id, c AS id_1` must not mint a second `id_1`.
+    #[test]
+    fn test_disambiguate_skips_suffixes_that_already_exist() {
+        assert_eq!(disambiguated(&["id", "id", "id_1"]), ["id_2", "id_3", "id_1"]);
+    }
+
+    #[test]
+    fn test_unresolved_type_error_maps_each_marker_to_its_user_facing_code() {
+        use crate::errors::ErrorCode;
+
+        let ambiguous =
+            unresolved_type_error(&format!("{AMBIGUOUS_COLUMN_MARKER}id"), "column", "id").expect("marker recognised");
+        assert_eq!(ambiguous.code, ErrorCode::AmbiguousColumn);
+        assert!(ambiguous.message.contains("id"), "got: {}", ambiguous.message);
+
+        let unknown_col = unresolved_type_error(&format!("{UNKNOWN_COLUMN_MARKER}nosuchcol"), "column", "nosuchcol")
+            .expect("marker recognised");
+        assert_eq!(unknown_col.code, ErrorCode::UnknownColumn);
+        assert!(
+            unknown_col.message.contains("nosuchcol"),
+            "got: {}",
+            unknown_col.message
+        );
+
+        let unknown_func =
+            unresolved_type_error(&format!("{UNKNOWN_FUNCTION_MARKER}my_weird_func"), "column", "result")
+                .expect("marker recognised");
+        assert_eq!(unknown_func.code, ErrorCode::UnknownFunction);
+        assert!(
+            unknown_func.message.contains("my_weird_func"),
+            "got: {}",
+            unknown_func.message
+        );
+
+        let ambiguous_func = unresolved_type_error(&format!("{AMBIGUOUS_FUNCTION_MARKER}choose"), "column", "result")
+            .expect("marker recognised");
+        assert_eq!(ambiguous_func.code, ErrorCode::AmbiguousFunction);
+
+        let record = unresolved_type_error(&format!("{UNTYPEABLE_RECORD_MARKER}jsonb_each"), "column", "kv")
+            .expect("marker recognised");
+        assert_eq!(record.code, ErrorCode::UnresolvedType);
+        assert!(record.message.contains("kv"), "got: {}", record.message);
+        assert!(record.message.contains("jsonb_each"), "got: {}", record.message);
+
+        let row = unresolved_type_error(UNTYPEABLE_ROW_MARKER, "column", "row_col").expect("marker recognised");
+        assert_eq!(row.code, ErrorCode::UnresolvedType);
+        assert!(row.message.contains("row_col"), "got: {}", row.message);
+
+        let generic = unresolved_type_error(UNRESOLVED_EXPR_MARKER, "column", "mystery").expect("marker recognised");
+        assert_eq!(generic.code, ErrorCode::UnresolvedType);
+        assert!(generic.message.contains("mystery"), "got: {}", generic.message);
+    }
+
+    /// `array_agg(x)` wraps its element's neutral type as `array<{elem}>`, marker
+    /// included, so a marker can arrive here not at position 0.
+    ///
+    /// The two halves are caught by different code and only one of them motivates
+    /// [`find_marker_payload`]. The payload-free markers are matched with
+    /// `contains`, so `array<__untypeable_row__:>` was already caught; the
+    /// payload-carrying ones were matched with `strip_prefix`, so
+    /// `array_agg(some_unknown_function(x))` -- `array<__unknown_func__:...>` --
+    /// leaked past every check and reached codegen as a neutral type no manifest
+    /// resolves. That half is a pre-existing gap this fix closes, not a
+    /// consequence of #223's new markers. Keep both halves: they exercise the two
+    /// distinct matching strategies in `unresolved_type_error`.
+    #[test]
+    fn test_unresolved_type_error_finds_marker_wrapped_in_array() {
+        use crate::errors::ErrorCode;
+
+        let wrapped_row = unresolved_type_error(&format!("array<{UNTYPEABLE_ROW_MARKER}>"), "column", "rows")
+            .expect("a payload-free marker must be recognised when wrapped in array<...>");
+        assert_eq!(wrapped_row.code, ErrorCode::UnresolvedType);
+        assert!(wrapped_row.message.contains("rows"), "got: {}", wrapped_row.message);
+
+        let wrapped_unknown_func =
+            unresolved_type_error(&format!("array<{UNKNOWN_FUNCTION_MARKER}row>"), "column", "rows")
+                .expect("a payload-carrying marker must be recognised when wrapped in array<...>");
+        assert_eq!(wrapped_unknown_func.code, ErrorCode::UnknownFunction);
+        assert!(
+            wrapped_unknown_func.message.contains("row"),
+            "got: {}",
+            wrapped_unknown_func.message
+        );
+    }
+
+    #[test]
+    fn test_unresolved_type_error_ignores_ordinary_neutral_types() {
+        for neutral in ["int32", "array<string>", "json_nested<array<QRowX>>", "unknown"] {
+            assert!(
+                unresolved_type_error(neutral, "column", "col").is_none(),
+                "{neutral} must not be treated as an unresolved marker"
+            );
+        }
+    }
+}

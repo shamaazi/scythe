@@ -1,4 +1,4 @@
--- Nested-aggregate queries (#78). These exist so the structs scythe
+-- Nested-aggregate queries (#78). These exist so the structs sqlkit
 -- synthesizes for json_agg/row_to_json are compiled and round-tripped
 -- against a real PostgreSQL server, not merely rendered as text.
 

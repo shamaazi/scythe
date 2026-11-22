@@ -861,7 +861,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "minijinja",
- "scythe-codegen",
+ "sqlkit-codegen",
  "serde",
  "toml",
 ]
@@ -1423,7 +1423,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "scythe-backend"
+name = "sqlkit-backend"
 version = "0.20.3"
 dependencies = [
  "ahash",
@@ -1433,7 +1433,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "scythe-cli"
+name = "sqlkit-cli"
 version = "0.20.3"
 dependencies = [
  "ahash",
@@ -1441,11 +1441,11 @@ dependencies = [
  "clap",
  "glob",
  "regex",
- "scythe-backend",
- "scythe-codegen",
- "scythe-core",
- "scythe-inspect",
- "scythe-lint",
+ "sqlkit-backend",
+ "sqlkit-codegen",
+ "sqlkit-core",
+ "sqlkit-inspect",
+ "sqlkit-lint",
  "serde",
  "serde_json",
  "sqlparser",
@@ -1458,27 +1458,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "scythe-codegen"
+name = "sqlkit-codegen"
 version = "0.20.3"
 dependencies = [
  "ahash",
  "criterion",
- "scythe-backend",
- "scythe-core",
- "scythe-lint",
+ "sqlkit-backend",
+ "sqlkit-core",
+ "sqlkit-lint",
  "syn 3.0.10",
  "toml",
 ]
 
 [[package]]
-name = "scythe-conformance"
+name = "sqlkit-conformance"
 version = "0.1.0"
 dependencies = [
  "ahash",
  "glob",
- "scythe-backend",
- "scythe-codegen",
- "scythe-core",
+ "sqlkit-backend",
+ "sqlkit-codegen",
+ "sqlkit-core",
  "serde",
  "serde_json",
  "sqlparser",
@@ -1490,7 +1490,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "scythe-core"
+name = "sqlkit-core"
 version = "0.20.3"
 dependencies = [
  "ahash",
@@ -1501,13 +1501,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "scythe-inspect"
+name = "sqlkit-inspect"
 version = "0.20.3"
 dependencies = [
  "async-trait",
  "regex",
- "scythe-core",
- "scythe-lint",
+ "sqlkit-core",
+ "sqlkit-lint",
  "serde",
  "serde_json",
  "sqlparser",
@@ -1520,11 +1520,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "scythe-lint"
+name = "sqlkit-lint"
 version = "0.20.3"
 dependencies = [
  "ahash",
- "scythe-core",
+ "sqlkit-core",
  "serde",
  "serde_json",
  "sqlparser",
@@ -1868,7 +1868,7 @@ dependencies = [
  "ahash",
  "clap",
  "glob",
- "scythe-codegen",
+ "sqlkit-codegen",
  "serde",
  "serde_json",
  "tempfile",

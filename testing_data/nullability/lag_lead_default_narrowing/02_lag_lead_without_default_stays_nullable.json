@@ -40,7 +40,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe distinguishes the two-argument form (no default, genuinely nullable at boundaries) from the three-argument form (default supplied, narrowable)",
+    "sqlkit_improvement": "sqlkit distinguishes the two-argument form (no default, genuinely nullable at boundaries) from the three-argument form (default supplied, narrowable)",
     "sqlc_behavior": "sqlc does not model the LAG/LEAD default argument at all, so its nullability determination for this form is coincidentally the same but not derived from the offset semantics"
   },
   "tags": ["nullability", "window_function", "lag", "lead"]

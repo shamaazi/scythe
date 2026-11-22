@@ -35,7 +35,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks o.total as nullable (Option<i32>) because LEFT JOIN can produce NULL for unmatched rows",
+    "sqlkit_improvement": "sqlkit correctly marks o.total as nullable (Option<i32>) because LEFT JOIN can produce NULL for unmatched rows",
     "sqlc_behavior": "sqlc marks o.total as non-nullable (i32) because orders.total is declared NOT NULL"
   },
   "tags": ["join", "left_join", "nullability", "key_improvement"]

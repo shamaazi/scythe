@@ -36,7 +36,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe analyzes COALESCE arguments and recognizes that a literal default makes the result non-nullable",
+    "sqlkit_improvement": "sqlkit analyzes COALESCE arguments and recognizes that a literal default makes the result non-nullable",
     "sqlc_behavior": "sqlc marks the COALESCE result as nullable because the first argument (bio) is nullable"
   },
   "tags": ["nullability", "coalesce", "improvement_over_sqlc"]

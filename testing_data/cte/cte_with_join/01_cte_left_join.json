@@ -41,7 +41,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks o.total as nullable because it is on the right side of a LEFT JOIN",
+    "sqlkit_improvement": "sqlkit correctly marks o.total as nullable because it is on the right side of a LEFT JOIN",
     "sqlc_behavior": "sqlc marks o.total as non-nullable because orders.total is NOT NULL"
   },
   "tags": ["cte", "left_join", "nullability", "key_improvement"]

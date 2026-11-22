@@ -10,11 +10,10 @@ database access code (row types, query functions and type mappings) that stays i
 schema. It reads SQL statically, so generation needs no database connection.
 
 Upstream supports ten languages and ten databases; this fork keeps three backends and PostgreSQL alone,
-and adds Bun support, per-file output, schema type modules and other PostgreSQL work. The internal
-crates keep upstream's names (`scythe-*`) and layout so PostgreSQL fixes can still be sent
-upstream; the binary, config file (`sqlkit.toml`, with a `[sqlkit]` table), provenance header
-(`sqlkit:provenance`) and audit suppression comments (`-- sqlkit-audit: ignore[...]`) are named
-`sqlkit`. Rule ids keep their `SC-` prefix.
+and adds Bun support, per-file output, schema type modules and other PostgreSQL work. Everything is
+named `sqlkit`: the crates (`sqlkit-*`), the binary, the config file (`sqlkit.toml`, with a
+`[sqlkit]` table), the provenance header (`sqlkit:provenance`) and the audit suppression comments
+(`-- sqlkit-audit: ignore[...]`). Rule ids keep their `SC-` prefix.
 
 ## What you get
 
@@ -30,7 +29,7 @@ upstream; the binary, config file (`sqlkit.toml`, with a `[sqlkit]` table), prov
 
 ## Installation
 
-Through Nix, building the `scythe-cli` package (which installs the `sqlkit` binary) with only the
+Through Nix, building the `sqlkit-cli` package (which installs the `sqlkit` binary) with only the
 features a project needs
 (PostgreSQL and TypeScript here):
 
@@ -45,7 +44,7 @@ sqlkit = pkgs.rustPlatform.buildRustPackage (final: {
     hash = "<nix flake prefetch --json github:shamaazi/scythe/<commit>>";
   };
   cargoLock.lockFile = "${final.src}/Cargo.lock";
-  cargoBuildFlags = [ "--package" "scythe-cli" ];
+  cargoBuildFlags = [ "--package" "sqlkit-cli" ];
   buildNoDefaultFeatures = true;
   buildFeatures = [ "postgres" "lang-typescript" ];
   doCheck = false;
@@ -53,7 +52,7 @@ sqlkit = pkgs.rustPlatform.buildRustPackage (final: {
 });
 ```
 
-Or with Cargo from a checkout: `cargo install --path crates/scythe-cli`.
+Or with Cargo from a checkout: `cargo install --path crates/sqlkit-cli`.
 
 Cargo features: `postgres` enables the live PostgreSQL driver (for `inspect` and
 `check --database-url`); `lang-typescript` and `lang-rust` select the backends. The default build
@@ -180,4 +179,4 @@ There is no CI: run `sqlkit:lint`, `sqlkit:test` and `sqlkit:integration` before
 
 ## License
 
-[MIT](LICENSE). Scythe is by Na'aman Hirschfeld and contributors; see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+[MIT](LICENSE). sqlkit derives from Scythe, by Na'aman Hirschfeld and contributors; see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).

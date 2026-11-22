@@ -1,0 +1,181 @@
+//! Regression test for issue #208: `sqlkit audit` used to abandon a whole
+//! file at the first statement it could not parse, discarding every
+//! finding from statements already parsed successfully (including real
+//! security findings) and printing "No findings." with exit 0.
+//!
+//! Drives the compiled binary via `Command::new(env!("CARGO_BIN_EXE_sqlkit"))`.
+
+use std::process::Command;
+
+use tempfile::TempDir;
+
+fn sqlkit_bin() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
+}
+
+/// A real `GRANT ALL ... TO PUBLIC` finding (SC-SEC02 + SC-SEC03) precedes a
+/// statement using syntax the parser cannot handle.
+const MIXED_SQL: &str =
+    "GRANT ALL ON users TO PUBLIC;\nCREATE POLICY p ON t USING (true) NOT VALID GARBAGE SYNTAX HERE;\n";
+
+/// `sqlkit audit` must still report the GRANT ALL finding from the
+/// statement before the unparseable one, and must exit non-zero (not the
+/// silent "No findings." + exit 0 issue #208 reproduces).
+#[test]
+fn audit_reports_findings_from_statements_before_an_unparseable_one() {
+    let dir = TempDir::new().unwrap();
+    let sql_path = dir.path().join("bad.sql");
+    std::fs::write(&sql_path, MIXED_SQL).unwrap();
+
+    let output = sqlkit_bin()
+        .args(["audit", sql_path.to_str().unwrap()])
+        .output()
+        .expect("run sqlkit audit");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stdout.contains("SC-SEC02") || stdout.contains("SC-SEC03"),
+        "the GRANT ALL finding from the parseable statement must survive; \
+         stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "a file with a real security finding must not exit 0, regardless of the unparseable statement; \
+         stdout: {stdout}"
+    );
+    assert!(
+        !stdout.trim().is_empty() && stdout != "No findings.\n",
+        "audit must not silently report a clean run over a file with a real finding; stdout: {stdout}"
+    );
+}
+
+/// The unparseable statement itself must be visible as a finding (not just
+/// a stderr note a CI job checking the exit code would never see).
+#[test]
+fn audit_reports_the_unparseable_statement_as_its_own_finding() {
+    let dir = TempDir::new().unwrap();
+    let sql_path = dir.path().join("bad.sql");
+    std::fs::write(&sql_path, MIXED_SQL).unwrap();
+
+    let output = sqlkit_bin()
+        .args(["audit", sql_path.to_str().unwrap()])
+        .output()
+        .expect("run sqlkit audit");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("SC-PARSE01"),
+        "the unparseable statement must itself be an error finding, not only a stderr note: {stdout}"
+    );
+}
+
+/// `SC-PARSE01` joined `parse_registry` so `[lint.rules]` could reach it.
+/// Before that, `run_security_rules_over_sql` hardcoded `Severity::Error` at
+/// the point this finding was constructed, so a `"SC-PARSE01" = "warn"`
+/// entry in `sqlkit.toml` had no effect: the finding stayed an `error`-level
+/// SARIF/JSON result regardless of what `--config` pointed at.
+#[test]
+fn audit_unparseable_statement_honours_configured_severity() {
+    let dir = TempDir::new().unwrap();
+    let sql_path = dir.path().join("bad.sql");
+    std::fs::write(&sql_path, MIXED_SQL).unwrap();
+    let config_path = dir.path().join("sqlkit.toml");
+    std::fs::write(&config_path, "[lint.rules]\n\"SC-PARSE01\" = \"warn\"\n").unwrap();
+
+    let output = sqlkit_bin()
+        .args([
+            "audit",
+            sql_path.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("run sqlkit audit");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let sc_parse01 = parsed
+        .as_array()
+        .expect("array")
+        .iter()
+        .find(|f| f["rule_id"] == "SC-PARSE01")
+        .unwrap_or_else(|| panic!("SC-PARSE01 must still be reported; stdout: {stdout}"));
+
+    assert_eq!(
+        sc_parse01["severity"], "warning",
+        "the configured severity must win: {stdout}"
+    );
+}
+
+#[test]
+fn audit_parse_failure_is_operational_even_when_finding_is_disabled() {
+    for configured_severity in ["off", "warn"] {
+        let dir = TempDir::new().unwrap();
+        let sql_path = dir.path().join("bad.sql");
+        std::fs::write(
+            &sql_path,
+            "CREATE ROLE planted_role;\nDO $body$ BEGIN SELECT 1; END $body$;\n",
+        )
+        .unwrap();
+        let config_path = dir.path().join("sqlkit.toml");
+        std::fs::write(
+            &config_path,
+            format!("[lint.rules]\n\"SC-PARSE01\" = \"{configured_severity}\"\n"),
+        )
+        .unwrap();
+
+        let output = sqlkit_bin()
+            .args([
+                "audit",
+                "--config",
+                config_path.to_str().unwrap(),
+                "--format",
+                "json",
+                "--severity",
+                "error",
+                "--exit-zero",
+                sql_path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("run sqlkit audit");
+
+        assert_eq!(output.status.code(), Some(1), "{configured_severity}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let _: serde_json::Value = serde_json::from_str(&stdout).expect("audit report remains valid JSON");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("audit could not parse") && stderr.contains("the audit is incomplete"),
+            "stderr: {stderr}"
+        );
+    }
+}
+
+/// Negative control: a file with no parse failures at all must behave
+/// exactly as before -- every statement's findings reported, exit non-zero
+/// on a real finding.
+#[test]
+fn audit_reports_findings_normally_when_everything_parses() {
+    let dir = TempDir::new().unwrap();
+    let sql_path = dir.path().join("clean_grant.sql");
+    std::fs::write(&sql_path, "GRANT ALL ON users TO PUBLIC;\n").unwrap();
+
+    let output = sqlkit_bin()
+        .args(["audit", sql_path.to_str().unwrap()])
+        .output()
+        .expect("run sqlkit audit");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("SC-SEC02") || stdout.contains("SC-SEC03"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        !stdout.contains("SC-PARSE01"),
+        "a fully-parseable file must not report a parse finding: {stdout}"
+    );
+}

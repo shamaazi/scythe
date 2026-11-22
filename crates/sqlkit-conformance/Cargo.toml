@@ -1,0 +1,37 @@
+[package]
+name = "sqlkit-conformance"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Live-database conformance suite for sqlkit nullability inference"
+
+[features]
+default = []
+# The live PostgreSQL driver, off by default so `cargo test --workspace` and
+# `cargo clippy --workspace -- -D warnings` never link a database driver.
+pg = ["dep:tokio-postgres", "dep:tokio"]
+# Gate for actually dialing a database in tests (vs. compiling the executor
+# impls). Kept separate from `pg` so the driver can be compile-checked
+# without a live database.
+live-tests = []
+
+[dependencies]
+
+ahash = { version = "0.8", features = ["serde"] }
+glob = "0.3"
+
+sqlkit-backend = { path = "../sqlkit-backend", version = "0.20.3" }
+sqlkit-codegen = { path = "../sqlkit-codegen" }
+sqlkit-core = { path = "../sqlkit-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlparser = "0.63"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"], optional = true }
+toml = "1.1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["full", "macros", "rt-multi-thread"] }

@@ -16,10 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `-- sqlkit-audit: ignore[...]`, the `SQLKIT_DATABASE_URL` and
   `SQLKIT_PG_PARSER_DIR` environment variables, the SARIF tool names
   (`sqlkit-lint`, `sqlkit-audit`, `sqlkit-inspect`, `sqlkit-check`), the
-  banner of a generated schema types module, CLI help and messages, and the
-  devenv tasks (`sqlkit:*`). Crate names, Rust module paths and rule ids
-  (`SC-...`) are unchanged. Generated files need regenerating for the new
-  header; their fingerprints are unchanged.
+  banner of a generated schema types module, CLI help and messages, the devenv
+  tasks (`sqlkit:*`), the crates (`sqlkit-cli`, `sqlkit-core`,
+  `sqlkit-codegen`, `sqlkit-backend`, `sqlkit-lint`, `sqlkit-inspect`,
+  `sqlkit-conformance`) and their Rust paths (`sqlkit_core::...`,
+  `SqlkitError`), the `SQLKIT_TEST_DATABASE_URL` and
+  `SQLKIT_CONFORMANCE_POSTGRES_URL` test variables, the `sqlkit-pg15-parser`
+  and `sqlkit-pg18-parser` helpers and the devenv test database
+  (`sqlkit_test`, user `sqlkit`). Rule ids (`SC-...`) are unchanged. Generated
+  files need regenerating for the new header; their fingerprints are
+  unchanged.
 - PostgreSQL is the only database engine (`postgresql`, with its `postgres`
   and `pg` aliases). SQLite, DuckDB, MySQL/MariaDB, SQL Server, Oracle,
   Snowflake, Redshift and CockroachDB are gone from the Cargo features, the

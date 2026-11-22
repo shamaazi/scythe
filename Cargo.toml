@@ -1,13 +1,13 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/scythe-backend",
-    "crates/scythe-cli",
-    "crates/scythe-codegen",
-    "crates/scythe-conformance",
-    "crates/scythe-core",
-    "crates/scythe-inspect",
-    "crates/scythe-lint",
+    "crates/sqlkit-backend",
+    "crates/sqlkit-cli",
+    "crates/sqlkit-codegen",
+    "crates/sqlkit-conformance",
+    "crates/sqlkit-core",
+    "crates/sqlkit-inspect",
+    "crates/sqlkit-lint",
     "tools/integration-test-generator",
     "tools/migrate-fixtures",
     "tools/test-generator",

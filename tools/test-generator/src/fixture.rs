@@ -93,7 +93,7 @@ pub struct Expected {
     pub error: Option<ExpectedError>,
     #[serde(default)]
     pub lint: Option<ExpectedLint>,
-    /// Backends declared to fail `scythe_codegen::generate_with_backend` for this fixture,
+    /// Backends declared to fail `sqlkit_codegen::generate_with_backend` for this fixture,
     /// keyed by backend name (e.g. `"python-asyncpg"`). Absent for the overwhelming majority of
     /// fixtures, where every applicable backend is expected to generate successfully -- this
     /// exists only for the genuine cases the #222 measurement finds, not as a general escape
@@ -287,7 +287,7 @@ pub struct ExpectedGeneratedCode {
     pub enum_def: Option<String>,
     #[serde(default)]
     pub model_struct: Option<String>,
-    /// Expected `scythe_codegen::GeneratedCode::degraded_nested_structs` entries for
+    /// Expected `sqlkit_codegen::GeneratedCode::degraded_nested_structs` entries for
     /// this backend -- the typed record `degrade_unsupported_nested_structs` produces
     /// when a nested-aggregate column (`json_agg`, `row_to_json`) could not become a
     /// real struct for this backend (GH #147).
@@ -306,10 +306,10 @@ pub struct ExpectedGeneratedCode {
 #[serde(deny_unknown_fields)]
 pub struct ExpectedNestedStructDegradation {
     /// SQL-level name of the rewritten column, matches
-    /// `scythe_codegen::NestedStructDegradation::column`.
+    /// `sqlkit_codegen::NestedStructDegradation::column`.
     pub column: String,
     /// PascalCase name of the struct the backend declined to generate, matches
-    /// `scythe_codegen::NestedStructDegradation::struct_name`.
+    /// `sqlkit_codegen::NestedStructDegradation::struct_name`.
     pub struct_name: String,
     /// The neutral type the column was rewritten to: `"json"` or `"json_array"`.
     pub fallback_type: String,
@@ -338,12 +338,12 @@ pub struct SqlcComparison {
     #[serde(default)]
     pub sqlc_behavior: Option<String>,
     #[serde(default)]
-    pub scythe_improvement: Option<String>,
+    pub sqlkit_improvement: Option<String>,
 }
 
 /// Recursively loads all `.json` fixture files from `dir`, excluding any
 /// path with an `_`-prefixed directory
-/// component *below `dir`* (e.g. `_schemas/`, used by `scythe-conformance`
+/// component *below `dir`* (e.g. `_schemas/`, used by `sqlkit-conformance`
 /// to hold non-fixture data alongside its fixtures) -- such a directory
 /// must never be silently picked up as a JSON fixture. The exclusion check
 /// is scoped to the path relative to `dir`: `dir` itself carries the full
@@ -565,7 +565,7 @@ mod tests {
     /// Regression for #156: `config.type_overrides` and `config.naming` were deserialised into
     /// `FixtureConfig` and never read by anything -- zero fixtures declared `naming`, and the
     /// lone fixture declaring `type_overrides` used field names (`lang_type`, `json`) that don't
-    /// even match the real `[[type_overrides]]` shape `scythe-cli` reads from `sqlkit.toml`
+    /// even match the real `[[type_overrides]]` shape `sqlkit-cli` reads from `sqlkit.toml`
     /// (`column`, `db_type`, `type`). Both keys were removed from `FixtureConfig` rather than
     /// wired up, since removing them changes nothing a fixture actually asserts. This must now be
     /// a load error under `deny_unknown_fields`, not a silently-dropped key -- the same failure

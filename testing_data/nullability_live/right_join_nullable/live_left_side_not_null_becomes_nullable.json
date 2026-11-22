@@ -34,7 +34,7 @@
   "source": "original",
   "sqlc_comparison": {
     "sqlc_behavior": "sqlc keeps left-side columns non-nullable, ignoring the RIGHT JOIN just as it ignores the LEFT JOIN",
-    "scythe_improvement": "scythe applies the outer-join rule to whichever side is optional, and the second seeded user has no order so the engine returns the NULLs"
+    "sqlkit_improvement": "sqlkit applies the outer-join rule to whichever side is optional, and the second seeded user has no order so the engine returns the NULLs"
   },
   "live": {
     "schema_profile": "users_orders",

@@ -1,17 +1,17 @@
 # Attributions
 
-scythe is licensed under MIT (see `LICENSE`). This file lists external projects
-whose ideas or detection patterns informed scythe's design, even when no source
+sqlkit is licensed under MIT (see `LICENSE`). This file lists external projects
+whose ideas or detection patterns informed sqlkit's design, even when no source
 code was copied.
 
 ## Inspirations
 
 ### supabase/splinter
 
-Detection patterns for several `scythe audit` Postgres rules are inspired by
+Detection patterns for several `sqlkit audit` Postgres rules are inspired by
 the runtime lint catalog in [supabase/splinter](https://github.com/supabase/splinter).
 Splinter runs its lints as SELECT queries against `pg_catalog` and
-`information_schema` on a live database; scythe runs the equivalent
+`information_schema` on a live database; sqlkit runs the equivalent
 detections at lint time against the `sqlparser` AST of a migration script.
 
 **No source code is copied from splinter.** Each rule is a clean-room
@@ -25,7 +25,7 @@ splinter code.
 
 Rules inspired by splinter lints:
 
-| scythe rule | splinter lint | Adaptation |
+| sqlkit rule | splinter lint | Adaptation |
 |---|---|---|
 | SC-SEC12 function-search-path-mutable | 0011 function_search_path_mutable | Lint-time check on `CreateFunction.set_params` instead of runtime `pg_proc.proconfig`. Complementary to existing SC-SEC10 (which owns the escalating `SECURITY DEFINER` case at `error`); SC-SEC12 covers the general invoker case at `warn`. |
 | SC-MIG19 unsupported-reg-types | 0018 unsupported_reg_types | Lint-time check on `CREATE TABLE` / `ALTER TABLE ADD COLUMN` column types instead of runtime `pg_attribute` scan. Same banned-type set (regcollation, regconfig, regdictionary, regnamespace, regoper, regoperator, regproc, regprocedure); regclass is exempt. |
@@ -35,12 +35,12 @@ Rules inspired by splinter lints:
 
 Detection patterns from splinter lints that cannot be ported to the static
 audit pipeline because they require live catalog state moved into the
-`scythe inspect` command instead. Splinter remains the closest prior art for
-those — scythe-inspect carries forward the highest-impact subset.
+`sqlkit inspect` command instead. Splinter remains the closest prior art for
+those — sqlkit-inspect carries forward the highest-impact subset.
 
-#### Live inspection rules inspired by splinter (scythe-inspect)
+#### Live inspection rules inspired by splinter (sqlkit-inspect)
 
-| scythe rule | splinter lint | Adaptation |
+| sqlkit rule | splinter lint | Adaptation |
 |---|---|---|
 | SC-INS01 missing-fk-index | 0001 unindexed_foreign_keys | Runtime `pg_constraint` + `pg_index` join, grouping FK columns and asserting a covering index on the leading column set. Splinter's same shape; `tokio-postgres` parameterless query at lint time. |
 | SC-INS02 policy-exists-rls-disabled | 0007 policy_exists_rls_disabled | `pg_class` + `pg_policy` join filtering `NOT relrowsecurity`. Splinter's same shape. |
@@ -55,5 +55,5 @@ those — scythe-inspect carries forward the highest-impact subset.
 
 The remaining splinter lints that need live catalog state — auth/RLS deep
 dives, `pg_stat_*`-based unused-index and slow-query detection — are tracked
-for later scythe-inspect phases (see the phased roadmap in
+for later sqlkit-inspect phases (see the phased roadmap in
 `website/src/content/docs/guide/inspect.md`).

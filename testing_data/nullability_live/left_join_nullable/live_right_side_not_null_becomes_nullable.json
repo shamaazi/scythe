@@ -34,7 +34,7 @@
   "source": "original",
   "sqlc_comparison": {
     "sqlc_behavior": "sqlc marks o.total and o.created_at as non-nullable because both are NOT NULL in the schema, ignoring the LEFT JOIN",
-    "scythe_improvement": "scythe correctly infers that all right-side columns of a LEFT JOIN become nullable, and this fixture also proves it against six live engines rather than the analyzer alone"
+    "sqlkit_improvement": "sqlkit correctly infers that all right-side columns of a LEFT JOIN become nullable, and this fixture also proves it against six live engines rather than the analyzer alone"
   },
   "live": {
     "schema_profile": "users_orders",

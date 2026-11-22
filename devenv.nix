@@ -5,9 +5,9 @@ let
   # What mygiving builds through Nix (its overlay pins this repository): the CLI with the
   # PostgreSQL engine and the TypeScript backends only.
   minimalFeatures = "--no-default-features --features postgres,lang-typescript";
-  minimalCodegenFeatures = "--no-default-features --features scythe-codegen/postgres,scythe-codegen/lang-typescript";
+  minimalCodegenFeatures = "--no-default-features --features sqlkit-codegen/postgres,sqlkit-codegen/lang-typescript";
   pg = config.services.postgres;
-  databaseUrl = "postgres://scythe:scythe@127.0.0.1:${toString pg.port}/scythe_test";
+  databaseUrl = "postgres://sqlkit:sqlkit@127.0.0.1:${toString pg.port}/sqlkit_test";
 in
 {
   languages.rust = {
@@ -30,9 +30,9 @@ in
     port = 5433;
     initialDatabases = [
       {
-        name = "scythe_test";
-        user = "scythe";
-        pass = "scythe";
+        name = "sqlkit_test";
+        user = "sqlkit";
+        pass = "sqlkit";
       }
     ];
   };
@@ -40,14 +40,14 @@ in
   tasks = {
     "sqlkit:build" = {
       description = "Build the CLI (debug)";
-      exec = "cargo build --locked -p scythe-cli";
+      exec = "cargo build --locked -p sqlkit-cli";
     };
     "sqlkit:test" = {
       description = "Run the workspace tests, then the core and codegen tests on mygiving's minimal feature set";
       exec = ''
         set -euo pipefail
         cargo test --locked --workspace
-        cargo test --locked -p scythe-core -p scythe-codegen ${minimalCodegenFeatures}
+        cargo test --locked -p sqlkit-core -p sqlkit-codegen ${minimalCodegenFeatures}
       '';
     };
     "sqlkit:lint" = {
@@ -56,19 +56,19 @@ in
         set -euo pipefail
         cargo fmt --all --check
         cargo clippy --locked --workspace --all-targets -- -D warnings
-        cargo clippy --locked -p scythe-cli -p scythe-codegen -p scythe-inspect --all-targets ${minimalFeatures} -- -D warnings
+        cargo clippy --locked -p sqlkit-cli -p sqlkit-codegen -p sqlkit-inspect --all-targets ${minimalFeatures} -- -D warnings
       '';
     };
-    # The committed fixture tests (crates/scythe-codegen/tests/generated) and integration
+    # The committed fixture tests (crates/sqlkit-codegen/tests/generated) and integration
     # projects (integration_tests/*/generated) are both generated; regenerate them after
     # changing testing_data/, a backend or the templates, and commit the result.
     "sqlkit:generate" = {
       description = "Regenerate the fixture tests and the integration projects' generated code";
       exec = ''
         set -euo pipefail
-        cargo run --locked -p test-generator -- --fixtures testing_data --output crates/scythe-codegen/tests/generated
+        cargo run --locked -p test-generator -- --fixtures testing_data --output crates/sqlkit-codegen/tests/generated
         cargo fmt --all
-        cargo build --locked -p scythe-cli
+        cargo build --locked -p sqlkit-cli
         sqlkit="$(cargo metadata --format-version 1 --no-deps | ${pkgs.jq}/bin/jq -r .target_directory)/debug/sqlkit"
         cargo run --locked --quiet -p integration-test-generator
         # These keep their sqlkit.toml and scaffolding by hand, outside the templates.
@@ -82,7 +82,7 @@ in
       description = "Fail if regenerating the fixture tests or integration code changes anything";
       after = [ "sqlkit:generate" ];
       exec = ''
-        paths="crates/scythe-codegen/tests/generated integration_tests"
+        paths="crates/sqlkit-codegen/tests/generated integration_tests"
         # Against the index, so staged but uncommitted work counts as the baseline.
         status=$(git diff --name-only -- $paths; git ls-files --others --exclude-standard -- $paths)
         if [ -n "$status" ]; then
@@ -99,8 +99,8 @@ in
       description = "Build the PostgreSQL parser helpers and run the cluster-scope gate controls";
       exec = ''
         set -euo pipefail
-        sh crates/scythe-cli/src/commands/audit/build_pg_parser_helpers.sh target/pg-parser-helpers
-        cargo build --locked -p scythe-cli
+        sh crates/sqlkit-cli/src/commands/audit/build_pg_parser_helpers.sh target/pg-parser-helpers
+        cargo build --locked -p sqlkit-cli
         sh scripts/test-cluster-scope-gate.sh target/debug/sqlkit target/pg-parser-helpers 18
       '';
     };

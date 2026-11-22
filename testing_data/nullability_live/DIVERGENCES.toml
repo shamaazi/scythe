@@ -6,7 +6,7 @@
 # but no live run has ever demonstrated a NULL for it there). It can never
 # excuse a soundness (A2) failure -- `kind` only accepts
 # "analyzer_over_pessimistic", and the loader in
-# `crates/scythe-conformance/src/divergence.rs` rejects any other value.
+# `crates/sqlkit-conformance/src/divergence.rs` rejects any other value.
 #
 # A registered entry that stops reproducing fails the build (see
 # `divergence::check_staleness`): fixing the underlying gap thus forces
@@ -18,5 +18,5 @@
 # engine = "postgresql"
 # column = "..."
 # kind = "analyzer_over_pessimistic"
-# issue = "https://github.com/Goldziher/scythe/issues/NNNN"
+# issue = "https://github.com/shamaazi/scythe/issues/NNNN"
 # reason = "..."

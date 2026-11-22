@@ -1,6 +1,6 @@
 {
   "category": "types/json_jsonb_advanced",
-  "description": "jsonb_each_text in select-list position (PostgreSQL SRF-in-target-list) yields an anonymous record scythe cannot name a type for -- rejected with an actionable error instead of reaching codegen as INTERNAL_ERROR (#223); see 08_jsonb_each_text_from.json for the FROM-clause form that resolves correctly",
+  "description": "jsonb_each_text in select-list position (PostgreSQL SRF-in-target-list) yields an anonymous record sqlkit cannot name a type for -- rejected with an actionable error instead of reaching codegen as INTERNAL_ERROR (#223); see 08_jsonb_each_text_from.json for the FROM-clause form that resolves correctly",
   "expected": {
     "success": false,
     "error": {

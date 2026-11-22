@@ -1,0 +1,636 @@
+use std::borrow::Cow;
+
+use sqlparser::ast::*;
+
+use crate::rule::LintRule;
+use crate::types::*;
+use sqlkit_core::catalog::Catalog;
+
+// ---------------------------------------------------------------------------
+
+pub struct PreferSnakeCaseColumns;
+
+impl LintRule for PreferSnakeCaseColumns {
+    fn id(&self) -> &'static str {
+        "SC-N01"
+    }
+    fn name(&self) -> &'static str {
+        "prefer-snake-case-columns"
+    }
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Naming
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Warn
+    }
+    fn description(&self) -> &'static str {
+        "Column aliases should use snake_case"
+    }
+
+    fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        walk_select_items(ctx.stmt, &mut |item| {
+            if let SelectItem::ExprWithAlias { alias, .. } = item {
+                let name = &alias.value;
+                if !is_snake_case(name) {
+                    violations.push(Violation {
+                        rule_id: Cow::Borrowed(self.id()),
+                        message: format!("column alias \"{}\" is not snake_case", name),
+                        fix: Some(LintFix {
+                            description: "Rename to snake_case".into(),
+                            replacement: to_snake_case(name),
+                        }),
+                    });
+                }
+            }
+        });
+        violations
+    }
+}
+
+/// Checks each table's DDL-original spelling ([`sqlkit_core::catalog::Table::raw_name`])
+/// rather than the catalog's lowercased lookup key.
+///
+/// # History (#145)
+///
+/// `Catalog::tables()` yields the lowercased lookup keys `Catalog` indexes
+/// by (via `type_normalizer::object_name_to_key`, which lowercases every
+/// identifier part unconditionally, quoted or not). Reading those keys made
+/// `CREATE TABLE "UserProfile"` — the canonical violation this rule exists
+/// to catch — invisible: only doubled/leading/trailing underscores (which
+/// survive lowercasing) could still fire. `sqlkit-core::catalog::Table` now
+/// carries a `raw_name` alongside its lowercased key specifically so this
+/// rule can see what the DDL actually said; see that field's doc comment
+/// for exactly what it holds for quoted vs. bare identifiers.
+pub struct PreferSnakeCaseTables;
+
+impl LintRule for PreferSnakeCaseTables {
+    fn id(&self) -> &'static str {
+        "SC-N02"
+    }
+    fn name(&self) -> &'static str {
+        "prefer-snake-case-tables"
+    }
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Naming
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Warn
+    }
+    fn description(&self) -> &'static str {
+        "Table names should use snake_case"
+    }
+
+    fn check_catalog(&self, catalog: &Catalog) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        for (name, table) in catalog.tables_iter() {
+            if !is_snake_case(&table.raw_name) {
+                violations.push(Violation {
+                    rule_id: Cow::Borrowed(self.id()),
+                    message: format!("table \"{}\" is not snake_case", name),
+                    fix: None,
+                });
+            }
+        }
+        violations
+    }
+}
+
+/// SC-N03. Accepts [`ALLOWED_PREFIXES`] unless `[lint.naming] query_prefixes` replaces them.
+#[derive(Debug, Clone, Default)]
+pub struct QueryNameConvention {
+    prefixes: Option<Vec<String>>,
+}
+
+impl QueryNameConvention {
+    /// The rule accepting exactly `prefixes`.
+    pub fn with_prefixes(prefixes: Vec<String>) -> Self {
+        Self {
+            prefixes: Some(prefixes),
+        }
+    }
+
+    fn accepts(&self, name: &str) -> bool {
+        match &self.prefixes {
+            Some(prefixes) => prefixes.iter().any(|p| name.starts_with(p.as_str())),
+            None => ALLOWED_PREFIXES.iter().any(|p| name.starts_with(p)),
+        }
+    }
+}
+
+const ALLOWED_PREFIXES: &[&str] = &[
+    "Get",
+    "List",
+    "Create",
+    "Update",
+    "Delete",
+    "Count",
+    "Upsert",
+    "Record",
+    "Soft",
+    "Mark",
+    "Start",
+    "Complete",
+    "Fail",
+    "Cancel",
+    "Increment",
+    "Revoke",
+    "Accept",
+    "Regenerate",
+    "Search",
+    "Find",
+    "Check",
+    "Verify",
+    "Retrieve",
+    "Aggregate",
+    "Return",
+    "Partial",
+];
+
+impl LintRule for QueryNameConvention {
+    fn id(&self) -> &'static str {
+        "SC-N03"
+    }
+    fn name(&self) -> &'static str {
+        "query-name-convention"
+    }
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Naming
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Warn
+    }
+    fn description(&self) -> &'static str {
+        "Query name should start with an action verb"
+    }
+
+    fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
+        let name = &ctx.analyzed.name;
+        if name.is_empty() {
+            return Vec::new();
+        }
+        if !self.accepts(name) {
+            return vec![Violation {
+                rule_id: Cow::Borrowed(self.id()),
+                message: format!("query name \"{}\" does not start with an accepted verb prefix", name),
+                fix: None,
+            }];
+        }
+        Vec::new()
+    }
+}
+
+pub struct ConsistentAliasCasing;
+
+impl LintRule for ConsistentAliasCasing {
+    fn id(&self) -> &'static str {
+        "SC-N04"
+    }
+    fn name(&self) -> &'static str {
+        "consistent-alias-casing"
+    }
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Naming
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Warn
+    }
+    fn description(&self) -> &'static str {
+        "Table aliases should be lowercase"
+    }
+
+    fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
+        let mut violations = Vec::new();
+        walk_from_tables(ctx.stmt, &mut |alias: &str| {
+            if alias != alias.to_lowercase() {
+                violations.push(Violation {
+                    rule_id: Cow::Borrowed(self.id()),
+                    message: format!("table alias \"{}\" should be lowercase", alias),
+                    fix: Some(LintFix {
+                        description: "Lowercase the alias".into(),
+                        replacement: alias.to_lowercase(),
+                    }),
+                });
+            }
+        });
+        violations
+    }
+}
+
+fn is_snake_case(s: &str) -> bool {
+    if s.is_empty() {
+        return true;
+    }
+    s.chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && !s.starts_with('_')
+        && !s.ends_with('_')
+        && !s.contains("__")
+}
+
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(ch.to_ascii_lowercase());
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+fn walk_select_items(stmt: &Statement, visitor: &mut dyn FnMut(&SelectItem)) {
+    if let Statement::Query(query) = stmt {
+        walk_query_select_items(query, visitor);
+    }
+}
+
+fn walk_query_select_items(query: &Query, visitor: &mut dyn FnMut(&SelectItem)) {
+    walk_set_expr_select_items(&query.body, visitor);
+}
+
+fn walk_set_expr_select_items(set_expr: &SetExpr, visitor: &mut dyn FnMut(&SelectItem)) {
+    match set_expr {
+        SetExpr::Select(select) => {
+            for item in &select.projection {
+                visitor(item);
+            }
+        }
+        SetExpr::Query(query) => walk_query_select_items(query, visitor),
+        SetExpr::SetOperation { left, right, .. } => {
+            walk_set_expr_select_items(left, visitor);
+            walk_set_expr_select_items(right, visitor);
+        }
+        _ => {}
+    }
+}
+
+fn walk_from_tables(stmt: &Statement, visitor: &mut dyn FnMut(&str)) {
+    if let Statement::Query(query) = stmt {
+        walk_query_from_tables(query, visitor);
+    }
+}
+
+fn walk_query_from_tables(query: &Query, visitor: &mut dyn FnMut(&str)) {
+    walk_set_expr_from_tables(&query.body, visitor);
+}
+
+fn walk_set_expr_from_tables(set_expr: &SetExpr, visitor: &mut dyn FnMut(&str)) {
+    match set_expr {
+        SetExpr::Select(select) => {
+            for twj in &select.from {
+                visit_table_factor_alias(&twj.relation, visitor);
+                for join in &twj.joins {
+                    visit_table_factor_alias(&join.relation, visitor);
+                }
+            }
+        }
+        SetExpr::Query(query) => walk_query_from_tables(query, visitor),
+        SetExpr::SetOperation { left, right, .. } => {
+            walk_set_expr_from_tables(left, visitor);
+            walk_set_expr_from_tables(right, visitor);
+        }
+        _ => {}
+    }
+}
+
+fn visit_table_factor_alias(tf: &TableFactor, visitor: &mut dyn FnMut(&str)) {
+    match tf {
+        TableFactor::Table { alias: Some(alias), .. } | TableFactor::Derived { alias: Some(alias), .. } => {
+            visitor(&alias.name.value);
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rule::LintRule;
+    use sqlkit_core::analyzer;
+    use sqlkit_core::catalog::Catalog;
+    use sqlkit_core::parser::parse_query;
+
+    fn make_catalog() -> Catalog {
+        Catalog::from_ddl(&[
+            "CREATE TABLE users (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL
+            );",
+            "CREATE TABLE UserProfiles (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL
+            );",
+        ])
+        .unwrap()
+    }
+
+    fn make_ctx<'a>(
+        query: &'a sqlkit_core::parser::Query,
+        analyzed: &'a sqlkit_core::analyzer::AnalyzedQuery,
+        catalog: &'a Catalog,
+    ) -> LintContext<'a> {
+        LintContext {
+            sql: &query.sql,
+            stmt: &query.stmt,
+            analyzed,
+            catalog,
+            annotations: &query.annotations,
+            dialect: sqlkit_core::dialect::SqlDialect::PostgreSQL,
+        }
+    }
+
+    #[test]
+    fn non_snake_case_alias_fires() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT name AS userName FROM users WHERE id = $1;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferSnakeCaseColumns.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn snake_case_alias_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT name AS user_name FROM users WHERE id = $1;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferSnakeCaseColumns.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn configured_prefixes_replace_the_built_in_list() {
+        let cat = make_catalog();
+        let rule = QueryNameConvention::with_prefixes(vec!["Anonymize".to_string(), "Enqueue".to_string()]);
+        let check = |name: &str| {
+            let q = parse_query(&format!(
+                "-- @name {name}\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;"
+            ))
+            .unwrap();
+            let a = analyzer::analyze(&cat, &q).unwrap();
+            rule.check_query(&make_ctx(&q, &a, &cat)).len()
+        };
+        assert_eq!(check("AnonymizeUser"), 0);
+        assert_eq!(check("EnqueueEmail"), 0);
+        assert_eq!(check("UpdateUser"), 1, "a built-in prefix no longer counts");
+    }
+
+    #[test]
+    fn lint_naming_config_reaches_the_registered_rule() {
+        let config: crate::types::LintConfig =
+            toml::from_str("[naming]\nquery_prefixes = [\"Claim\"]\n").expect("[lint.naming] parses");
+        let mut registry = crate::registry::default_registry();
+        registry.apply_config(&config);
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name ClaimUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let (rule, _) = registry
+            .all_rules()
+            .into_iter()
+            .find(|(rule, _)| rule.id() == "SC-N03")
+            .expect("SC-N03 is registered");
+        assert!(rule.check_query(&ctx).is_empty());
+
+        assert!(toml::from_str::<crate::types::LintConfig>("[naming]\nquery_prefix = [\"Get\"]\n").is_err());
+    }
+
+    #[test]
+    fn bad_query_name_fires() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name doStuff\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn good_query_name_ok() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name UpdateUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn uppercase_alias_fires() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT U.id FROM users U;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ConsistentAliasCasing.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn lowercase_alias_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT u.id FROM users u;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ConsistentAliasCasing.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn no_aliases_clean() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferSnakeCaseColumns.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn already_snake_case_alias_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :one\nSELECT id AS user_id, name AS user_name FROM users WHERE id = $1;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferSnakeCaseColumns.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn expression_without_alias_clean() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) FROM users;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferSnakeCaseColumns.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn all_snake_case_tables_clean() {
+        let cat = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+            "CREATE TABLE user_profiles (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL);",
+        ])
+        .unwrap();
+        let v = PreferSnakeCaseTables.check_catalog(&cat);
+        assert!(v.is_empty());
+    }
+
+    /// Inverted with #145: this used to assert that a quoted CamelCase table
+    /// name produced no finding, because `catalog::Table` had no copy of the
+    /// original DDL spelling and SC-N02 could only ever see the lowercased
+    /// lookup key. Now that `Table::raw_name` retains the DDL's own casing,
+    /// this is the canonical violation SC-N02 exists to catch, and it must
+    /// fire.
+    #[test]
+    fn camel_case_table_name_is_detected() {
+        let cat = Catalog::from_ddl(&["CREATE TABLE \"UserProfile\" (id SERIAL PRIMARY KEY);"]).unwrap();
+        let v = PreferSnakeCaseTables.check_catalog(&cat);
+        assert_eq!(v.len(), 1, "expected exactly one finding, got {v:?}");
+        assert_eq!(v[0].rule_id, "SC-N02");
+        assert!(
+            v[0].message.contains("userprofile"),
+            "the finding must name the table it is about, got {:?}",
+            v[0].message
+        );
+    }
+
+    /// Guards against a fix for the above that fires unconditionally: a bare
+    /// (unquoted) lowercase table name must still be clean, since it is the
+    /// overwhelmingly common case and `raw_name` for a bare identifier is
+    /// defined to equal the lowercased lookup key.
+    #[test]
+    fn bare_lowercase_table_name_stays_clean() {
+        let cat = Catalog::from_ddl(&["CREATE TABLE user_profiles (id SERIAL PRIMARY KEY);"]).unwrap();
+        let v = PreferSnakeCaseTables.check_catalog(&cat);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn non_snake_case_table_name_fires() {
+        let cat =
+            Catalog::from_ddl(&["CREATE TABLE \"user-profiles\" (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL);"])
+                .unwrap();
+        let v = PreferSnakeCaseTables.check_catalog(&cat);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn get_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn list_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn create_prefix_ok() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id;")
+                .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn delete_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn count_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) FROM users;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn upsert_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name UpsertUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) ON CONFLICT (id) DO UPDATE SET name = $1 RETURNING id;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn record_prefix_ok() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name RecordLogin\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn lowercase_query_name_fires() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name getuser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention::default().check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn no_alias_clean() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ConsistentAliasCasing.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn lowercase_multichar_alias_clean() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT usr.id FROM users usr;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ConsistentAliasCasing.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+}

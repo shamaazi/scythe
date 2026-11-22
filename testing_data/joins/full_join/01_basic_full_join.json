@@ -43,7 +43,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks ALL columns from both sides as nullable due to FULL OUTER JOIN semantics",
+    "sqlkit_improvement": "sqlkit correctly marks ALL columns from both sides as nullable due to FULL OUTER JOIN semantics",
     "sqlc_behavior": "sqlc marks all columns as non-nullable based on schema definitions"
   },
   "tags": ["join", "full_join", "nullability", "key_improvement"]

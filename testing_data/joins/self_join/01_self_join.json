@@ -34,7 +34,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks manager_name as nullable due to LEFT JOIN on self-referencing table",
+    "sqlkit_improvement": "sqlkit correctly marks manager_name as nullable due to LEFT JOIN on self-referencing table",
     "sqlc_behavior": "sqlc marks manager_name as non-nullable because employees.name is NOT NULL"
   },
   "tags": ["join", "self_join"]

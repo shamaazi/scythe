@@ -39,7 +39,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "Window SUM always operates on at least the current row, so correctly marked non-nullable",
+    "sqlkit_improvement": "Window SUM always operates on at least the current row, so correctly marked non-nullable",
     "sqlc_behavior": "May incorrectly mark window SUM as nullable like aggregate SUM"
   },
   "tags": ["window_function", "sum", "partition_by"]

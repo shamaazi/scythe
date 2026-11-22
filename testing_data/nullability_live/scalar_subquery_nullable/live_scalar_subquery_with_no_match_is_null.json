@@ -28,7 +28,7 @@
   "source": "original",
   "sqlc_comparison": {
     "sqlc_behavior": "sqlc takes the subquery column's schema nullability, so a NOT NULL column stays non-nullable however few rows the subquery matches",
-    "scythe_improvement": "scythe marks a scalar subquery nullable, and the second seeded user has no order at all so the engine returns the NULL"
+    "sqlkit_improvement": "sqlkit marks a scalar subquery nullable, and the second seeded user has no order at all so the engine returns the NULL"
   },
   "live": {
     "schema_profile": "users_orders",

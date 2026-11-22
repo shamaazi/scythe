@@ -1,0 +1,31 @@
+[package]
+name = "sqlkit-core"
+version = "0.20.3"
+edition = "2024"
+license = "MIT"
+description = "Core SQL parsing, catalog building, and type inference for sqlkit"
+repository = "https://github.com/shamaazi/scythe"
+authors = ["Na'aman Hirschfeld <nhirschfeld@gmail.com>"]
+keywords = ["sql", "parser", "type-inference", "catalog", "analyzer"]
+categories = ["database", "parser-implementations"]
+
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE*",
+    "/src/**",
+]
+
+[features]
+default = []
+serde = ["dep:serde"]
+
+[dependencies]
+ahash = { version = "0.8", features = ["serde"] }
+serde = { version = "1", features = ["derive"], optional = true }
+sha2 = "0.11"
+sqlparser = { version = "0.63", features = ["visitor"] }
+
+[dev-dependencies]
+serde_json = "1"

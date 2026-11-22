@@ -25,7 +25,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe recursively analyzes nested COALESCE expressions to determine nullability",
+    "sqlkit_improvement": "sqlkit recursively analyzes nested COALESCE expressions to determine nullability",
     "sqlc_behavior": "sqlc does not analyze nested COALESCE and marks the result as nullable"
   },
   "tags": ["nullability", "coalesce", "improvement_over_sqlc"]

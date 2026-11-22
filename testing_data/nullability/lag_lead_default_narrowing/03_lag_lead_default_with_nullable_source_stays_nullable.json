@@ -40,7 +40,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe narrows only when both the tracked expression and the default are proven non-null, avoiding an unsound narrowing when the source column can itself be NULL",
+    "sqlkit_improvement": "sqlkit narrows only when both the tracked expression and the default are proven non-null, avoiding an unsound narrowing when the source column can itself be NULL",
     "sqlc_behavior": "sqlc does not model the LAG/LEAD default argument and marks the result nullable, matching this case but for the wrong reason"
   },
   "tags": ["nullability", "window_function", "lag", "lead"]

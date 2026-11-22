@@ -1,7 +1,7 @@
 #!/bin/sh
 # Acceptance controls for `sqlkit audit --cluster-scope` (issue #269).
 #
-# Usage: test-cluster-scope-gate.sh SCYTHE_BINARY PARSER_DIRECTORY [PG_MAJOR]
+# Usage: test-cluster-scope-gate.sh SQLKIT_BINARY PARSER_DIRECTORY [PG_MAJOR]
 #
 # Every planted cluster-scoped statement must be refused with a gate code, and
 # every database-local statement must be accepted. The counts are asserted so a
@@ -9,15 +9,15 @@
 set -eu
 
 if [ "$#" -lt 2 ] || [ -z "$1" ] || [ -z "$2" ]; then
-  echo 'usage: test-cluster-scope-gate.sh SCYTHE_BINARY PARSER_DIRECTORY [PG_MAJOR]' >&2
+  echo 'usage: test-cluster-scope-gate.sh SQLKIT_BINARY PARSER_DIRECTORY [PG_MAJOR]' >&2
   exit 1
 fi
 
-scythe=$1
+sqlkit=$1
 parser_dir=$2
 pg_major=${3:-18}
-[ -x "$scythe" ] || {
-  echo "scythe binary not executable: $scythe" >&2
+[ -x "$sqlkit" ] || {
+  echo "sqlkit binary not executable: $sqlkit" >&2
   exit 1
 }
 
@@ -29,7 +29,7 @@ refused_count=0
 accepted_count=0
 
 run_gate() {
-  SQLKIT_PG_PARSER_DIR="$parser_dir" "$scythe" audit --cluster-scope --format json \
+  SQLKIT_PG_PARSER_DIR="$parser_dir" "$sqlkit" audit --cluster-scope --format json \
     --pg-version "$pg_major" "$1" 2>"$scratch/stderr"
 }
 

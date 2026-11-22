@@ -21,7 +21,7 @@ const EXPECTED_LIVE_HARNESS_COUNT: usize = 4;
 const COMPOSITE_PARAMETER_FIXTURE: &str = "VALUES ('Composite Parameter Round Trip', 'active', ($1))";
 
 #[derive(Deserialize)]
-struct ScytheConfig {
+struct SqlkitConfig {
     sql: Vec<SqlBlock>,
 }
 
@@ -54,7 +54,7 @@ fn postgres_projects() -> BTreeMap<String, String> {
         if !config_path.is_file() {
             continue;
         }
-        let config: ScytheConfig =
+        let config: SqlkitConfig =
             toml::from_str(&fs::read_to_string(&config_path).expect("read sqlkit.toml")).expect("parse sqlkit.toml");
         for block in config.sql.iter().filter(|block| block.engine == "postgresql") {
             for generator in &block.generators {

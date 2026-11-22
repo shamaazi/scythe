@@ -10,7 +10,7 @@
 //! disk, the covered set is enumerated from the committed `sqlkit.toml` files,
 //! and — critically — a project's `(backend, engine)` is mapped onto the
 //! manifest it actually selects by calling the *real* resolver,
-//! `scythe_codegen::backends::get_backend`. That matters because the mapping is
+//! `sqlkit_codegen::backends::get_backend`. That matters because the mapping is
 //! not the identity: `csharp-mysqlconnector` on engine `mariadb` resolves to
 //! the `mysql` manifest, there being no mariadb manifest for it. Re-deriving
 //! that fallback table here would reintroduce exactly the "two derivations,
@@ -28,8 +28,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use scythe_codegen::backends::get_backend;
 use serde::Deserialize;
+use sqlkit_codegen::backends::get_backend;
 
 /// A manifest's identity: the `[backend] name` and `[backend] engine` it
 /// declares. This is the unit of coverage — not the filename, because a
@@ -48,7 +48,7 @@ struct ManifestBackend {
 }
 
 #[derive(Debug, Deserialize)]
-struct ScytheConfig {
+struct SqlkitConfig {
     #[serde(default)]
     sql: Vec<SqlBlock>,
 }
@@ -93,7 +93,7 @@ fn toml_files(dir: &Path) -> Vec<PathBuf> {
 /// Every backend manifest that ships, keyed by the pair the resolver uses.
 /// The value is the filename, so failure messages can name the file to edit.
 fn shipped_manifests() -> BTreeMap<BackendPair, String> {
-    let dir = repo_root().join("crates/scythe-codegen/manifests");
+    let dir = repo_root().join("crates/sqlkit-codegen/manifests");
     let mut manifests = BTreeMap::new();
     for path in toml_files(&dir) {
         let parsed: ManifestFile = toml::from_str(&read_to_string(&path))
@@ -144,7 +144,7 @@ fn integration_projects() -> Vec<(String, PathBuf)> {
 fn covered_manifests() -> BTreeMap<BackendPair, BTreeSet<String>> {
     let mut covered: BTreeMap<BackendPair, BTreeSet<String>> = BTreeMap::new();
     for (project, config_path) in integration_projects() {
-        let config: ScytheConfig = toml::from_str(&read_to_string(&config_path))
+        let config: SqlkitConfig = toml::from_str(&read_to_string(&config_path))
             .unwrap_or_else(|e| panic!("parsing {}: {e}", config_path.display()));
         for block in &config.sql {
             for generated in &block.generators {
@@ -258,7 +258,7 @@ fn every_backend_manifest_has_an_integration_project() {
     for pair in covered.keys() {
         assert!(
             shipped.contains_key(pair),
-            "resolver produced manifest ({}, {}) that is not a file under crates/scythe-codegen/manifests",
+            "resolver produced manifest ({}, {}) that is not a file under crates/sqlkit-codegen/manifests",
             pair.0,
             pair.1
         );

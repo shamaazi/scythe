@@ -31,7 +31,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe checks all COALESCE arguments and determines non-nullability when any argument is a non-null literal or NOT NULL column",
+    "sqlkit_improvement": "sqlkit checks all COALESCE arguments and determines non-nullability when any argument is a non-null literal or NOT NULL column",
     "sqlc_behavior": "sqlc marks the result as nullable because the first argument is nullable"
   },
   "tags": ["nullability", "coalesce", "improvement_over_sqlc"]

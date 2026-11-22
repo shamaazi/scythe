@@ -1,5 +1,5 @@
 [package]
-name = "scythe-integration-test-rust-sqlx-nested-json"
+name = "sqlkit-integration-test-rust-sqlx-nested-json"
 version = "0.1.0"
 edition = "2024"
 
@@ -23,7 +23,7 @@ uuid = "1"
 # are for scripts/check-generated-backends.py, which regenerates this project
 # against sql/torture/schema.sql, where `metadata JSONB` and `external_id UUID`
 # map to `serde_json::Value` and `uuid::Uuid`. Without them the torture gate
-# fails on a missing crate rather than on anything scythe emitted, which is what
+# fails on a missing crate rather than on anything sqlkit emitted, which is what
 # made this project's expected-failure entry impossible for any codegen change
 # to clear.
 #

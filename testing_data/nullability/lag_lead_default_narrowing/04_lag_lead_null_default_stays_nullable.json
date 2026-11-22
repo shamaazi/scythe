@@ -40,7 +40,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe inspects the default argument's own nullability rather than assuming any third argument proves non-null",
+    "sqlkit_improvement": "sqlkit inspects the default argument's own nullability rather than assuming any third argument proves non-null",
     "sqlc_behavior": "sqlc does not model the LAG/LEAD default argument at all, so it cannot distinguish a NULL default from a non-null one"
   },
   "tags": ["nullability", "window_function", "lag", "lead", "improvement_over_sqlc"]

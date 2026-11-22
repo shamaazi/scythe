@@ -53,7 +53,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks all right-side columns as nullable due to LEFT JOIN semantics",
+    "sqlkit_improvement": "sqlkit correctly marks all right-side columns as nullable due to LEFT JOIN semantics",
     "sqlc_behavior": "sqlc marks order_id, total, and order_date as non-nullable based on schema definitions"
   },
   "tags": ["join", "left_join", "nullability", "multiple_columns", "key_improvement"]

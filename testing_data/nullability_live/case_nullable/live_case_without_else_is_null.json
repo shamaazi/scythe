@@ -27,7 +27,7 @@
   "source": "original",
   "sqlc_comparison": {
     "sqlc_behavior": "sqlc infers the CASE result from its branch types and misses the implicit NULL of the absent ELSE",
-    "scythe_improvement": "scythe treats a CASE without ELSE as nullable, and the second seeded user has no email so the engine returns the NULL"
+    "sqlkit_improvement": "sqlkit treats a CASE without ELSE as nullable, and the second seeded user has no email so the engine returns the NULL"
   },
   "live": {
     "schema_profile": "users_orders",

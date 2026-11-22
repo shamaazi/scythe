@@ -24,7 +24,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly infers that AVG returns NULL on empty sets and widens the type to numeric/Decimal",
+    "sqlkit_improvement": "sqlkit correctly infers that AVG returns NULL on empty sets and widens the type to numeric/Decimal",
     "sqlc_behavior": "sqlc may mark AVG result as non-nullable when the input column is NOT NULL"
   },
   "tags": ["nullability", "aggregate", "improvement_over_sqlc"]

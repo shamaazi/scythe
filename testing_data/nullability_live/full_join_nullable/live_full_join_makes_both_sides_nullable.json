@@ -33,7 +33,7 @@
   "source": "original",
   "sqlc_comparison": {
     "sqlc_behavior": "sqlc keeps both sides non-nullable, so a FULL JOIN generates two fields that are both wrong",
-    "scythe_improvement": "scythe marks both sides nullable, and this fixture seeds genuinely unmatched rows on each side so the engine returns a NULL in both columns"
+    "sqlkit_improvement": "sqlkit marks both sides nullable, and this fixture seeds genuinely unmatched rows on each side so the engine returns a NULL in both columns"
   },
   "live": {
     "schema_profile": "users_orders",

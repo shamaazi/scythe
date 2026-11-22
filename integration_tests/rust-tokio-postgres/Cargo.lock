@@ -740,19 +740,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "scythe-integration-test-rust-tokio-postgres"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "postgres-protocol",
- "postgres-types",
- "rust_decimal",
- "serde",
- "tokio",
- "tokio-postgres",
-]
-
-[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -848,6 +835,19 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "sqlkit-integration-test-rust-tokio-postgres"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "postgres-protocol",
+ "postgres-types",
+ "rust_decimal",
+ "serde",
+ "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]

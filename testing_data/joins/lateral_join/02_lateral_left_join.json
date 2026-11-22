@@ -35,7 +35,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks latest_total as nullable due to LEFT JOIN LATERAL",
+    "sqlkit_improvement": "sqlkit correctly marks latest_total as nullable due to LEFT JOIN LATERAL",
     "sqlc_behavior": "sqlc may not correctly handle LEFT JOIN LATERAL nullability"
   },
   "tags": ["join", "lateral", "left_join", "nullability", "key_improvement"]

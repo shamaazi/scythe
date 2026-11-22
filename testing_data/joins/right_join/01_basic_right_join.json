@@ -35,7 +35,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks u.name as nullable because it is on the LEFT side of a RIGHT JOIN",
+    "sqlkit_improvement": "sqlkit correctly marks u.name as nullable because it is on the LEFT side of a RIGHT JOIN",
     "sqlc_behavior": "sqlc marks u.name as non-nullable based on schema definition"
   },
   "tags": ["join", "right_join", "nullability", "key_improvement"]

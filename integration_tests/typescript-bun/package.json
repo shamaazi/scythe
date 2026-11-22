@@ -1,5 +1,5 @@
 {
-	"name": "scythe-integration-test-bun",
+	"name": "sqlkit-integration-test-bun",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",

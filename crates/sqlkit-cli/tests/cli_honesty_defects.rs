@@ -1,0 +1,263 @@
+//! Regression tests for four "the CLI claims to have checked more than it
+//! actually did" defects:
+//!
+//! 1. `sqlkit fmt <file>` (explicit-file mode) hardcoded `sqruff_config:
+//!    None`, silently dropping a user's `[lint.sqruff]` table -- only the
+//!    *dialect* half of #206 was ever fixed.
+//! 2. `sqlkit lint <file>` (explicit-file mode) never constructed a
+//!    `LintEngine`, so it ran zero sqlkit-native rules (SC-*) even when
+//!    `sqlkit.toml`'s schema was sitting right next to the file passed on
+//!    the command line.
+//! 3. `sqlkit check` never called `resolve_contained_output`, so it could
+//!    report a config clean when `sqlkit generate` on the very same config
+//!    refuses to write outside the project root (#207). Covered by unit
+//!    tests inside `crates/sqlkit-cli/src/commands/generate.rs` (see
+//!    `check_reports_a_gen_target_output_that_escapes_the_project_root`),
+//!    not here.
+//! 4. `sqlkit fmt --check` signalled "needs formatting" as a plain `Err`,
+//!    which fell through to `main`'s generic exit(1) path -- the same code
+//!    used for an operational failure (bad config, unreadable file). #212
+//!    already draws this line for `lint`/`check` (exit 2 for findings, exit
+//!    1 for operational failure); `fmt --check` did not follow it.
+//! 5. (#186) `sqlkit check` printed "All queries valid." (and exited 0) on a
+//!    query file that is entirely `--` comments -- `has_unannotated_sql`
+//!    deliberately does not flag a comment-only file (see its doc comment:
+//!    "nothing there to silently drop"), but a non-empty file that still
+//!    produces zero query blocks is exactly what `check` exists to catch,
+//!    not a case to pass through to the unconditional success message.
+//!
+//! Every test drives the compiled binary via
+//! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))`.
+
+use std::process::{Command, Output};
+
+use tempfile::TempDir;
+
+fn sqlkit_bin() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_sqlkit"))
+}
+
+fn stdout(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+/// Deliberately inconsistent indentation so sqruff's `LT02` indentation rule
+/// reports the file as needing formatting -- the same fixture
+/// `config_relative_paths.rs`'s `fmt_check_resolves_globs_relative_to_config_not_cwd`
+/// already relies on for the identical purpose.
+const UNFORMATTED_SQL: &str = "SELECT\n  id,\n    name\nFROM widgets\nWHERE id = $1;\n";
+
+/// Item 1: `sqlkit fmt <file>` (files passed explicitly on the command line,
+/// not resolved from `sqlkit.toml`) must reject the same unusable
+/// `[lint.sqruff]` configuration that `sqlkit fmt --config sqlkit.toml`
+/// (files resolved from the config) already rejects.
+///
+/// `LT02 = "warn"` is rejected by `sqruff_adapter::make_config` regardless
+/// of whether `LT02` is a real rule code: the adapter only ever supports
+/// `"off"` as a rule value (see `SqruffConfigError::UnsupportedRuleValue`).
+///
+/// Before the fix, explicit-file mode built its linter with
+/// `sqruff_config: None`, so this table was never even looked at and the
+/// run succeeded -- silently dropping the user's config instead of
+/// reporting the same error `sqlkit lint` reports for it.
+#[test]
+fn fmt_explicit_file_honours_invalid_lint_sqruff_config_not_just_dialect() {
+    let dir = TempDir::new().unwrap();
+    let sql_path = dir.path().join("t.sql");
+    std::fs::write(&sql_path, "SELECT 1;\n").unwrap();
+
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
+        [[sql]]\nname = \"main\"\nengine = \"postgresql\"\nschema = []\nqueries = [\"t.sql\"]\n\n\
+        [lint.sqruff.rules]\nLT02 = \"warn\"\n";
+    let config_path = dir.path().join("sqlkit.toml");
+    std::fs::write(&config_path, config).unwrap();
+
+    let output = sqlkit_bin()
+        .args([
+            "fmt",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--check",
+            sql_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run sqlkit fmt");
+
+    let err = stderr(&output);
+    assert!(
+        !output.status.success(),
+        "fmt in explicit-file mode must reject the same invalid [lint.sqruff] config \
+         config-file-mode fmt rejects, not silently drop it; stderr: {err}"
+    );
+    assert!(
+        err.contains("invalid [lint.sqruff] configuration"),
+        "must be reported as a configuration error, matching config-file mode; stderr: {err}"
+    );
+}
+
+/// Item 2: `sqlkit lint <file>` (explicit-file mode) must run sqlkit-native
+/// rules (the `SC-*` rule family from `LintEngine`) when `sqlkit.toml`'s
+/// schema is resolvable, not sqruff rules only.
+///
+/// `SELECT * FROM widgets` trips `SC-S03` (no-select-star), a warn-severity
+/// rule -- chosen so a real finding does not also flip the exit code, which
+/// would conflate "did native rules run" with "did anything fail".
+///
+/// Before the fix, explicit-file mode never constructed a `LintEngine` at
+/// all (the old code even said so in a comment), so no `SC-*` finding could
+/// ever appear here regardless of what `sqlkit.toml` declared.
+#[test]
+fn lint_explicit_file_runs_native_sqlkit_rules_when_config_schema_is_available() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("schema.sql"),
+        "CREATE TABLE widgets (id bigint PRIMARY KEY, name text NOT NULL);\n",
+    )
+    .unwrap();
+    let query_path = dir.path().join("queries.sql");
+    std::fs::write(
+        &query_path,
+        "-- @name ListWidgets\n-- @returns :many\nSELECT * FROM widgets;\n",
+    )
+    .unwrap();
+
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
+        [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
+        schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n";
+    let config_path = dir.path().join("sqlkit.toml");
+    std::fs::write(&config_path, config).unwrap();
+
+    let output = sqlkit_bin()
+        .args([
+            "lint",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--format",
+            "json",
+            query_path.to_str().unwrap(),
+        ])
+        .env_remove("DATABASE_URL")
+        .env_remove("SQLKIT_DATABASE_URL")
+        .output()
+        .expect("run sqlkit lint");
+
+    let out = stdout(&output);
+    let err = stderr(&output);
+    assert!(
+        out.contains("SC-S03"),
+        "explicit-file mode must run sqlkit-native rules (SC-S03 no-select-star) once a \
+         schema is resolvable from sqlkit.toml, not sqruff rules only; stdout: {out}, stderr: {err}"
+    );
+}
+
+/// Item 4: `sqlkit fmt --check` on a file that needs formatting must exit 2
+/// (the same "findings present" code `lint`/`check` use), not the generic
+/// exit 1 `main` produces for a plain `Err` -- exit 1 must stay reserved for
+/// an operational failure.
+#[test]
+fn fmt_check_needing_formatting_exits_two_not_one() {
+    let dir = TempDir::new().unwrap();
+    let sql_path = dir.path().join("t.sql");
+    std::fs::write(&sql_path, UNFORMATTED_SQL).unwrap();
+
+    let output = sqlkit_bin()
+        .args(["fmt", "--check", sql_path.to_str().unwrap()])
+        .output()
+        .expect("run sqlkit fmt");
+
+    let err = stderr(&output);
+    assert!(
+        !output.status.success(),
+        "fmt --check on a file needing formatting must fail; stderr: {err}"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "'needs formatting' must be its own exit code (2), distinct from exit 1 (operational \
+         failure) -- matching the #212 contract lint/check already follow; stderr: {err}"
+    );
+}
+
+/// Companion to the above: an operational failure in `fmt --check` (here, an
+/// unreadable file) must still be exit 1 -- proving the two codes are
+/// actually distinguished by cause, not just uniformly changed.
+#[test]
+fn fmt_check_operational_failure_still_exits_one() {
+    let dir = TempDir::new().unwrap();
+    let missing_path = dir.path().join("does-not-exist.sql");
+
+    let output = sqlkit_bin()
+        .args(["fmt", "--check", missing_path.to_str().unwrap()])
+        .output()
+        .expect("run sqlkit fmt");
+
+    let err = stderr(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an operational failure (unreadable file) must remain exit 1, distinct from exit 2 \
+         for 'needs formatting'; stderr: {err}"
+    );
+}
+
+/// Item 5 (#186): a query file that is entirely `--` comments (no real
+/// statement, no `-- name:`/`-- @name` annotation) must be reported, not
+/// passed through to the unconditional "All queries valid." message.
+///
+/// Before the fix: `has_unannotated_sql` returns `false` for this content
+/// (by design -- see its doc comment, "a comment-only file ... has nothing
+/// to silently drop"), so `run_check` never took the `has_unannotated_sql`
+/// error path at all; `split_query_file` then produced zero blocks for this
+/// file, and with nothing else in the config to raise an error-severity
+/// finding, `check` printed `[main] All queries valid.` to stderr and
+/// exited 0 -- a config whose entire query file never got recognised as
+/// containing any queries at all was reported clean.
+#[test]
+fn check_reports_a_comment_only_query_file_instead_of_claiming_validity() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("schema.sql"),
+        "CREATE TABLE widgets (id bigint PRIMARY KEY, name text NOT NULL);\n",
+    )
+    .unwrap();
+    let query_path = dir.path().join("queries.sql");
+    std::fs::write(
+        &query_path,
+        "-- TODO: write the real queries here\n-- see ticket SCY-42\n",
+    )
+    .unwrap();
+
+    let config = "[sqlkit]\nversion = \"1\"\n\n\
+        [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
+        schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n";
+    let config_path = dir.path().join("sqlkit.toml");
+    std::fs::write(&config_path, config).unwrap();
+
+    let output = sqlkit_bin()
+        .args(["check", "--config", config_path.to_str().unwrap()])
+        .output()
+        .expect("run sqlkit check");
+
+    let out = stdout(&output);
+    let err = stderr(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a comment-only query file must move check's exit code exactly like any other \
+         error-severity finding (SC-PRV10), not the exit 0 a clean run gets; stdout: {out}, \
+         stderr: {err}"
+    );
+    assert!(
+        out.contains("SC-PRV10"),
+        "must report the specific finding naming the rule, not just fail silently; stdout: {out}"
+    );
+    assert!(
+        !err.contains("All queries valid."),
+        "must not claim validity for a file check never actually examined any content from; \
+         stderr: {err}"
+    );
+}

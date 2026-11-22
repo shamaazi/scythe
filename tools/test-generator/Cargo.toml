@@ -3,15 +3,15 @@ name = "test-generator"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Test fixture code generator for scythe"
-repository = "https://github.com/Goldziher/scythe"
+description = "Test fixture code generator for sqlkit"
+repository = "https://github.com/shamaazi/scythe"
 authors = ["Na'aman Hirschfeld"]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 glob = "0.3"
-scythe-codegen = { path = "../../crates/scythe-codegen" }
+sqlkit-codegen = { path = "../../crates/sqlkit-codegen" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

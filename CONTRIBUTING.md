@@ -2,16 +2,11 @@
 
 ## Branches
 
-- `main` mirrors upstream ([Goldziher/scythe](https://github.com/Goldziher/scythe)) and is never
-  committed to here.
-- `shamaazi` carries all of this fork's work. Commit to it directly, one logical change per commit.
-
-To pick up upstream changes, fetch `upstream/main`, fast-forward `main` to it and merge `main` into
-`shamaazi`. Upstream still has every engine and language; the merge keeps this fork's deletions.
-
-The crates keep upstream's names (`scythe-*`) and the layout of `crates/scythe-core` (parser,
-analyzer, catalog), including the branches for dialects this fork no longer configures, so a
-PostgreSQL fix made here can be cherry-picked onto upstream's `main` and offered upstream.
+`shamaazi` carries the work and `main` follows it: commit to `shamaazi`, one logical change per
+commit, and fast-forward `main` when a set of changes is ready. sqlkit started as a fork of
+[Scythe](https://github.com/Goldziher/scythe) (the `upstream` remote) but has since diverged: the
+crates are renamed and every non-PostgreSQL dialect is gone, so upstream changes no longer merge
+and are ported by hand when wanted.
 
 ## Setup
 
@@ -43,23 +38,23 @@ every test binary at once can exhaust memory on a small machine; `cargo test --w
 ## Architecture
 
 ```text
-scythe-cli
-  |-- scythe-codegen
-  |     |-- scythe-backend  (manifests, type resolution, naming)
-  |     +-- scythe-core     (SQL parsing, catalog, type analysis)
-  |-- scythe-inspect        (live PostgreSQL checks, schema drift)
-  +-- scythe-lint           (lint and audit rules, sqruff integration)
+sqlkit-cli
+  |-- sqlkit-codegen
+  |     |-- sqlkit-backend  (manifests, type resolution, naming)
+  |     +-- sqlkit-core     (SQL parsing, catalog, type analysis)
+  |-- sqlkit-inspect        (live PostgreSQL checks, schema drift)
+  +-- sqlkit-lint           (lint and audit rules, sqruff integration)
 ```
 
 | Directory | Purpose |
 |---|---|
-| `crates/scythe-codegen/manifests/` | Backend manifests: type mappings per backend and engine |
-| `crates/scythe-codegen/src/backends/` | `sqlx.rs`, `tokio_postgres.rs`, and `typescript_postgres.rs` (postgres.js and Bun) on `typescript_common.rs` |
-| `crates/scythe-lint/src/rules/` | Lint and audit rules |
-| `crates/scythe-conformance/` | Live nullability conformance suite against PostgreSQL |
+| `crates/sqlkit-codegen/manifests/` | Backend manifests: type mappings per backend and engine |
+| `crates/sqlkit-codegen/src/backends/` | `sqlx.rs`, `tokio_postgres.rs`, and `typescript_postgres.rs` (postgres.js and Bun) on `typescript_common.rs` |
+| `crates/sqlkit-lint/src/rules/` | Lint and audit rules |
+| `crates/sqlkit-conformance/` | Live nullability conformance suite against PostgreSQL |
 | `testing_data/` | JSON fixtures the test generator turns into tests |
 | `integration_tests/` | Projects that run generated code against real databases |
-| `tools/test-generator/` | Generates `crates/scythe-codegen/tests/generated` from `testing_data/` |
+| `tools/test-generator/` | Generates `crates/sqlkit-codegen/tests/generated` from `testing_data/` |
 | `tools/integration-test-generator/` | Renders the Rust integration projects from templates |
 
 ## Fixtures
@@ -78,8 +73,8 @@ Every project must be run by the `sqlkit:integration` task:
 
 ## Adding a lint rule
 
-1. Implement `LintRule` in the right file under `crates/scythe-lint/src/rules/`.
-2. Register it in `crates/scythe-lint/src/registry.rs`.
+1. Implement `LintRule` in the right file under `crates/sqlkit-lint/src/rules/`.
+2. Register it in `crates/sqlkit-lint/src/registry.rs`.
 3. Add fixtures under `testing_data/lint/` that trigger and do not trigger it, and unit tests in the rule file.
 
 ## Commits

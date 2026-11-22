@@ -18,7 +18,7 @@ Each harness applies its own schema from `sql/pg/schema.sql`.
 devenv tasks run sqlkit:integration
 ```
 
-The task starts devenv's PostgreSQL (port 5433, database `scythe_test`, user and password `scythe`)
+The task starts devenv's PostgreSQL (port 5433, database `sqlkit_test`, user and password `sqlkit`)
 and runs every project.
 
 ## How these directories are produced

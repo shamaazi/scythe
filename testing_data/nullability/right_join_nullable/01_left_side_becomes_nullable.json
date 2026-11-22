@@ -31,7 +31,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly infers that left-side columns of a RIGHT JOIN become nullable",
+    "sqlkit_improvement": "sqlkit correctly infers that left-side columns of a RIGHT JOIN become nullable",
     "sqlc_behavior": "sqlc marks u.name as non-nullable based on schema NOT NULL constraint, ignoring RIGHT JOIN"
   },
   "tags": ["nullability", "right_join", "improvement_over_sqlc"]

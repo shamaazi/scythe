@@ -27,7 +27,7 @@
   "source": "original",
   "sqlc_comparison": {
     "sqlc_behavior": "sqlc marks MAX(total) non-nullable because total is NOT NULL in the schema, which is wrong for an empty set",
-    "scythe_improvement": "scythe marks any bare aggregate nullable, and the first run here has no orders at all, so the engine actually returns the NULL"
+    "sqlkit_improvement": "sqlkit marks any bare aggregate nullable, and the first run here has no orders at all, so the engine actually returns the NULL"
   },
   "live": {
     "schema_profile": "users_orders",

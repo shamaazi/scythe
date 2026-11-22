@@ -1,0 +1,52 @@
+[package]
+name = "sqlkit-codegen"
+version = "0.20.3"
+edition = "2024"
+license = "MIT"
+description = "Polyglot code generation backends for sqlkit"
+repository = "https://github.com/shamaazi/scythe"
+authors = ["Na'aman Hirschfeld <nhirschfeld@gmail.com>"]
+keywords = ["sql", "codegen", "polyglot", "code-generation", "database"]
+categories = ["development-tools", "database"]
+
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE*",
+    "/src/**",
+    "/manifests/**",
+    "/generated-code-poly.toml",
+    "/tests/js_mode_stubs/**",
+    "!/src/backends/sql_text_characterization_tests.rs",
+]
+
+[features]
+# The engine and every language. A build that targets fewer can disable the
+# rest with `default-features = false`; `get_backend` then reports a backend
+# or engine left out of the build as an error naming the feature to enable.
+default = ["all-engines", "all-languages"]
+all-engines = ["postgres"]
+all-languages = ["lang-rust", "lang-typescript"]
+# The engine: whether `get_backend` accepts `postgresql` (and its aliases).
+postgres = []
+# Languages: which backend modules are compiled. `lang-typescript` includes
+# the JavaScript variants of every TypeScript backend.
+lang-rust = []
+lang-typescript = []
+
+[dependencies]
+ahash = { version = "0.8", features = ["serde"] }
+sqlkit-backend = { path = "../sqlkit-backend", version = "0.20.3" }
+sqlkit-core = { path = "../sqlkit-core", version = "0.20.3" }
+toml = "1.1"
+
+[dev-dependencies]
+criterion = "0.8"
+sqlkit-lint = { path = "../sqlkit-lint", version = "0.20.3" }
+syn = { version = "3", features = ["full", "parsing"] }
+
+[[bench]]
+name = "analyze_codegen"
+harness = false
+required-features = ["lang-rust", "lang-typescript", "postgres"]

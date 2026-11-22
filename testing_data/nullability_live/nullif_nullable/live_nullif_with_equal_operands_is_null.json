@@ -27,7 +27,7 @@
   "source": "original",
   "sqlc_comparison": {
     "sqlc_behavior": "sqlc propagates the NOT NULL of the first argument, so NULLIF(name, ...) is typed non-nullable",
-    "scythe_improvement": "scythe treats NULLIF as nullable by construction, and this fixture makes an engine return the NULL for the matching row"
+    "sqlkit_improvement": "sqlkit treats NULLIF as nullable by construction, and this fixture makes an engine return the NULL for the matching row"
   },
   "live": {
     "schema_profile": "users_orders",

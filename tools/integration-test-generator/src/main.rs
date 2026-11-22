@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use minijinja::Environment;
-use scythe_codegen::backends::get_backend;
 use serde::{Deserialize, Serialize};
+use sqlkit_codegen::backends::get_backend;
 
-/// Integration test generator for scythe.
+/// Integration test generator for sqlkit.
 ///
 /// Renders language-specific integration tests from minijinja templates.
 /// Each backend produces: sqlkit.toml, a test file, and a dependency file.
@@ -47,11 +47,11 @@ struct BackendConfig {
     language: String,
     /// Database engine: "postgresql".
     engine: String,
-    /// Driver name used by the scythe backend, e.g. "psycopg3", "asyncpg".
+    /// Driver name used by the sqlkit backend, e.g. "psycopg3", "asyncpg".
     driver: String,
     /// Environment variable for the database connection string.
     connection_env: String,
-    /// The scythe backend identifier (used in sqlkit.toml gen section).
+    /// The sqlkit backend identifier (used in sqlkit.toml gen section).
     backend: String,
     /// Extra options passed to templates (e.g. row_type).
     options: HashMap<String, String>,
@@ -136,7 +136,7 @@ fn language_outputs(language: &str) -> LanguageOutputs {
 /// their own project — so it stays a literal list.
 ///
 /// What *is* derived, in `build_backends()` below, is completeness: every
-/// manifest under `crates/scythe-codegen/manifests` must be reachable from
+/// manifest under `crates/sqlkit-codegen/manifests` must be reachable from
 /// this list (resolved through the real backend resolver, not a re-derived
 /// fallback table) or be named in `coverage-exemptions.txt`. That is what
 /// keeps a new backend from shipping a manifest with no project (issue #134).
@@ -167,7 +167,7 @@ fn backend_variants() -> Vec<BackendConfig> {
 /// Mirrors `ManifestBackend` in
 /// `tools/integration-test-generator/tests/coverage_completeness.rs` — kept
 /// as a separate, minimal struct (rather than depending on
-/// `scythe_backend::manifest::BackendManifest`) because this is the disk-read
+/// `sqlkit_backend::manifest::BackendManifest`) because this is the disk-read
 /// half of the check, not the resolved half; the resolved half goes through
 /// `get_backend` instead, below.
 #[derive(Debug, Deserialize)]
@@ -326,14 +326,14 @@ fn repo_root() -> PathBuf {
 }
 
 /// The list `main()` actually uses: `backend_variants()`, validated against
-/// `crates/scythe-codegen/manifests` and `coverage-exemptions.txt` so a
+/// `crates/sqlkit-codegen/manifests` and `coverage-exemptions.txt` so a
 /// manifest can never ship silently uncovered (issue #134).
 fn build_backends() -> Vec<BackendConfig> {
     let variants = backend_variants();
     let root = repo_root();
     validate_manifest_coverage(
         &variants,
-        &root.join("crates/scythe-codegen/manifests"),
+        &root.join("crates/sqlkit-codegen/manifests"),
         &root.join("tools/integration-test-generator/coverage-exemptions.txt"),
     );
     variants
@@ -430,8 +430,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         fs::create_dir_all(&output_dir)?;
 
-        let scythe_toml = render_template(&env, "sqlkit.toml.jinja", &context)?;
-        fs::write(output_dir.join("sqlkit.toml"), scythe_toml)?;
+        let sqlkit_toml = render_template(&env, "sqlkit.toml.jinja", &context)?;
+        fs::write(output_dir.join("sqlkit.toml"), sqlkit_toml)?;
 
         let test_path = output_dir.join(outputs.test_filename);
         if let Some(parent) = test_path.parent() {

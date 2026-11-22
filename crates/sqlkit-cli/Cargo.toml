@@ -1,0 +1,81 @@
+[package]
+name = "sqlkit-cli"
+version = "0.20.3"
+edition = "2024"
+license = "MIT"
+description = "CLI for sqlkit -- SQL-to-code generator with linting and formatting"
+repository = "https://github.com/shamaazi/scythe"
+authors = ["Na'aman Hirschfeld <nhirschfeld@gmail.com>"]
+keywords = ["sql", "codegen", "cli", "database"]
+categories = ["command-line-utilities", "database"]
+
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE*",
+    "/src/**",
+]
+
+# ~keep cargo-binstall support: the release archives are named `sqlkit-{target}`
+# ~keep (ProjectName, not the `sqlkit-cli` crate name) and ship tar.gz on unix but a
+# ~keep .zip on windows,
+# ~keep so pin the URL and bin-dir explicitly and let `{ archive-suffix }` pick the right
+# ~keep extension per target. Binary sits at the archive root.
+# ~keep See https://github.com/cargo-bins/cargo-binstall/blob/main/SUPPORT.md
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/sqlkit-{ target }{ archive-suffix }"
+bin-dir = "{ bin }{ binary-ext }"
+
+[[bin]]
+name = "sqlkit"
+path = "src/main.rs"
+
+[features]
+# The PostgreSQL engine and every target language. Building with
+# `--no-default-features` and naming only what a project uses skips the rest,
+# e.g. `--no-default-features --features postgres,lang-typescript`.
+# Configuring a backend left out of the build is a runtime error naming the
+# feature to enable.
+default = ["all-engines", "all-languages"]
+all-engines = ["postgres"]
+all-languages = ["lang-rust", "lang-typescript"]
+# The engine. It also enables `sqlkit inspect` and `sqlkit check --database-url`.
+postgres = ["dep:tokio-postgres", "sqlkit-codegen/postgres", "sqlkit-inspect/postgres"]
+# Target languages. `lang-typescript` includes the JavaScript variants.
+lang-rust = ["sqlkit-codegen/lang-rust"]
+lang-typescript = ["sqlkit-codegen/lang-typescript"]
+# Gates the live-PostgreSQL integration tests in `tests/lint_live.rs` and
+# `tests/check_mixed_engine_integration.rs` -- see #162. Without this feature
+# those tests do not exist as far as `cargo test` is concerned (the files
+# start with `#![cfg(feature = "live-tests")]`), which is different from, and
+# safer than, the env-var-only skip they used before: that skip printed `ok`
+# regardless of whether a database was ever reachable, and no CI job set the
+# env var it checked, so all four ran zero times while reporting success in
+# every run. Matches `sqlkit-inspect` and `sqlkit-conformance`'s own
+# `live-tests` feature.
+live-tests = []
+
+[dependencies]
+ahash = { version = "0.8", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+glob = "0.3"
+regex = "1"
+sqlkit-backend = { path = "../sqlkit-backend", version = "0.20.3" }
+sqlkit-codegen = { path = "../sqlkit-codegen", version = "0.20.3", default-features = false }
+sqlkit-core = { path = "../sqlkit-core", version = "0.20.3" }
+sqlkit-inspect = { path = "../sqlkit-inspect", version = "0.20.3", default-features = false }
+sqlkit-lint = { path = "../sqlkit-lint", version = "0.20.3" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlparser = "0.63"
+tokio = { version = "1", features = ["rt", "macros"] }
+tokio-postgres = { version = "0.7", optional = true }
+toml = "1.1"
+tracing = "0.1"
+
+[dev-dependencies]
+assert_cmd = "2"
+syn = { version = "3", features = ["full", "parsing"] }
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros"] }

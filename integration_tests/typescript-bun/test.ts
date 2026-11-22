@@ -18,7 +18,7 @@ import {
 
 const DATABASE_URL =
 	process.env["DATABASE_URL"] ??
-	"postgres://scythe:scythe@localhost:5432/scythe_test";
+	"postgres://sqlkit:sqlkit@localhost:5432/sqlkit_test";
 
 // No `transform`: the generated functions read the raw column names themselves.
 const sql = new SQL(DATABASE_URL);

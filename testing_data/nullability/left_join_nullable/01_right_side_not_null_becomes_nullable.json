@@ -30,7 +30,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly infers that all right-side columns of a LEFT JOIN become nullable, regardless of schema constraints",
+    "sqlkit_improvement": "sqlkit correctly infers that all right-side columns of a LEFT JOIN become nullable, regardless of schema constraints",
     "sqlc_behavior": "sqlc marks o.total as non-nullable (i32) because the column is NOT NULL in the schema, ignoring the LEFT JOIN"
   },
   "tags": ["nullability", "left_join", "improvement_over_sqlc"]

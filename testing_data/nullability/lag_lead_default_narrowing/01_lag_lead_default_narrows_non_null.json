@@ -40,7 +40,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe recognizes that a non-null third argument (default) to LAG/LEAD is returned at partition boundaries instead of NULL, so the result is non-nullable when the tracked expression is also non-null",
+    "sqlkit_improvement": "sqlkit recognizes that a non-null third argument (default) to LAG/LEAD is returned at partition boundaries instead of NULL, so the result is non-nullable when the tracked expression is also non-null",
     "sqlc_behavior": "sqlc does not model the LAG/LEAD default argument and marks the result nullable unconditionally, even when a non-null default guarantees a value"
   },
   "tags": ["nullability", "window_function", "lag", "lead", "improvement_over_sqlc"]

@@ -51,7 +51,7 @@
   ],
   "source": "original",
   "sqlc_comparison": {
-    "scythe_improvement": "scythe tracks nullability propagation through chained LEFT JOINs correctly",
+    "sqlkit_improvement": "sqlkit tracks nullability propagation through chained LEFT JOINs correctly",
     "sqlc_behavior": "sqlc marks NOT NULL columns from chained joins as non-nullable, ignoring the cascading LEFT JOIN effect"
   },
   "tags": ["nullability", "left_join", "improvement_over_sqlc"]
