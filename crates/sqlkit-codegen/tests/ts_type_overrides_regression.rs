@@ -65,10 +65,7 @@ fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
 fn by_column(column: &str, ts_type: &str, import: Option<&str>) -> TypeOverride {
     TypeOverride {
         column: Some(column.to_string()),
-        ts_type: Some(TsTypeOverride {
-            ts_type: ts_type.to_string(),
-            import: import.map(str::to_string),
-        }),
+        ts_type: Some(TsTypeOverride::new(ts_type, import.map(str::to_string)).unwrap()),
         ..Default::default()
     }
 }
@@ -242,10 +239,7 @@ fn should_match_ts_types_by_db_type_and_leave_rust_alone() {
     let analyzed = analyze(&catalog, &parsed).unwrap();
     let overrides = [TypeOverride {
         db_type: Some("json".to_string()),
-        ts_type: Some(TsTypeOverride {
-            ts_type: "Document".to_string(),
-            import: None,
-        }),
+        ts_type: Some(TsTypeOverride::new("Document", None).unwrap()),
         ..Default::default()
     }];
     for name in BACKENDS {

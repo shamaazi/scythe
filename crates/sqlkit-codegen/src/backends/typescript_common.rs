@@ -10,6 +10,7 @@ use sqlkit_core::errors::{ErrorCode, SqlkitError};
 use sqlkit_core::parser::QueryCommand;
 
 use crate::backend_trait::{ResolvedColumn, ResolvedParam};
+use crate::overrides::{is_ts_identifier, is_ts_module_specifier};
 
 pub(crate) use super::parse_bool_option;
 
@@ -315,20 +316,6 @@ pub fn ts_index_access(object: &str, name: &str) -> String {
 /// backslash escaped first for the same reason.
 fn escape_ts_single_quoted_literal(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "\\'")
-}
-
-/// Whether `name` is a valid TypeScript/JavaScript identifier: starts with
-/// a letter, `_`, or `$`, followed by letters, digits, `_`, or `$`. (Unicode
-/// identifier characters beyond ASCII are conservatively treated as
-/// requiring quoting -- rare in SQL column names, and quoting is always
-/// syntactically valid even when it was not strictly necessary.)
-fn is_ts_identifier(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$' => {}
-        _ => return false,
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
 /// Map an already-resolved TypeScript type expression to the Zod schema
@@ -1338,7 +1325,7 @@ pub fn ts_type_imports(generated: &[crate::GeneratedCode]) -> String {
 /// use.
 pub fn ts_schema_types_import_specifier(module: &str, row_type: TsRowType) -> Result<String, SqlkitError> {
     let invalid = |message: String| SqlkitError::new(ErrorCode::InvalidConfig, message);
-    if module.is_empty() || module.chars().any(|c| matches!(c, '"' | '\\') || c.is_control()) {
+    if !is_ts_module_specifier(module) {
         return Err(invalid(format!(
             "invalid schema_types_import '{module}': expected a module specifier"
         )));
@@ -1447,6 +1434,7 @@ mod tests {
         assert_eq!(ts_property_key("class"), "class");
         assert_eq!(ts_property_key("_private"), "_private");
         assert_eq!(ts_property_key("$special"), "$special");
+        assert_eq!(ts_property_key("größe"), "größe");
     }
 
     #[test]
@@ -2041,10 +2029,7 @@ mod tests {
             lang_type: "string".to_string(),
             full_type: "string | null".to_string(),
             nullable: true,
-            ts_type: Some(crate::overrides::TsTypeOverride {
-                ts_type: "'a' | 'b'".to_string(),
-                import: None,
-            }),
+            ts_type: Some(crate::overrides::TsTypeOverride::new("'a' | 'b'", None).unwrap()),
             ..Default::default()
         };
         assert_eq!(column.ts_lang_type(), "'a' | 'b'");

@@ -35,6 +35,7 @@ ahash = { version = "0.8", features = ["serde"] }
 sqlkit-backend = { path = "../sqlkit-backend", version = "0.20.3" }
 sqlkit-core = { path = "../sqlkit-core", version = "0.20.3" }
 toml = "1.1"
+unicode-ident = "1"
 
 [dev-dependencies]
 criterion = "0.8"

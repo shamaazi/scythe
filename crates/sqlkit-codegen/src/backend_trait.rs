@@ -71,7 +71,7 @@ impl ResolvedParam {
 }
 
 fn ts_lang_type<'a>(ts_type: Option<&'a TsTypeOverride>, lang_type: &'a str) -> &'a str {
-    ts_type.map_or(lang_type, |t| t.ts_type.as_str())
+    ts_type.map_or(lang_type, TsTypeOverride::name)
 }
 
 fn ts_full_type<'a>(
@@ -81,8 +81,8 @@ fn ts_full_type<'a>(
 ) -> std::borrow::Cow<'a, str> {
     match ts_type {
         None => std::borrow::Cow::Borrowed(full_type),
-        Some(t) if nullable => std::borrow::Cow::Owned(format!("{} | null", t.ts_type)),
-        Some(t) => std::borrow::Cow::Borrowed(t.ts_type.as_str()),
+        Some(t) if nullable => std::borrow::Cow::Owned(format!("{} | null", t.name())),
+        Some(t) => std::borrow::Cow::Borrowed(t.name()),
     }
 }
 

@@ -85,8 +85,8 @@ impl TypeImport {
     fn of(ts_type: Option<&overrides::TsTypeOverride>) -> Option<Self> {
         let ts_type = ts_type?;
         Some(Self {
-            module: ts_type.import.clone()?,
-            name: ts_type.ts_type.clone(),
+            module: ts_type.import()?.to_string(),
+            name: ts_type.name().to_string(),
         })
     }
 }

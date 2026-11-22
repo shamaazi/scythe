@@ -1,6 +1,7 @@
 use ahash::AHashSet;
 
 use sqlkit_core::analyzer::{AnalyzedColumn, AnalyzedParam};
+use sqlkit_core::errors::{ErrorCode, SqlkitError};
 
 /// A type override that replaces the inferred type of a column or SQL type.
 ///
@@ -24,14 +25,69 @@ pub struct TypeOverride {
     pub ts_type: Option<TsTypeOverride>,
 }
 
-/// The `ts_type` (and optional `ts_import`) of a `type_overrides` entry.
+/// The `ts_type` (and optional `ts_import`) of a `type_overrides` entry,
+/// valid by construction: see [`TsTypeOverride::new`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TsTypeOverride {
-    /// A TypeScript type expression, or, with `import`, an identifier that
-    /// module exports.
-    pub ts_type: String,
-    /// The module `ts_type` is imported from as a type.
-    pub import: Option<String>,
+    name: String,
+    import: Option<String>,
+}
+
+impl TsTypeOverride {
+    /// A TypeScript type `name` -- a type expression, or, with `import`, the
+    /// identifier of a type that module exports -- validated: the name is not
+    /// empty, `import` is a module specifier a string literal can carry, and
+    /// an imported name is an identifier.
+    pub fn new(name: impl Into<String>, import: Option<String>) -> Result<Self, SqlkitError> {
+        let name = name.into();
+        let invalid = |message: String| Err(SqlkitError::new(ErrorCode::InvalidConfig, message));
+        if name.trim().is_empty() {
+            return invalid("`ts_type` is empty".to_string());
+        }
+        if let Some(module) = &import {
+            if !is_ts_module_specifier(module) {
+                return invalid(format!("invalid ts_import '{module}': expected a module specifier"));
+            }
+            if !is_ts_identifier(&name) {
+                return invalid(format!(
+                    "with ts_import, ts_type must be the name the module exports, got '{name}' -- export a \
+                     named type for it, or drop ts_import to write the type inline"
+                ));
+            }
+        }
+        Ok(Self { name, import })
+    }
+
+    /// The TypeScript type expression, or, with [`Self::import`], the name
+    /// that module exports.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The module [`Self::name`] is imported from as a type.
+    pub fn import(&self) -> Option<&str> {
+        self.import.as_deref()
+    }
+}
+
+/// Whether `name` is a TypeScript (ECMAScript) identifier: an `ID_Start`
+/// character, `$` or `_`, then `ID_Continue` characters, `$`, ZWNJ or ZWJ.
+/// Checked with the `XID_` properties, which differ from `ID_` only by a
+/// handful of characters `XID_` leaves out, so the answer errs towards "not
+/// an identifier" -- and a property key that need not be quoted still may be.
+/// Unicode escapes (`a`) are not accepted: nothing generated spells one.
+pub(crate) fn is_ts_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| unicode_ident::is_xid_start(c) || c == '$' || c == '_')
+        && chars.all(|c| unicode_ident::is_xid_continue(c) || matches!(c, '$' | '\u{200C}' | '\u{200D}'))
+}
+
+/// Whether `module` can be spliced into a double-quoted module specifier
+/// unescaped: not empty, and free of `"`, `\` and control characters.
+pub(crate) fn is_ts_module_specifier(module: &str) -> bool {
+    !module.is_empty() && !module.chars().any(|c| matches!(c, '"' | '\\') || c.is_control())
 }
 
 impl TypeOverride {
@@ -140,6 +196,37 @@ pub fn find_override<'a>(
 mod tests {
     use super::*;
     use sqlkit_core::catalog::ColumnOrigin;
+
+    /// TypeScript identifiers are Unicode: the CLI's copy of this check
+    /// accepted them and the property-key copy quoted them, so one name was
+    /// an identifier in one place and not in the other.
+    #[test]
+    fn ts_identifiers_follow_ecmascript() {
+        for name in ["user_id", "$special", "_private", "Größe", "名前", "a\u{200C}b", "x1"] {
+            assert!(is_ts_identifier(name), "{name}");
+        }
+        for name in ["", "1st", "with-dash", "my col", "A[]", "a.b", "\u{200C}a"] {
+            assert!(!is_ts_identifier(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn ts_type_overrides_are_valid_by_construction() {
+        let inline = TsTypeOverride::new("Record<string, unknown>", None).unwrap();
+        assert_eq!((inline.name(), inline.import()), ("Record<string, unknown>", None));
+        let imported = TsTypeOverride::new("Größe", Some("@app/types".to_string())).unwrap();
+        assert_eq!((imported.name(), imported.import()), ("Größe", Some("@app/types")));
+
+        for (name, import, expected) in [
+            (" ", None, "`ts_type` is empty"),
+            ("A[]", Some("m"), "must be the name the module exports"),
+            ("A", Some("m\""), "invalid ts_import"),
+            ("A", Some(""), "invalid ts_import"),
+        ] {
+            let err = TsTypeOverride::new(name, import.map(str::to_string)).unwrap_err();
+            assert!(err.message.contains(expected), "{name}: {err}");
+        }
+    }
 
     fn keys(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| (*name).to_string()).collect()

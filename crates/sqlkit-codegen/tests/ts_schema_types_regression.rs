@@ -149,10 +149,9 @@ fn a_ts_type_override_replaces_the_alias() {
     let analyzed = analyze(&catalog, &parse_query(GET).unwrap()).unwrap();
     let overrides = [sqlkit_codegen::TypeOverride {
         column: Some("donors.email".to_string()),
-        ts_type: Some(sqlkit_codegen::overrides::TsTypeOverride {
-            ts_type: "Email".to_string(),
-            import: Some("@app/columns".to_string()),
-        }),
+        ts_type: Some(
+            sqlkit_codegen::overrides::TsTypeOverride::new("Email", Some("@app/columns".to_string())).unwrap(),
+        ),
         ..Default::default()
     }];
     let backend = backend(IMPORTING);

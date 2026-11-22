@@ -300,28 +300,10 @@ impl TypeOverrideConfig {
         let ts_type = match self.ts_type {
             None if self.ts_import.is_some() => return Err(invalid("`ts_import` needs `ts_type`")),
             None => None,
-            Some(ts_type) => {
-                if ts_type.trim().is_empty() {
-                    return Err(invalid("`ts_type` is empty"));
-                }
-                if let Some(module) = &self.ts_import {
-                    if module.is_empty() || module.chars().any(|c| matches!(c, '"' | '\\') || c.is_control()) {
-                        return Err(invalid(&format!(
-                            "invalid ts_import '{module}': expected a module specifier"
-                        )));
-                    }
-                    if !is_ts_identifier(&ts_type) {
-                        return Err(invalid(&format!(
-                            "with ts_import, ts_type must be the name the module exports, got '{ts_type}' -- \
-                             export a named type for it, or drop ts_import to write the type inline"
-                        )));
-                    }
-                }
-                Some(sqlkit_codegen::overrides::TsTypeOverride {
-                    ts_type,
-                    import: self.ts_import,
-                })
-            }
+            Some(ts_type) => Some(
+                sqlkit_codegen::overrides::TsTypeOverride::new(ts_type, self.ts_import)
+                    .map_err(|e| invalid(&e.message))?,
+            ),
         };
         Ok(TypeOverride {
             column: self.column,
@@ -330,13 +312,6 @@ impl TypeOverrideConfig {
             ts_type,
         })
     }
-}
-
-/// Whether `name` is a plain TypeScript identifier.
-fn is_ts_identifier(name: &str) -> bool {
-    let mut chars = name.chars();
-    chars.next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
-        && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
 }
 
 /// A resolved generation target with backend name, output directory, and options.
@@ -3459,11 +3434,11 @@ SELECT * FROM users WHERE id = $1;
         let imported =
             type_override_config("column = \"a.b\"\nts_type = \"Meta\"\nts_import = \"@app/columns\"").unwrap();
         let ts_type = imported.ts_type.unwrap();
-        assert_eq!(ts_type.ts_type, "Meta");
-        assert_eq!(ts_type.import.as_deref(), Some("@app/columns"));
+        assert_eq!(ts_type.name(), "Meta");
+        assert_eq!(ts_type.import(), Some("@app/columns"));
         assert!(imported.neutral_type.is_none());
         let inline = type_override_config("db_type = \"json\"\nts_type = \"Record<string, unknown>\"").unwrap();
-        assert_eq!(inline.ts_type.unwrap().import, None);
+        assert_eq!(inline.ts_type.unwrap().import(), None);
     }
 
     #[test]
@@ -5806,10 +5781,9 @@ backend = \"rust-sqlx\"
         let mut zod_with_ts_type = typescript_target(&[("row_type", "zod")], None);
         zod_with_ts_type.type_overrides = vec![TypeOverride {
             db_type: Some("text".to_string()),
-            ts_type: Some(sqlkit_codegen::overrides::TsTypeOverride {
-                ts_type: "Email".to_string(),
-                import: Some("@app/types".to_string()),
-            }),
+            ts_type: Some(
+                sqlkit_codegen::overrides::TsTypeOverride::new("Email", Some("@app/types".to_string())).unwrap(),
+            ),
             ..Default::default()
         }];
         let escaping_schema_types = typescript_target(&[], Some("../../schema.ts"));
