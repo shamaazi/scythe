@@ -370,6 +370,31 @@ fn should_follow_alter_domain_constraints() {
 }
 
 #[test]
+fn should_read_alter_domain_not_valid_across_whitespace_and_comments() {
+    let validated = |add: &str| {
+        let catalog = Catalog::from_ddl(&["CREATE DOMAIN code AS text;", add]).unwrap();
+        catalog.domain_constraints("code").unwrap().rules.min_length.is_some()
+    };
+    for not_valid in [
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2) NOT VALID;",
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2) not\n\tvalid;",
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2) NOT /* still */ VALID;",
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2) NOT -- still\n VALID;",
+    ] {
+        assert!(!validated(not_valid), "{not_valid:?} is NOT VALID");
+    }
+    for valid in [
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2);",
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2 AND VALUE <> 'NOT VALID');",
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2) /* NOT VALID */;",
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2) -- NOT VALID\n;",
+        "ALTER DOMAIN code ADD CONSTRAINT \"NOT\" CHECK (length(VALUE) >= 2);",
+    ] {
+        assert!(validated(valid), "{valid:?} is validated");
+    }
+}
+
+#[test]
 fn should_not_translate_text_comparisons_on_citext_or_collated_values() {
     let catalog = Catalog::from_ddl(&[
         "CREATE DOMAIN email AS citext CHECK (VALUE ~ '^[^@]+@[^@]+$');",

@@ -671,8 +671,8 @@ impl Catalog {
         let identifier = |i: usize| tokens.get(i).map(|t| constraints::unquote_identifier(t));
         if keyword(0, "ADD") {
             let rest_upper = &upper[name_end..];
-            let not_valid = top_level_contains_keyword(rest_upper, "NOT VALID");
             let after_add = skip_ws(rest_upper, 0) + "ADD".len();
+            let not_valid = top_level_keywords(&rest[after_add..], &["NOT", "VALID"]);
             let mut taken = self.check_names();
             let checks: Vec<CheckConstraint> = constraints::domain_checks(&rest[after_add..])
                 .into_iter()
@@ -1535,6 +1535,37 @@ fn dollar_quote_delimiter(value: &str) -> Option<usize> {
         .bytes()
         .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
         .then_some(closing + 1)
+}
+
+/// Whether the words `keywords` follow each other in `sql` outside any
+/// parentheses, with only whitespace and comments between them -- how
+/// PostgreSQL's grammar reads a keyword sequence such as `NOT VALID`. String
+/// literals, quoted identifiers and comments never match.
+fn top_level_keywords(sql: &str, keywords: &[&str]) -> bool {
+    use sqlparser::tokenizer::{Token, Tokenizer};
+    let Ok(tokens) = Tokenizer::new(&PostgreSqlDialect {}, sql).tokenize() else {
+        return false;
+    };
+    let mut depth = 0usize;
+    let mut words: Vec<Option<&str>> = Vec::new();
+    for token in &tokens {
+        match token {
+            Token::Whitespace(_) => continue,
+            Token::LParen => depth += 1,
+            Token::RParen => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        words.push(match token {
+            Token::Word(word) if word.quote_style.is_none() && depth == 0 => Some(word.value.as_str()),
+            _ => None,
+        });
+    }
+    words.windows(keywords.len()).any(|window| {
+        window
+            .iter()
+            .zip(keywords)
+            .all(|(word, keyword)| word.is_some_and(|word| word.eq_ignore_ascii_case(keyword)))
+    })
 }
 
 /// Whether `keyword` (already ASCII-uppercase) appears in `haystack`
