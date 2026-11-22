@@ -452,8 +452,7 @@ pub fn parse_query(query_sql: &str) -> Result<Query, SqlkitError> {
         return Err(SqlkitError::syntax("empty SQL body"));
     }
 
-    let parse_sql =
-        spell_out_default_trim_characters(&end_select_list_before_on_conflict(&preprocess_postgres_sql(&sql)));
+    let parse_sql = rewrite_for_sqlparser(&sql);
 
     let statements = Parser::parse_sql(&PostgreSqlDialect {}, &parse_sql)
         .map_err(|e| SqlkitError::syntax(format!("syntax error: {}", e)))?;
@@ -517,6 +516,15 @@ pub fn parse_query(query_sql: &str) -> Result<Query, SqlkitError> {
         stmt,
         annotations,
     })
+}
+
+/// `sql` rewritten around the PostgreSQL syntax sqlparser cannot parse, for
+/// handing to sqlparser only: the result is equivalent for analysis but is
+/// not the SQL to run. [`parse_query`] parses through it, and so must any
+/// other caller that parses PostgreSQL statements (`sqlkit audit`), or the
+/// two disagree about which statements parse.
+pub fn rewrite_for_sqlparser(sql: &str) -> String {
+    spell_out_default_trim_characters(&end_select_list_before_on_conflict(&preprocess_postgres_sql(sql)))
 }
 
 /// Strip the `WHERE …` predicate that PostgreSQL allows between
