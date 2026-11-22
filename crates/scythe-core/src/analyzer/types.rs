@@ -43,11 +43,6 @@ pub struct AnalyzedQuery {
     /// Struct definitions needed for nested-aggregate result shapes
     /// (`json_agg(o.*)`, `row_to_json(u.*)`, ...).
     ///
-    /// Always empty unless the catalog is both PostgreSQL-dialect *and* on
-    /// an engine that actually has those functions: Redshift and DuckDB map
-    /// to `SqlDialect::PostgreSQL` but ship neither, so the dialect alone is
-    /// not the gate. See `expressions::catalog_has_nested_aggregates`.
-    ///
     /// `#[serde(default)]` so payloads serialized before this field existed
     /// keep deserializing — but adding this key changes any content hash
     /// computed over the serialized `AnalyzedQuery`.

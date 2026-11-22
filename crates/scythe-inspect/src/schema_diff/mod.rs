@@ -36,11 +36,8 @@
 //! never touch a connection. [`fetch_live_schema`] and [`drift_findings`]
 //! (the free functions `scythe-cli`'s `sqlkit check` calls directly) remain
 //! PostgreSQL-only, reading `pg_catalog` through a `tokio_postgres::Client`
-//! parameter. Catalog-reading for other engines is not similarly restricted:
-//! [`source::SchemaCatalogDriver`] is the engine-agnostic trait for it, and
-//! [`source::PostgresCatalogSource`], [`crate::sqlite::SqliteCatalogSource`],
-//! and [`crate::mysql::MySqlCatalogSource`] implement it. The PostgreSQL source
-//! also exposes [`fetch_live_catalog`] for callers that need the richer
+//! parameter. [`source::SchemaCatalogDriver`] is the trait for
+//! reading a catalog, implemented by [`source::PostgresCatalogSource`], which also exposes [`fetch_live_catalog`] for callers that need the richer
 //! code-generation catalog, including primary-key metadata and user-defined
 //! types.
 

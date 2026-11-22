@@ -156,60 +156,6 @@ fn audit_canonical_rule_cwe_matches_its_description() {
     assert_eq!(output.status.code(), Some(2));
 }
 
-/// A user rule restricted to PostgreSQL, audited as MySQL, must be named as
-/// skipped. Before this the rule simply produced nothing and the run was
-/// indistinguishable from a clean one.
-#[test]
-fn audit_names_a_user_rule_skipped_for_a_non_matching_dialect() {
-    let dir = TempDir::new().expect("tempdir");
-    let sql_path = dir.path().join("q.sql");
-    fs::write(&sql_path, "SELECT my_dangerous_call(1);\n").expect("write q.sql");
-    let config = write_user_rule_config(&dir, r#"dialects = ["postgres"]"#);
-
-    let mysql = run_audit(&[
-        "audit",
-        "--config",
-        &config,
-        "--dialect",
-        "mysql",
-        "--format",
-        "json",
-        &sql_path.to_string_lossy(),
-    ]);
-    let mysql_stderr = String::from_utf8_lossy(&mysql.stderr);
-    assert!(
-        mysql_stderr.contains("not applicable to engine 'mysql'"),
-        "audit must say which engine the skipped rules did not apply to; stderr: {mysql_stderr}"
-    );
-    assert!(
-        mysql_stderr.contains("USER-PG01"),
-        "the skipped rule must be named; stderr: {mysql_stderr}"
-    );
-
-    let postgres = run_audit(&[
-        "audit",
-        "--config",
-        &config,
-        "--dialect",
-        "postgres",
-        "--format",
-        "json",
-        &sql_path.to_string_lossy(),
-    ]);
-    let postgres_stdout = String::from_utf8_lossy(&postgres.stdout);
-    let ids: Vec<String> = serde_json::from_str::<Value>(&postgres_stdout)
-        .expect("valid JSON")
-        .as_array()
-        .expect("array")
-        .iter()
-        .map(|f| f["rule_id"].as_str().expect("rule_id").to_string())
-        .collect();
-    assert!(
-        ids.contains(&"USER-PG01".to_string()),
-        "the same rule must fire on the dialect it declares; got {ids:?}"
-    );
-}
-
 /// An audit with nothing left to run must fail loudly. Configuring every
 /// audit-executed category `off` used to produce an empty report and exit 0 --
 /// a security gate reporting success having examined zero rules.

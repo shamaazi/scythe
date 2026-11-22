@@ -30,7 +30,7 @@ pub struct CheckCatalogEntry {
 /// lets `--list-checks` print the catalog without touching a database.
 #[async_trait]
 pub trait DbDriver: Send + Sync {
-    /// Stable engine identifier — e.g. `"postgres"`, `"mysql"`. Must be the
+    /// Stable engine identifier, e.g. `"postgres"`. Must be the
     /// same string [`scythe_core::dialect::SqlDialect::from_str`] accepts.
     ///
     /// Borrowed rather than `&'static str` so
@@ -59,8 +59,6 @@ pub trait DbDriver: Send + Sync {
     /// check instead of stopping the run, so one bad query never loses the
     /// rest of the report.
     ///
-    /// `&mut self`, not `&self`: a live database connection (`mysql_async::Conn`
-    /// in particular) is an exclusively-owned stream, not a value queries can
-    /// share through a shared reference the way `tokio_postgres::Client` can.
+    /// `&mut self`, not `&self`: a driver may hold an exclusively-owned connection.
     async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError>;
 }

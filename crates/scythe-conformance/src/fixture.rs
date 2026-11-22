@@ -17,23 +17,21 @@ use crate::query_shape::{self, QueryShape};
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-/// One of the six database engines the live suite targets.
+/// The database engine the live suite targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Engine {
     Postgresql,
-    Sqlite,
 }
 
 impl Engine {
-    pub const ALL: [Engine; 2] = [Engine::Postgresql, Engine::Sqlite];
+    pub const ALL: [Engine; 1] = [Engine::Postgresql];
 
     /// The key used for this engine in `seed` overrides and
     /// `engine_expectations`.
     pub fn as_str(self) -> &'static str {
         match self {
             Engine::Postgresql => "postgresql",
-            Engine::Sqlite => "sqlite",
         }
     }
 
@@ -52,13 +50,12 @@ impl Engine {
     /// `unwrap_or_default()` in particular -- would parse an unrecognised
     /// engine's DDL as PostgreSQL. In a crate whose whole purpose is to stop
     /// a green result being produced by examining the wrong thing, silently
-    /// checking Oracle DDL against PostgreSQL's grammar is precisely the
+    /// checking another engine's DDL against PostgreSQL's grammar is precisely the
     /// failure mode. Adding an `Engine` variant is a compile error here.
     pub fn dialect(self) -> scythe_core::dialect::SqlDialect {
         use scythe_core::dialect::SqlDialect;
         match self {
             Engine::Postgresql => SqlDialect::PostgreSQL,
-            Engine::Sqlite => SqlDialect::SQLite,
         }
     }
 }
@@ -117,8 +114,8 @@ pub struct LiveBlock {
     pub runs: Vec<Run>,
     #[serde(default)]
     pub null_together: Vec<Vec<String>>,
-    /// Legitimate per-engine semantic differences (e.g. Oracle collapsing
-    /// `''` into `NULL`) -- not a place to explain away a failure. See
+    /// Legitimate per-engine semantic differences (e.g. a server setting that changes a
+    /// result) -- not a place to explain away a failure. See
     /// [`crate::divergence`] for that.
     #[serde(default)]
     pub engine_expectations: AHashMap<Engine, EngineExpectation>,
@@ -711,11 +708,14 @@ mod tests {
     fn seed_resolve_prefers_engine_override_over_default() {
         let seed = SeedBlock {
             default: vec!["INSERT default".to_string()],
-            per_engine: [("sqlite".to_string(), vec!["INSERT sqlite".to_string()])]
+            per_engine: [("postgresql".to_string(), vec!["INSERT postgresql".to_string()])]
                 .into_iter()
                 .collect(),
         };
-        assert_eq!(seed.resolve(Engine::Sqlite), Some(&["INSERT sqlite".to_string()][..]));
+        assert_eq!(
+            seed.resolve(Engine::Postgresql),
+            Some(&["INSERT postgresql".to_string()][..])
+        );
     }
 
     #[test]
@@ -743,10 +743,10 @@ mod tests {
     fn seed_resolve_treats_an_empty_override_as_unresolved() {
         let seed = SeedBlock {
             default: vec!["INSERT default".to_string()],
-            per_engine: [("sqlite".to_string(), vec![])].into_iter().collect(),
+            per_engine: [("postgresql".to_string(), vec![])].into_iter().collect(),
         };
         assert_eq!(
-            seed.resolve(Engine::Sqlite),
+            seed.resolve(Engine::Postgresql),
             None,
             "an explicit empty override must not silently fall back"
         );
@@ -768,7 +768,6 @@ mod tests {
     #[test]
     fn engine_schema_file_name_is_engine_dot_sql() {
         assert_eq!(Engine::Postgresql.schema_file_name(), "postgresql.sql");
-        assert_eq!(Engine::Sqlite.schema_file_name(), "sqlite.sql");
     }
 
     // -- load_fixtures: validation rules -----------------------------------
@@ -920,14 +919,13 @@ mod tests {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
         write_schema(schemas_root.path(), "profile", Engine::Postgresql);
-        write_schema(schemas_root.path(), "profile", Engine::Sqlite);
         write_fixture(
             fixtures_root.path(),
             "f.json",
             &minimal_fixture_json(
                 "live_ok",
                 "SELECT id FROM t ORDER BY id",
-                r#""postgresql", "sqlite""#,
+                r#""postgresql""#,
                 r#""INSERT INTO t VALUES (1)""#,
             ),
         );

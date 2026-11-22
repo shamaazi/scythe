@@ -1,42 +1,8 @@
 use std::borrow::Cow;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
-use serde::Deserialize;
-
-const EXECUTABLE_SCHEMA_ENGINES: &[&str] = &["sqlite", "sqlite3"];
-
-/// How a configured schema becomes the catalog used by CLI commands.
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum SchemaSource {
-    /// Parse DDL without executing it. This preserves the historical behavior.
-    #[default]
-    Parse,
-    /// Execute trusted DDL in a fresh embedded database and introspect it.
-    Execute,
-}
-
-impl SchemaSource {
-    /// Progress label that preserves the existing parse-mode output.
-    pub fn progress_verb(self) -> &'static str {
-        match self {
-            Self::Parse => "Parsing",
-            Self::Execute => "Executing",
-        }
-    }
-}
-
-impl fmt::Display for SchemaSource {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Parse => formatter.write_str("parse"),
-            Self::Execute => formatter.write_str("execute"),
-        }
-    }
-}
 
 /// Inputs shared by generate, check, lint, and configured audit catalog loading.
 pub struct CatalogLoadRequest<'a> {
@@ -45,7 +11,6 @@ pub struct CatalogLoadRequest<'a> {
     pub engine: &'a str,
     pub dialect: SqlDialect,
     pub schema_files: &'a [String],
-    pub source: SchemaSource,
 }
 
 /// A catalog and the exact configured schema inputs that produced it.
@@ -54,73 +19,28 @@ pub struct LoadedCatalog {
     pub schema_contents: Vec<String>,
 }
 
-/// Reject an executable source for engines without an embedded execution path.
-pub fn validate_schema_source(
-    command: &str,
-    config_name: &str,
-    engine: &str,
-    source: SchemaSource,
-) -> Result<(), String> {
-    if source == SchemaSource::Parse || EXECUTABLE_SCHEMA_ENGINES.contains(&engine.to_ascii_lowercase().as_str()) {
-        return Ok(());
-    }
-
-    Err(unsupported_schema_source(command, config_name, engine))
-}
-
-fn unsupported_schema_source(command: &str, config_name: &str, engine: &str) -> String {
-    format!(
-        "{command} [{config_name}] schema_source=execute is unsupported for engine `{engine}`; supported engines: {}",
-        EXECUTABLE_SCHEMA_ENGINES.join(", ")
-    )
-}
-
-/// Load one configured schema through the selected parse or execute path.
+/// Read and parse one configured schema into a catalog.
 pub fn load_catalog(request: CatalogLoadRequest<'_>) -> Result<LoadedCatalog, Box<dyn std::error::Error>> {
-    validate_schema_source(request.command, request.config_name, request.engine, request.source)?;
-
     let schema_contents = request
         .schema_files
         .iter()
         .map(|path| {
             std::fs::read_to_string(path).map_err(|error| {
                 format!(
-                    "{} [{}] schema_source={} engine `{}` failed to read schema file `{}`: {}",
-                    request.command, request.config_name, request.source, request.engine, path, error
+                    "{} [{}] engine `{}` failed to read schema file `{}`: {}",
+                    request.command, request.config_name, request.engine, path, error
                 )
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let catalog = match request.source {
-        SchemaSource::Parse => {
-            let schema_refs = schema_contents.iter().map(String::as_str).collect::<Vec<_>>();
-            Catalog::from_ddl_with_dialect(&schema_refs, &request.dialect).map_err(|error| {
-                format!(
-                    "{} [{}] schema_source=parse engine `{}` failed to parse configured schema: {}",
-                    request.command, request.config_name, request.engine, error
-                )
-            })?
-        }
-        SchemaSource::Execute => {
-            #[cfg(feature = "sqlite")]
-            let paths = request.schema_files.iter().map(PathBuf::from).collect::<Vec<_>>();
-            let result = match request.engine.to_ascii_lowercase().as_str() {
-                #[cfg(feature = "sqlite")]
-                "sqlite" | "sqlite3" => scythe_inspect::execute_sqlite_schema_files(&paths),
-                // An engine left out of this build is reported as such; any
-                // other engine has no embedded execution path at all.
-                other => Err(scythe_inspect::disabled_engine(other)
-                    .ok_or_else(|| unsupported_schema_source(request.command, request.config_name, request.engine))?),
-            };
-            result.map_err(|error| {
-                format!(
-                    "{} [{}] schema_source=execute engine `{}` failed: {}",
-                    request.command, request.config_name, request.engine, error
-                )
-            })?
-        }
-    };
+    let schema_refs = schema_contents.iter().map(String::as_str).collect::<Vec<_>>();
+    let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &request.dialect).map_err(|error| {
+        format!(
+            "{} [{}] engine `{}` failed to parse configured schema: {}",
+            request.command, request.config_name, request.engine, error
+        )
+    })?;
 
     Ok(LoadedCatalog {
         catalog,
@@ -193,7 +113,6 @@ pub fn has_unannotated_sql(content: &str) -> bool {
 pub fn engine_to_sqruff_dialect(engine: &str) -> &str {
     match engine {
         "postgresql" | "postgres" | "pg" => "postgres",
-        "sqlite" | "sqlite3" => "sqlite",
         _ => "ansi",
     }
 }
@@ -205,25 +124,7 @@ pub fn engine_to_sqruff_dialect(engine: &str) -> &str {
 /// `--dialect` value *before* it reaches `FluffConfig::from_source`, which
 /// resolves an unrecognized dialect string via `DialectKind::from_str(..).unwrap()`
 /// and panics (exit 101) rather than returning an error. See issue #205.
-const KNOWN_SQRUFF_DIALECTS: &[&str] = &[
-    "ansi",
-    "athena",
-    "bigquery",
-    "clickhouse",
-    "databricks",
-    "db2",
-    "duckdb",
-    "greenplum",
-    "mysql",
-    "oracle",
-    "postgres",
-    "redshift",
-    "snowflake",
-    "sparksql",
-    "sqlite",
-    "trino",
-    "tsql",
-];
+const KNOWN_SQRUFF_DIALECTS: &[&str] = &["ansi", "postgres"];
 
 /// scythe engine aliases [`engine_to_sqruff_dialect`] recognizes -- listed so
 /// [`validate_dialect`] can tell "a recognized scythe engine alias" (which
@@ -231,20 +132,19 @@ const KNOWN_SQRUFF_DIALECTS: &[&str] = &[
 /// `postgres`) apart from "unrecognized input" (which must be rejected, not
 /// silently degraded to `ansi` the way [`engine_to_sqruff_dialect`]'s
 /// catch-all does for config-derived engine values).
-const KNOWN_ENGINE_ALIASES: &[&str] = &["postgresql", "postgres", "pg", "sqlite", "sqlite3"];
+const KNOWN_ENGINE_ALIASES: &[&str] = &["postgresql", "postgres", "pg"];
 
 /// Validate and normalize a `--dialect` value supplied on the command line
 /// (`fmt --dialect`, `lint --dialect`) into a sqruff dialect name sqruff-lib
 /// is guaranteed to accept.
 ///
 /// Accepts two kinds of input, case-insensitively:
-/// - A sqruff-native dialect name (`postgres`, `bigquery`, `tsql`, ...).
+/// - A sqruff dialect name: `postgres`, or `ansi` for generic SQL.
 /// - A scythe engine alias ([`engine_to_sqruff_dialect`]'s canonical
-///   input set, e.g. `postgresql`, `pg`, `mariadb`), translated to its
+///   input set, e.g. `postgresql`, `pg`), translated to its
 ///   sqruff equivalent.
 ///
-/// Anything else -- a typo, an engine scythe has no sqruff dialect for, or
-/// gibberish -- is rejected with a message listing every accepted value,
+/// Anything else -- a typo, another engine's dialect, or gibberish -- is rejected with a message listing every accepted value,
 /// instead of being passed through to sqruff-lib where it panics (see
 /// [`KNOWN_SQRUFF_DIALECTS`]'s doc comment).
 pub fn validate_dialect(raw: &str) -> Result<String, String> {
@@ -520,142 +420,26 @@ impl ParseSeverities {
 mod tests {
     use super::*;
 
-    #[derive(Debug, Deserialize)]
-    struct SourceConfig {
-        #[serde(default)]
-        schema_source: SchemaSource,
-    }
-
     #[test]
-    fn schema_source_defaults_to_parse_and_rejects_unknown_values() {
-        let omitted: SourceConfig = toml::from_str("").unwrap();
-        let explicit: SourceConfig = toml::from_str("schema_source = \"parse\"").unwrap();
-        assert_eq!(omitted.schema_source, SchemaSource::Parse);
-        assert_eq!(explicit.schema_source, SchemaSource::Parse);
-
-        let error = toml::from_str::<SourceConfig>("schema_source = \"compile\"").unwrap_err();
-        let rendered = error.to_string();
-        assert!(rendered.contains("compile"));
-        assert!(rendered.contains("parse"));
-        assert!(rendered.contains("execute"));
-    }
-
-    #[test]
-    fn execute_source_validation_accepts_supported_aliases_only() {
-        for engine in ["sqlite", "sqlite3", "SQLITE"] {
-            assert_eq!(
-                validate_schema_source("generate", "main", engine, SchemaSource::Execute),
-                Ok(())
-            );
-        }
-        assert_eq!(
-            validate_schema_source("generate", "main", "postgresql", SchemaSource::Parse),
-            Ok(())
-        );
-
-        let error = validate_schema_source("check", "warehouse", "postgresql", SchemaSource::Execute).unwrap_err();
-        assert!(error.contains("check [warehouse]"));
-        assert!(error.contains("postgresql"));
-        assert!(error.contains("sqlite, sqlite3"));
-    }
-
-    #[test]
-    fn omitted_source_preserves_parse_catalog() {
+    fn load_catalog_parses_the_configured_schema() {
         let directory = tempfile::tempdir().unwrap();
         let schema_path = directory.path().join("schema.sql");
         let schema = "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);";
         std::fs::write(&schema_path, schema).unwrap();
         let schema_files = vec![schema_path.display().to_string()];
-        let expected = Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::SQLite).unwrap();
+        let expected = Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::PostgreSQL).unwrap();
 
         let loaded = load_catalog(CatalogLoadRequest {
             command: "generate",
             config_name: "main",
-            engine: "sqlite",
-            dialect: SqlDialect::SQLite,
+            engine: "postgresql",
+            dialect: SqlDialect::PostgreSQL,
             schema_files: &schema_files,
-            source: SchemaSource::default(),
         })
         .unwrap();
 
         assert_eq!(loaded.schema_contents, vec![schema]);
         assert_eq!(loaded.catalog.fingerprint(), expected.fingerprint());
-    }
-
-    #[cfg(feature = "sqlite")]
-    #[test]
-    fn execute_source_loads_a_sqlite_catalog() {
-        let directory = tempfile::tempdir().unwrap();
-        let schema_path = directory.path().join("schema.sql");
-        std::fs::write(
-            &schema_path,
-            "CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL);",
-        )
-        .unwrap();
-        let schema_files = vec![schema_path.display().to_string()];
-
-        let loaded = load_catalog(CatalogLoadRequest {
-            command: "lint",
-            config_name: "main",
-            engine: "sqlite3",
-            dialect: SqlDialect::SQLite,
-            schema_files: &schema_files,
-            source: SchemaSource::Execute,
-        })
-        .unwrap();
-        assert_eq!(
-            loaded.catalog.tables().cloned().collect::<Vec<_>>(),
-            vec!["users".to_string()]
-        );
-    }
-
-    #[cfg(not(feature = "sqlite"))]
-    #[test]
-    fn execute_source_names_the_feature_when_the_engine_is_disabled() {
-        let error = load_catalog(CatalogLoadRequest {
-            command: "generate",
-            config_name: "main",
-            engine: "sqlite",
-            dialect: SqlDialect::SQLite,
-            schema_files: &[],
-            source: SchemaSource::Execute,
-        })
-        .err()
-        .expect("a disabled engine must fail")
-        .to_string();
-
-        assert!(
-            error.contains("generate [main] schema_source=execute engine `sqlite` failed"),
-            "{error}"
-        );
-        assert!(error.contains("`--features sqlite`"), "{error}");
-    }
-
-    #[cfg(feature = "sqlite")]
-    #[test]
-    fn execute_failure_reports_command_config_engine_source_and_file() {
-        let directory = tempfile::tempdir().unwrap();
-        let schema_path = directory.path().join("broken.sql");
-        std::fs::write(&schema_path, "CREATE TABL broken (id INTEGER);").unwrap();
-        let schema_files = vec![schema_path.display().to_string()];
-
-        let error = load_catalog(CatalogLoadRequest {
-            command: "audit",
-            config_name: "broken-schema",
-            engine: "sqlite",
-            dialect: SqlDialect::SQLite,
-            schema_files: &schema_files,
-            source: SchemaSource::Execute,
-        })
-        .err()
-        .expect("invalid executable DDL must fail")
-        .to_string();
-
-        assert!(error.contains("audit [broken-schema]"));
-        assert!(error.contains("schema_source=execute"));
-        assert!(error.contains("sqlite"));
-        assert!(error.contains(&schema_path.display().to_string()));
-        assert!(error.contains("executing schema DDL"));
     }
 
     /// Unconfigured, `ParseSeverities` must reflect `parse_registry`'s own
@@ -809,14 +593,12 @@ mod tests {
     fn validate_dialect_accepts_canonical_scythe_engine_aliases() {
         assert_eq!(validate_dialect("postgresql").unwrap(), "postgres");
         assert_eq!(validate_dialect("pg").unwrap(), "postgres");
-        assert_eq!(validate_dialect("sqlite3").unwrap(), "sqlite");
     }
 
     /// sqruff-native dialect names not present in scythe's own engine alias
-    /// table (e.g. `bigquery`) must still validate, case-insensitively.
+    /// table (e.g. `ansi`) must still validate, case-insensitively.
     #[test]
     fn validate_dialect_accepts_native_sqruff_dialect_names() {
-        assert_eq!(validate_dialect("bigquery").unwrap(), "bigquery");
         assert_eq!(validate_dialect("ANSI").unwrap(), "ansi");
         assert_eq!(validate_dialect("Postgres").unwrap(), "postgres");
     }

@@ -245,7 +245,6 @@ pub enum RunnerError {
 fn is_compiled(engine: Engine) -> bool {
     match engine {
         Engine::Postgresql => cfg!(feature = "pg"),
-        Engine::Sqlite => cfg!(feature = "sqlite"),
     }
 }
 
@@ -254,7 +253,6 @@ fn is_compiled(engine: Engine) -> bool {
 fn feature_for(engine: Engine) -> &'static str {
     match engine {
         Engine::Postgresql => "pg",
-        Engine::Sqlite => "sqlite",
     }
 }
 
@@ -270,7 +268,7 @@ fn feature_for(engine: Engine) -> &'static str {
 /// difference in scythe's inference.
 fn representative_backend(engine: Engine) -> &'static str {
     match engine {
-        Engine::Postgresql | Engine::Sqlite => "rust-sqlx",
+        Engine::Postgresql => "rust-sqlx",
     }
 }
 
@@ -287,7 +285,6 @@ fn ensure_available(engine: Engine, config: &RunnerConfig) -> Result<(), RunnerE
     }
     let has_connection_config = match engine {
         Engine::Postgresql => config.postgres_url.is_some(),
-        Engine::Sqlite => true, // in-memory, no external configuration needed
     };
     if !has_connection_config {
         return Err(RunnerError::MissingConnectionConfig { engine });
@@ -343,7 +340,7 @@ pub async fn run(
 /// active (every arm degenerates to its `EngineNotCompiled` branch) -- the
 /// `allow` below is scoped to exactly that configuration via `cfg_attr`, so
 /// a build with any driver feature on keeps the lint live.
-#[cfg_attr(not(any(feature = "pg", feature = "sqlite",)), allow(unused_variables))]
+#[cfg_attr(not(feature = "pg"), allow(unused_variables))]
 async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfig) -> Result<Verdict, RunnerError> {
     match engine {
         Engine::Postgresql => {
@@ -367,26 +364,6 @@ async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfi
                 Err(RunnerError::EngineNotCompiled { engine, feature: "pg" })
             }
         }
-        Engine::Sqlite => {
-            #[cfg(feature = "sqlite")]
-            {
-                let executor = crate::executors::sqlite::SqliteExecutor::open_in_memory().map_err(|source| {
-                    RunnerError::Connect {
-                        fixture: fixture.name.clone(),
-                        engine,
-                        reason: source.to_string(),
-                    }
-                })?;
-                evaluate_fixture(fixture, executor, config).await
-            }
-            #[cfg(not(feature = "sqlite"))]
-            {
-                Err(RunnerError::EngineNotCompiled {
-                    engine,
-                    feature: "sqlite",
-                })
-            }
-        }
     }
 }
 
@@ -399,7 +376,7 @@ async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfi
 ///
 /// Only called from [`run_one_leg`]'s feature-gated branches, so it is dead
 /// code in a build with no driver feature active -- see the `allow` there.
-#[cfg_attr(not(any(feature = "pg", feature = "sqlite",)), allow(dead_code))]
+#[cfg_attr(not(feature = "pg"), allow(dead_code))]
 async fn evaluate_fixture<E: Executor>(
     fixture: &LiveFixture,
     mut executor: E,
@@ -644,7 +621,7 @@ mod tests {
     struct FakeExecutorError;
 
     impl Executor for FakeExecutor {
-        const ENGINE: Engine = Engine::Sqlite;
+        const ENGINE: Engine = Engine::Postgresql;
         type Error = FakeExecutorError;
 
         async fn seed_schema(&mut self, _schema_sql: &str) -> Result<(), Self::Error> {
@@ -686,7 +663,7 @@ mod tests {
             },
             live: LiveBlock {
                 schema_profile: "profile".to_string(),
-                engines: vec![Engine::Sqlite],
+                engines: vec![Engine::Postgresql],
                 runs: vec![Run {
                     name: "run1".to_string(),
                     seed: SeedBlock {
@@ -702,15 +679,19 @@ mod tests {
         }
     }
 
-    /// Builds a `RunnerConfig` and writes a matching `profile/sqlite.sql`
+    /// Builds a `RunnerConfig` and writes a matching `profile/postgresql.sql`
     /// live schema file under a fresh temp directory -- `evaluate_fixture`
     /// reads that file from disk before ever calling the executor.
     fn config_with_schema(schemas_root: &std::path::Path) -> RunnerConfig {
         let dir = schemas_root.join("profile");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("sqlite.sql"), "CREATE TABLE t (id INTEGER, total INTEGER);").unwrap();
+        std::fs::write(
+            dir.join("postgresql.sql"),
+            "CREATE TABLE t (id INTEGER, total INTEGER);",
+        )
+        .unwrap();
         RunnerConfig {
-            selected_engines: vec![Engine::Sqlite],
+            selected_engines: vec![Engine::Postgresql],
             schemas_root: schemas_root.to_path_buf(),
             ..Default::default()
         }
@@ -875,7 +856,7 @@ mod tests {
             report.skipped,
             vec![SkippedLeg {
                 fixture: "live_runner_test".to_string(),
-                engine: Engine::Sqlite,
+                engine: Engine::Postgresql,
                 reason: "not selected for this run".to_string(),
             }]
         );

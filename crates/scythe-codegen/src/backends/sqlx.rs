@@ -14,12 +14,10 @@ use crate::backends::parse_bool_option;
 
 /// Default embedded manifest TOML for rust-sqlx, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-sqlx.toml");
-const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/rust-sqlx.sqlite.toml");
 
 /// SqlxBackend generates Rust code targeting the sqlx crate.
 pub struct SqlxBackend {
     manifest: BackendManifest,
-    engine: String,
     /// When true, only emit struct/enum definitions (no query functions).
     /// This avoids the `sqlx::query_as!()` macro which requires `DATABASE_URL` at compile time.
     structs_only: bool,
@@ -31,16 +29,12 @@ pub struct SqlxBackend {
     /// when enabled) on every generated struct/enum. Set via the `derive`
     /// backend option -- see [`Self::apply_options`].
     extra_derives: Vec<String>,
-    /// Whether this engine's manifest declares the `json_nested` container
-    /// and its server actually has `json_agg`. See
-    /// [`crate::backends::engine_supports_nested_aggregates`].
-    nested_aggregates: bool,
 }
 
 impl SqlxBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         match engine {
-            "postgresql" | "postgres" | "pg" | "sqlite" | "sqlite3" => {}
+            "postgresql" | "postgres" | "pg" => {}
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InvalidConfig,
@@ -48,68 +42,17 @@ impl SqlxBackend {
                 ));
             }
         }
-        let manifest = match engine {
-            "sqlite" | "sqlite3" => super::parse_manifest(DEFAULT_MANIFEST_SQLITE)?,
-            _ => super::parse_manifest(DEFAULT_MANIFEST_TOML)?,
-        };
+        let manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
         Ok(Self {
             manifest,
-            engine: engine.to_string(),
             structs_only: false,
             serde: false,
             extra_derives: Vec::new(),
-            nested_aggregates: super::engine_supports_nested_aggregates(engine),
         })
     }
 }
 
 impl SqlxBackend {
-    /// Return true if this engine uses inline ENUMs (not named custom types).
-    ///
-    /// MySQL, MariaDB, and SQLite represent ENUMs as plain strings at the wire
-    /// level. sqlx's `#[derive(sqlx::Type)]` generates `type_info()` returning
-    /// `MySqlTypeInfo::__enum()` (ColumnType::String + ENUM flag), but the
-    /// server sends `ColumnType::Enum`. The PartialEq check in MySqlTypeInfo
-    /// fails because the r#type fields differ, producing a runtime
-    /// "mismatched types" ColumnDecode error.
-    ///
-    /// For these engines, row struct fields must use `String` (or `Option<String>`)
-    /// instead of the generated Rust enum type.
-    fn uses_inline_enums(&self) -> bool {
-        matches!(self.engine.as_str(), "mysql" | "mariadb" | "sqlite" | "sqlite3")
-    }
-
-    /// Resolve the field type for a row struct column.
-    ///
-    /// For engines that use inline ENUMs, enum-typed columns are mapped to
-    /// `String` / `Option<String>` because sqlx cannot type-check them against
-    /// the generated Rust enum at runtime (see `uses_inline_enums`).
-    fn row_field_type<'a>(&self, col: &'a ResolvedColumn) -> &'a str {
-        if self.uses_inline_enums() && col.neutral_type.starts_with("enum::") {
-            if col.nullable { "Option<String>" } else { "String" }
-        } else {
-            &col.full_type
-        }
-    }
-
-    /// Return the sqlx pool type for the configured engine.
-    fn pool_type(&self) -> &str {
-        match self.engine.as_str() {
-            "mysql" | "mariadb" => "sqlx::MySqlPool",
-            "sqlite" | "sqlite3" => "sqlx::SqlitePool",
-            _ => "sqlx::PgPool",
-        }
-    }
-
-    /// Return the sqlx query-result type for the configured engine.
-    fn query_result_type(&self) -> &str {
-        match self.engine.as_str() {
-            "mysql" | "mariadb" => "sqlx::mysql::MySqlQueryResult",
-            "sqlite" | "sqlite3" => "sqlx::sqlite::SqliteQueryResult",
-            _ => "sqlx::postgres::PgQueryResult",
-        }
-    }
-
     /// Build a `#[derive(...)]` line from a fixed `base` list plus the
     /// `serde`/`derive` backend options.
     ///
@@ -155,7 +98,7 @@ impl CodegenBackend for SqlxBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "sqlite"]
+        &["postgresql"]
     }
 
     fn file_header(&self) -> String {
@@ -189,7 +132,7 @@ impl CodegenBackend for SqlxBackend {
         let _ = writeln!(out, "pub struct {} {{", struct_name);
 
         for col in columns {
-            let field_type = self.row_field_type(col);
+            let field_type = col.full_type.as_str();
             write_sqlx_rename_attr(&mut out, col);
             let _ = writeln!(out, "    pub {}: {},", col.field_name, field_type);
         }
@@ -216,7 +159,7 @@ impl CodegenBackend for SqlxBackend {
             let _ = writeln!(out, "#[deprecated(note = \"{}\")]", msg);
         }
 
-        let pool_type = self.pool_type();
+        let pool_type = "sqlx::PgPool";
         let mut param_parts: Vec<String> = vec![format!("pool: &{}", pool_type)];
         for param in params {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
@@ -329,7 +272,7 @@ impl CodegenBackend for SqlxBackend {
             QueryCommand::Opt => format!("Option<{}>", struct_name),
             QueryCommand::Many => format!("Vec<{}>", struct_name),
             QueryCommand::Exec => "()".to_string(),
-            QueryCommand::ExecResult => self.query_result_type().to_string(),
+            QueryCommand::ExecResult => "sqlx::postgres::PgQueryResult".to_string(),
             QueryCommand::ExecRows => "u64".to_string(),
             QueryCommand::Batch => unreachable!(),
             QueryCommand::Grouped => {
@@ -416,18 +359,11 @@ impl CodegenBackend for SqlxBackend {
             "{}",
             self.derive_line(&["Debug", "Clone", "PartialEq", "Eq", "sqlx::Type"])
         );
-        match self.engine.as_str() {
-            "mysql" | "mariadb" | "sqlite" | "sqlite3" => {
-                let _ = writeln!(out, "#[sqlx(rename_all = \"snake_case\")]");
-            }
-            _ => {
-                let _ = writeln!(
-                    out,
-                    "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]",
-                    enum_info.sql_name
-                );
-            }
-        }
+        let _ = writeln!(
+            out,
+            "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]",
+            enum_info.sql_name
+        );
         let _ = writeln!(out, "pub enum {type_name} {{");
 
         for value in &enum_info.values {
@@ -452,7 +388,7 @@ impl CodegenBackend for SqlxBackend {
         let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone", "sqlx::FromRow"]));
         let _ = writeln!(out, "pub struct {child_struct_name} {{");
         for col in child_columns {
-            let field_type = self.row_field_type(col);
+            let field_type = col.full_type.as_str();
             write_sqlx_rename_attr(&mut out, col);
             let _ = writeln!(out, "    pub {}: {field_type},", col.field_name);
         }
@@ -467,7 +403,7 @@ impl CodegenBackend for SqlxBackend {
         let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone"]));
         let _ = writeln!(out, "pub struct {parent_struct_name} {{");
         for col in parent_columns {
-            let field_type = self.row_field_type(col);
+            let field_type = col.full_type.as_str();
             let _ = writeln!(out, "    pub {}: {field_type},", col.field_name);
         }
         let _ = writeln!(out, "    pub children: Vec<{child_struct_name}>,");
@@ -493,7 +429,7 @@ impl CodegenBackend for SqlxBackend {
         }
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let pool_type = self.pool_type();
+        let pool_type = "sqlx::PgPool";
         let key_field = to_snake_case(key_column);
         let mut out = String::new();
 
@@ -594,10 +530,6 @@ impl CodegenBackend for SqlxBackend {
         &self,
         nested: &scythe_core::analyzer::NestedStructInfo,
     ) -> Result<Option<String>, ScytheError> {
-        if !self.nested_aggregates {
-            return Ok(None);
-        }
-
         // Unlike generate_composite_def (always `false` -- CompositeFieldInfo
         // has no per-field nullability), a nested-aggregate field's
         // nullability is real and comes from the source column it was

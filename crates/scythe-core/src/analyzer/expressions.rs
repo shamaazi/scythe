@@ -42,10 +42,7 @@ impl<'a> Analyzer<'a> {
                     // text.
                     TypeInfo::new(literal_number_neutral_type(text), false)
                 } else if value_is_string(vws) {
-                    // A string literal is non-nullable everywhere except
-                    // Oracle's `''`, which the engine stores as NULL --
-                    // see `value_is_null_in_dialect`.
-                    TypeInfo::new("string", value_is_null_in_dialect(vws, self.catalog.dialect()))
+                    TypeInfo::new("string", false)
                 } else if value_is_boolean(vws) {
                     TypeInfo::new("bool", false)
                 } else if value_is_null(vws) {
@@ -56,7 +53,7 @@ impl<'a> Analyzer<'a> {
                     // codegen (GH #170's residual half).
                     TypeInfo::untyped_literal()
                 } else if let Some(p) = value_is_placeholder(vws) {
-                    // ~keep `parse_placeholder` alone only resolves `$N`; a bare MySQL `?`
+                    // ~keep `parse_placeholder` alone only resolves `$N`; a bare `?`
                     // parses to `None` and was silently dropped here whenever this was
                     // the only place a placeholder was reached (e.g. `age + ?` or a
                     // top-level `SELECT ?`), undercounting the query's parameters
@@ -362,9 +359,8 @@ impl<'a> Analyzer<'a> {
 
             Expr::Extract { expr, .. } => {
                 let ti = self.infer_expr_type(expr, scope);
-                // Dialect-dependent: PostgreSQL 14+ returns `numeric`,
-                // MySQL returns an integer -- see #123.
-                TypeInfo::new(extract_result_type(self.catalog.dialect()), ti.nullable)
+                // PostgreSQL 14+ returns `numeric` -- see #123.
+                TypeInfo::new(extract_result_type(), ti.nullable)
             }
 
             Expr::Substring { expr, .. } => {
@@ -622,10 +618,7 @@ impl<'a> Analyzer<'a> {
                     // Widen across every argument instead of keeping only
                     // the first non-unknown one (#121).
                     result_type = widen_neutral_type(&result_type, &ti.neutral_type);
-                    // `is_non_null_literal`, not `is_literal`: on Oracle a
-                    // `''` fallback proves nothing, because the engine
-                    // returns NULL for it.
-                    if !ti.nullable || is_non_null_literal(arg, self.catalog.dialect()) {
+                    if !ti.nullable || is_literal(arg) {
                         any_non_nullable = true;
                     }
                     if coalesce_name.is_none()
@@ -693,13 +686,8 @@ impl<'a> Analyzer<'a> {
             | "quote_ident" | "quote_literal" | "format" | "regexp_replace" => {
                 TypeInfo::new("string", first_arg_nullable)
             }
-            "concat" | "concat_ws" => {
-                // Dialect-blind before: true on PostgreSQL (`concat`
-                // ignores NULL arguments), false on MySQL (any NULL
-                // argument makes the whole result NULL) -- see #120.
-                let nullable = self.catalog.dialect() == SqlDialect::MySQL && self.any_arg_nullable(func, scope);
-                TypeInfo::new("string", nullable)
-            }
+            // PostgreSQL's `concat` ignores NULL arguments (#120).
+            "concat" | "concat_ws" => TypeInfo::new("string", false),
             "substring" | "substr" => TypeInfo::new("string", first_arg_nullable),
             "length" | "char_length" | "character_length" | "octet_length" | "bit_length" | "strpos" => {
                 TypeInfo::new("int32", first_arg_nullable)
@@ -732,31 +720,22 @@ impl<'a> Analyzer<'a> {
             "greatest" | "least" => {
                 let args = self.get_function_args(func);
                 let mut result_type = "unknown".to_string();
-                // Whether at least one argument is proven non-null. On
-                // every dialect except MySQL, GREATEST/LEAST ignore NULLs
+                // Whether at least one argument is proven non-null. GREATEST/LEAST
+                // ignore NULLs
                 // and only return NULL when *every* argument is NULL, so a
                 // single proven-non-null argument guarantees a non-null
                 // result -- the same reasoning as COALESCE.
                 let mut any_proven_non_null = false;
-                let mut any_nullable_arg = false;
                 for arg in &args {
                     let ti = self.infer_expr_type(arg, scope);
                     // Widen across every argument instead of taking only
                     // the first one for both type and nullability (#121).
                     result_type = widen_neutral_type(&result_type, &ti.neutral_type);
-                    if ti.nullable {
-                        any_nullable_arg = true;
-                    } else {
+                    if !ti.nullable {
                         any_proven_non_null = true;
                     }
                 }
-                let nullable = if self.catalog.dialect() == SqlDialect::MySQL {
-                    // MySQL: NULL if any argument is NULL.
-                    any_nullable_arg
-                } else {
-                    !any_proven_non_null
-                };
-                TypeInfo::new(result_type, nullable)
+                TypeInfo::new(result_type, !any_proven_non_null)
             }
 
             "now" | "current_timestamp" | "statement_timestamp" | "transaction_timestamp" | "clock_timestamp" => {
@@ -785,7 +764,7 @@ impl<'a> Analyzer<'a> {
             // instead of the dedicated `Expr::Extract` node) gets the same
             // dialect-aware answer as the `EXTRACT` syntax (#123).
             "date_part" => TypeInfo::new("float64", first_arg_nullable),
-            "extract" => TypeInfo::new(extract_result_type(self.catalog.dialect()), first_arg_nullable),
+            "extract" => TypeInfo::new(extract_result_type(), first_arg_nullable),
             "age" => {
                 let nullable = self.any_arg_nullable(func, scope);
                 TypeInfo::new("interval", nullable)
@@ -1136,8 +1115,7 @@ impl<'a> Analyzer<'a> {
 
     /// Whether any argument of `func` is nullable -- the nullability rule
     /// for functions where any operand being NULL can make the whole call
-    /// NULL (date/time constructors like `make_date`, `age`; MySQL's
-    /// `CONCAT`), as opposed to the single-first-argument heuristic most
+    /// NULL (date/time constructors like `make_date`, `age`), as opposed to the single-first-argument heuristic most
     /// other arms in [`Analyzer::infer_function_type`] use (#120).
     pub(super) fn any_arg_nullable(&mut self, func: &ast::Function, scope: &Scope) -> bool {
         let args = self.get_function_args(func);
@@ -1265,10 +1243,6 @@ impl<'a> Analyzer<'a> {
         scope: &Scope,
         wrap: WrapArray,
     ) -> Option<TypeInfo> {
-        if !catalog_has_nested_aggregates(self.catalog) {
-            return None;
-        }
-
         let shapes = self.get_function_arg_shapes(func, scope);
 
         if wrap == WrapArray::Yes
@@ -1700,28 +1674,6 @@ fn numeric_promotion_distance(actual: &str, declared: &str) -> Option<u32> {
     Some(NUMERIC_PROMOTION_PENALTY + distance)
 }
 
-/// Whether nested-aggregate inference is available for this catalog.
-///
-/// Two independent conditions, because neither implies the other:
-/// - the dialect must be PostgreSQL, since `json_agg`/`row_to_json` and the
-///   whole-row `alias.*` argument form are PostgreSQL syntax; and
-/// - the *engine*, when stated, must actually ship those functions.
-///   `SqlDialect::from_str` maps `redshift` and `duckdb` onto
-///   `SqlDialect::PostgreSQL`, but Redshift has no `json_agg` at all and
-///   DuckDB spells it `json_group_array`, so the dialect check alone admits
-///   two engines where the inferred type could never be produced.
-///
-/// An unstated engine (`Catalog::from_ddl`, every unit test, any embedder
-/// predating `Catalog::with_engine`) is treated as PostgreSQL proper.
-fn catalog_has_nested_aggregates(catalog: &crate::catalog::Catalog) -> bool {
-    if catalog.dialect() != SqlDialect::PostgreSQL {
-        return false;
-    }
-    catalog
-        .engine()
-        .is_none_or(|engine| matches!(engine, "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb"))
-}
-
 /// The string value of a `key` argument in `json_build_object('key', ...)`,
 /// or `None` when the key isn't a literal -- see
 /// [`Analyzer::inline_json_object_fields`].
@@ -1826,10 +1778,6 @@ mod tests {
 
     fn empty_catalog() -> Catalog {
         Catalog::from_ddl(&[]).unwrap()
-    }
-
-    fn empty_catalog_with_dialect(dialect: crate::dialect::SqlDialect) -> Catalog {
-        Catalog::from_ddl_with_dialect(&[], &dialect).unwrap()
     }
 
     fn make_analyzer(catalog: &Catalog) -> Analyzer<'_> {
@@ -2273,16 +2221,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_function_name_form_mysql_returns_int64() {
-        let catalog = empty_catalog_with_dialect(crate::dialect::SqlDialect::MySQL);
-        let mut analyzer = make_analyzer(&catalog);
-        let scope = empty_scope();
-        let func = make_func("extract", vec![string_literal("year")]);
-        let ti = analyzer.infer_function_type(&func, &scope);
-        assert_eq!(ti.neutral_type, "int64");
-    }
-
-    #[test]
     fn test_date_part_function_always_returns_float64() {
         // `date_part(text, source)` is a distinct PostgreSQL function from
         // `EXTRACT` and always returns `double precision`, on every version
@@ -2496,60 +2434,16 @@ mod tests {
     }
 
     #[test]
-    fn coalesce_with_an_empty_string_fallback_is_nullable_on_oracle() {
-        // Oracle stores `''` as NULL, so the fallback is itself NULL and
-        // COALESCE really can return NULL. Inferring this non-nullable made
-        // codegen emit a non-optional field that the driver then could not
-        // decode -- caught by the live Oracle conformance leg as an A2
-        // soundness failure, see
-        // `testing_data/nullability_live/coalesce_non_null/live_coalesce_with_empty_string_default_is_null_on_oracle.json`.
-        let catalog = empty_catalog_with_dialect(crate::dialect::SqlDialect::Oracle);
+    fn coalesce_with_an_empty_string_fallback_is_not_nullable() {
+        let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
         let scope = empty_scope();
         let func = make_func("coalesce", vec![col_expr("x"), string_literal("")]);
         let ti = analyzer.infer_function_type(&func, &scope);
         assert!(
-            ti.nullable,
-            "on Oracle an empty-string COALESCE fallback proves nothing about nullability"
+            !ti.nullable,
+            "'' is distinct from NULL, so the fallback guarantees non-NULL"
         );
-    }
-
-    #[test]
-    fn coalesce_with_an_empty_string_fallback_is_not_nullable_off_oracle() {
-        // The counterpart the Oracle branch must not overreach into: every
-        // other engine keeps `''` distinct from NULL, so the fallback does
-        // guarantee non-NULL there and marking it nullable would be a
-        // gratuitous `Option` in generated code for five of six engines.
-        for dialect in [
-            crate::dialect::SqlDialect::PostgreSQL,
-            crate::dialect::SqlDialect::MySQL,
-            crate::dialect::SqlDialect::SQLite,
-            crate::dialect::SqlDialect::MsSql,
-            crate::dialect::SqlDialect::Snowflake,
-        ] {
-            let catalog = empty_catalog_with_dialect(dialect);
-            let mut analyzer = make_analyzer(&catalog);
-            let scope = empty_scope();
-            let func = make_func("coalesce", vec![col_expr("x"), string_literal("")]);
-            let ti = analyzer.infer_function_type(&func, &scope);
-            assert!(
-                !ti.nullable,
-                "{dialect:?} keeps '' distinct from NULL, so the fallback guarantees non-NULL"
-            );
-        }
-    }
-
-    #[test]
-    fn a_non_empty_string_fallback_is_still_non_nullable_on_oracle() {
-        // The Oracle branch is about the *empty* literal only: `''` is NULL
-        // there, `'none'` is not. Widening it to every string literal would
-        // make every COALESCE on Oracle nullable.
-        let catalog = empty_catalog_with_dialect(crate::dialect::SqlDialect::Oracle);
-        let mut analyzer = make_analyzer(&catalog);
-        let scope = empty_scope();
-        let func = make_func("coalesce", vec![col_expr("x"), string_literal("none")]);
-        let ti = analyzer.infer_function_type(&func, &scope);
-        assert!(!ti.nullable, "a non-empty literal fallback is non-NULL on Oracle too");
     }
 
     #[test]

@@ -15,7 +15,7 @@
 #
 # [[entry]]
 # fixture = "live_..."
-# engine = "oracle"
+# engine = "postgresql"
 # column = "..."
 # kind = "analyzer_over_pessimistic"
 # issue = "https://github.com/Goldziher/scythe/issues/NNNN"

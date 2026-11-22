@@ -158,9 +158,7 @@ pub async fn fetch_live_catalog(client: &Client, declared_schemas: &[String]) ->
 
     let mut unused_description = SchemaDescription::new();
     let relations = fetch_tables(client, &types, &enum_labels, &scope, &mut unused_description).await?;
-    let mut builder = CatalogBuilder::new(SqlDialect::PostgreSQL)
-        .engine("postgres")
-        .search_path(scope.clone());
+    let mut builder = CatalogBuilder::new(SqlDialect::PostgreSQL).search_path(scope.clone());
     for relation in relations {
         builder = builder.relation(relation);
     }

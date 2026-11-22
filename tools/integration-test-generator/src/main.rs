@@ -41,11 +41,11 @@ struct Cli {
 
 #[derive(Debug, Clone, Serialize)]
 struct BackendConfig {
-    /// Directory name under integration_tests/, e.g. "python-psycopg3".
+    /// Directory name under integration_tests/, e.g. "rust-sqlx".
     name: String,
     /// Language identifier for template selection.
     language: String,
-    /// Database engine: "postgresql", "mysql", or "sqlite".
+    /// Database engine: "postgresql".
     engine: String,
     /// Driver name used by the scythe backend, e.g. "psycopg3", "asyncpg".
     driver: String,
@@ -56,21 +56,6 @@ struct BackendConfig {
     /// Extra options passed to templates (e.g. row_type).
     options: HashMap<String, String>,
 }
-
-/// Per-engine overrides for the schema SQL filename within the engine's
-/// schema dir. Defaults to "schema.sql" when an engine is not listed here.
-/// Kept as a side table (rather than a `BackendConfig` field) so it doesn't
-/// require touching every one of the ~100 `BackendConfig` literals below.
-///
-/// ~keep Keyed by engine, not by backend name: GH #196 item 2 found that every
-/// harness template already applies `schema_full.sql` (oracle) /
-/// `schema_pg_compat.sql` (redshift) at runtime regardless of language or
-/// driver, so the file scythe generates from must track the engine, not an
-/// enumerated subset of backends. A name-keyed table silently drifts every
-/// time a backend is added for an engine already in the list -- exactly how
-/// this table ended up with only 2 of 9 oracle backends and 0 of 14 redshift
-/// backends overridden before this fix.
-const SCHEMA_FILE_OVERRIDES: &[(&str, &str)] = &[("oracle", "schema_full.sql"), ("redshift", "schema_pg_compat.sql")];
 
 /// Context passed to every template render.
 #[derive(Debug, Serialize)]
@@ -84,7 +69,7 @@ struct TemplateContext {
     options: HashMap<String, String>,
     /// Relative path from the backend dir to the schema SQL directory.
     schema_dir: String,
-    /// Schema SQL filename within `schema_dir`, e.g. "schema.sql" or "schema_full.sql".
+    /// Schema SQL filename within `schema_dir`.
     schema_file: String,
     /// Relative path from the backend dir to the queries SQL directory.
     queries_dir: String,
@@ -94,11 +79,6 @@ impl From<&BackendConfig> for TemplateContext {
     fn from(cfg: &BackendConfig) -> Self {
         let engine_dir = match cfg.engine.as_str() {
             "postgresql" => "pg",
-            "mysql" => "mysql",
-            "sqlite" => "sqlite",
-            "mssql" => "mssql",
-            "redshift" => "redshift",
-            "snowflake" => "snowflake",
             other => other,
         };
         Self {
@@ -110,11 +90,7 @@ impl From<&BackendConfig> for TemplateContext {
             backend: cfg.backend.clone(),
             options: cfg.options.clone(),
             schema_dir: format!("../sql/{engine_dir}"),
-            schema_file: SCHEMA_FILE_OVERRIDES
-                .iter()
-                .find(|(engine, _)| *engine == cfg.engine)
-                .map(|(_, file)| file.to_string())
-                .unwrap_or_else(|| "schema.sql".to_string()),
+            schema_file: "schema.sql".to_string(),
             queries_dir: format!("../sql/{engine_dir}/queries"),
         }
     }
@@ -176,15 +152,6 @@ fn backend_variants() -> Vec<BackendConfig> {
             options: HashMap::new(),
         },
         BackendConfig {
-            name: "rust-sqlx-sqlite".into(),
-            language: "rust".into(),
-            engine: "sqlite".into(),
-            driver: "sqlx-sqlite".into(),
-            connection_env: "SQLITE_PATH".into(),
-            backend: "rust-sqlx".into(),
-            options: HashMap::new(),
-        },
-        BackendConfig {
             name: "rust-tokio-postgres".into(),
             language: "rust".into(),
             engine: "postgresql".into(),
@@ -193,16 +160,6 @@ fn backend_variants() -> Vec<BackendConfig> {
             backend: "rust-tokio-postgres".into(),
             options: HashMap::new(),
         },
-        // java-r2dbc-sqlite/kotlin-r2dbc-sqlite are intentionally not wired here: no
-        // io.r2dbc:r2dbc-sqlite artifact exists on Maven Central (verified 2026-08-14),
-        // and the only known community implementation (com.gitee.n__n:r2dbc-sqlite) is
-        // distributed via JitPack, not Central, and untested against this generator's
-        // SQLite-dialect schema.sql. Substituting r2dbc-h2 is not a like-for-like swap --
-        // H2 is a different SQL dialect and would silently run a different database than
-        // every other sqlite integration project in this list. See board #212's report.
-        // DuckDB (issue #126): embedded, no service container. Modelled on the
-        // sqlite variants above, not the postgres ones -- DuckDB is the other
-        // embedded engine here.
     ]
 }
 
@@ -292,16 +249,13 @@ const HAND_MAINTAINED_BACKENDS: &[(&str, &str)] = &[("typescript-bun", "postgres
 /// Cross-checks `backend_variants()` against the manifests directory and
 /// `coverage-exemptions.txt`, failing the build in both directions — a
 /// manifest with no covering variant and no exemption, or an exemption whose
-/// manifest is covered now — the same ratchet `torture-expected-failures.txt`
-/// uses. See `backend_variants()`'s doc comment for why the entries
+/// manifest is covered now — the usual stale-entry ratchet. See `backend_variants()`'s doc comment for why the entries
 /// themselves cannot be generated from the manifest directly.
 fn validate_manifest_coverage(variants: &[BackendConfig], manifests_dir: &Path, exemptions_path: &Path) {
     let shipped = discover_manifest_pairs(manifests_dir);
 
     // A variant names the (backend, engine) it *asks* for, but the resolver
-    // can answer with a manifest declared under a different engine (e.g.
-    // csharp-mysqlconnector on mariadb resolves to the mysql manifest, there
-    // being no mariadb manifest for it). So coverage is whatever the real
+    // can answer with a manifest declared under a different engine. So coverage is whatever the real
     // resolver reaches, not a literal pair match -- re-deriving that
     // fallback table here would reintroduce the "two derivations, never
     // cross-checked" shape this check exists to kill.

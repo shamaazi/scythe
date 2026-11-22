@@ -54,50 +54,13 @@ pub struct FixtureConfig {
 #[serde(rename_all = "snake_case")]
 pub enum Engine {
     Postgresql,
-    Mysql,
-    Sqlite,
-    Mssql,
-    Oracle,
-    Mariadb,
-    Redshift,
-    Snowflake,
-    Duckdb,
 }
 
 impl Engine {
-    /// The `sqlkit.toml` engine string this variant corresponds to, which is
-    /// what `SqlDialect::from_str` and `Catalog::with_engine` consume.
+    /// The `sqlkit.toml` engine string this variant corresponds to.
     pub fn as_str(self) -> &'static str {
         match self {
             Engine::Postgresql => "postgresql",
-            Engine::Mysql => "mysql",
-            Engine::Sqlite => "sqlite",
-            Engine::Mssql => "mssql",
-            Engine::Oracle => "oracle",
-            Engine::Mariadb => "mariadb",
-            Engine::Redshift => "redshift",
-            Engine::Snowflake => "snowflake",
-            Engine::Duckdb => "duckdb",
-        }
-    }
-
-    /// The `SqlDialect` variant path to emit, or `None` when the engine is
-    /// PostgreSQL proper.
-    ///
-    /// `None` keeps the generated test on the plain `Catalog::from_ddl` call
-    /// it has always used, so adding engine awareness leaves every
-    /// PostgreSQL fixture's generated test byte-identical.
-    pub fn dialect_path(self) -> Option<&'static str> {
-        match self {
-            Engine::Postgresql => None,
-            Engine::Mysql | Engine::Mariadb => Some("MySQL"),
-            Engine::Sqlite => Some("SQLite"),
-            Engine::Mssql => Some("MsSql"),
-            Engine::Oracle => Some("Oracle"),
-            Engine::Snowflake => Some("Snowflake"),
-            // Redshift and DuckDB parse as PostgreSQL; only the engine name
-            // distinguishes them, and it is what gates nested aggregates.
-            Engine::Redshift | Engine::Duckdb => None,
         }
     }
 }

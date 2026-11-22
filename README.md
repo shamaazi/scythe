@@ -3,13 +3,13 @@
 **Write SQL. Get type-safe TypeScript for Bun, or Rust.**
 
 sqlkit is Shamaazi's fork of [Scythe](https://github.com/Goldziher/scythe), trimmed to what we use:
-PostgreSQL (and SQLite), generating TypeScript for [Bun's built-in SQL client](https://bun.com/docs/runtime/sql)
+PostgreSQL, generating TypeScript for [Bun's built-in SQL client](https://bun.com/docs/runtime/sql)
 and Rust for [sqlx](https://github.com/launchbadge/sqlx) or
 [tokio-postgres](https://github.com/sfackler/rust-postgres). It compiles annotated `.sql` files into
 database access code (row types, query functions and type mappings) that stays in sync with the
 schema. It reads SQL statically, so generation needs no database connection.
 
-Upstream supports ten languages and ten databases; this fork keeps three backends and two engines,
+Upstream supports ten languages and ten databases; this fork keeps three backends and PostgreSQL alone,
 and adds Bun support, per-file output, schema type modules and other PostgreSQL work. The internal
 crates keep upstream's names (`scythe-*`) and layout so PostgreSQL fixes can still be sent
 upstream; the binary, config file (`sqlkit.toml`, with a `[sqlkit]` table), provenance header
@@ -55,9 +55,9 @@ sqlkit = pkgs.rustPlatform.buildRustPackage (final: {
 
 Or with Cargo from a checkout: `cargo install --path crates/scythe-cli`.
 
-Cargo features: `postgres` and `sqlite` select the engines (and their live drivers for `inspect`,
-`check --database-url` and `schema_source = "execute"`), `lang-typescript` and `lang-rust` the
-backends. The default build has all four.
+Cargo features: `postgres` enables the live PostgreSQL driver (for `inspect` and
+`check --database-url`); `lang-typescript` and `lang-rust` select the backends. The default build
+has all three.
 
 ## Quick start
 
@@ -120,7 +120,7 @@ export async function getUserOrders(
 | Backend | Language | Engines | Driver |
 |---------|----------|---------|--------|
 | `typescript-bun` | TypeScript | PostgreSQL | Bun's built-in `SQL` |
-| `rust-sqlx` | Rust | PostgreSQL, SQLite | sqlx |
+| `rust-sqlx` | Rust | PostgreSQL | sqlx |
 | `rust-tokio-postgres` | Rust | PostgreSQL | tokio-postgres |
 
 `typescript-bun` is a driver mode of upstream's postgres.js generator, so `typescript-postgres`
@@ -172,7 +172,7 @@ then `devenv tasks run <task>`.
 | `sqlkit:lint` | `cargo fmt --check` and clippy on the full and minimal builds |
 | `sqlkit:generate` | Regenerate the fixture tests and the integration projects' generated code |
 | `sqlkit:generated-fresh` | Fail if regeneration changes anything |
-| `sqlkit:integration` | The rust-sqlx, rust-tokio-postgres, SQLite and Bun projects against devenv's PostgreSQL |
+| `sqlkit:integration` | The rust-sqlx, rust-tokio-postgres and Bun projects against devenv's PostgreSQL |
 | `sqlkit:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` controls |
 
 There is no CI: run `sqlkit:lint`, `sqlkit:test` and `sqlkit:integration` before pushing. See

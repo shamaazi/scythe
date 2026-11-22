@@ -21,21 +21,15 @@ include = [
 ]
 
 [features]
-default = ["postgres", "sqlite"]
-# One feature per database engine driver. Each pulls in that engine's native
-# client crate (SQLite compiles its bundled C sources), so a
-# build that needs only some engines can disable the rest with
-# `default-features = false`. A disabled engine is still recognised by name:
-# requesting it fails with `InspectError::EngineDisabled`, which names the
-# feature to enable.
+default = ["postgres"]
+# `postgres` pulls in the PostgreSQL client; without it the live checks report
+# `InspectError::EngineDisabled`, naming the feature to enable.
 live-tests = []
 postgres = ["dep:tokio", "dep:tokio-postgres", "dep:tracing"]
-sqlite = ["dep:rusqlite"]
 
 [dependencies]
 async-trait = "0.1"
 regex = "1"
-rusqlite = { version = "0.42", features = ["bundled"], optional = true }
 scythe-core = { path = "../scythe-core", version = "0.20.3" }
 scythe-lint = { path = "../scythe-lint", version = "0.20.3" }
 serde = { version = "1", features = ["derive"] }

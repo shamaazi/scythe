@@ -35,19 +35,16 @@ name = "sqlkit"
 path = "src/main.rs"
 
 [features]
-# Every database engine and every target language. Building with
-# `--no-default-features` and naming only the engines and languages a project
-# uses skips the rest, including the bundled SQLite C build,
+# The PostgreSQL engine and every target language. Building with
+# `--no-default-features` and naming only what a project uses skips the rest,
 # e.g. `--no-default-features --features postgres,lang-typescript`.
-# Configuring an engine or backend left out of the build is a runtime error
-# naming the feature to enable.
+# Configuring a backend left out of the build is a runtime error naming the
+# feature to enable.
 default = ["all-engines", "all-languages"]
-all-engines = ["postgres", "sqlite"]
+all-engines = ["postgres"]
 all-languages = ["lang-rust", "lang-typescript"]
-# Engines. Features that include a driver also enable `scythe inspect`,
-# `schema_source = "execute"` or `scythe check --database-url` for that engine.
+# The engine. It also enables `sqlkit inspect` and `sqlkit check --database-url`.
 postgres = ["dep:tokio-postgres", "scythe-codegen/postgres", "scythe-inspect/postgres"]
-sqlite = ["scythe-codegen/sqlite", "scythe-inspect/sqlite"]
 # Target languages. `lang-typescript` includes the JavaScript variants.
 lang-rust = ["scythe-codegen/lang-rust"]
 lang-typescript = ["scythe-codegen/lang-typescript"]

@@ -24,10 +24,7 @@ use scythe_lint::{
     register_user_rules,
 };
 
-use super::shared::{
-    CatalogLoadRequest, LoadedCatalog, ParseSeverities, SchemaSource, config_dir, load_catalog, resolve_globs,
-    validate_schema_source,
-};
+use super::shared::{CatalogLoadRequest, LoadedCatalog, ParseSeverities, config_dir, load_catalog, resolve_globs};
 
 const TOOL_NAME: &str = "sqlkit-audit";
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -520,8 +517,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         queries: Vec<String>,
         #[serde(default)]
         engine: String,
-        #[serde(default)]
-        schema_source: SchemaSource,
     }
 
     if !Path::new(config_path).exists() {
@@ -532,10 +527,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
-
-    for sql_config in &config.sql {
-        validate_schema_source("audit", &sql_config.name, &sql_config.engine, sql_config.schema_source)?;
-    }
 
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
@@ -611,7 +602,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
             engine: engine_label,
             dialect: sql_dialect,
             schema_files: &schema_files,
-            source: sql_config.schema_source,
         })?;
 
         for (path, content) in schema_files.iter().zip(schema_contents.iter()) {

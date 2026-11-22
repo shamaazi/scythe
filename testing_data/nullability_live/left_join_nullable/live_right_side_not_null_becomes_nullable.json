@@ -38,7 +38,7 @@
   },
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql", "sqlite"],
+    "engines": ["postgresql"],
     "runs": [
       {
         "name": "one_matched_one_unmatched",

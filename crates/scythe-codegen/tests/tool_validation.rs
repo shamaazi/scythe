@@ -19,11 +19,8 @@ use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::parse_query_with_dialect;
 
-// ~keep #146: the PostgreSQL schema is the one shared by every full
-// generate-and-compile round in this file except the MySQL/SQLite/MSSQL/
-// Oracle/Snowflake ones below (see each dialect's own schema for why those
-// stay SERIAL/TEXT/VARCHAR/TIMESTAMP-only -- PostgreSQL is the only dialect
-// here with a real array element type and `CREATE TYPE`). Before this it
+// ~keep #146: the schema shared by every full generate-and-compile round in
+// this file. Before this it
 // carried zero container or user-defined types, so nothing in this file's
 // ~20 PostgreSQL backend tests -- the strongest gate in the project -- ever
 // asked a real compiler to accept an array, an enum, an array of enums, a
@@ -59,98 +56,6 @@ const QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
 const QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
     DELETE FROM users WHERE id = $1;";
 
-// ~keep #146: MySQL has no `CREATE TYPE` and no array element type, but it
-// does have an inline `ENUM(...)` column -- a real user-defined-type family
-// this file's MySQL-backed tests (ruby-trilogy, csharp-mysqlconnector,
-// elixir-myxql, javascript-mysql2) had no coverage of at all. `role` is
-// selected by `MYSQL_QUERY_ONE` for the same reason `role` was added to the
-// PostgreSQL `QUERY_ONE` above -- an unselected column proves nothing.
-const MYSQL_SCHEMA: &str = "CREATE TABLE users (\
-    id INT AUTO_INCREMENT PRIMARY KEY, \
-    name VARCHAR(255) NOT NULL, \
-    email VARCHAR(255), \
-    status VARCHAR(50) NOT NULL DEFAULT 'active', \
-    role ENUM('member', 'admin') NOT NULL DEFAULT 'member', \
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP\
-);";
-
-const MYSQL_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
-    SELECT id, name, email, status, role, created_at FROM users WHERE id = ?;";
-
-const MYSQL_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
-    SELECT id, name, email FROM users ORDER BY name;";
-
-const MYSQL_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
-    DELETE FROM users WHERE id = ?;";
-
-const SQLITE_SCHEMA: &str = "CREATE TABLE users (\
-    id INTEGER PRIMARY KEY AUTOINCREMENT, \
-    name TEXT NOT NULL, \
-    email TEXT, \
-    status TEXT NOT NULL DEFAULT 'active', \
-    created_at TEXT NOT NULL\
-);";
-
-const SQLITE_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
-    SELECT id, name, email, status, created_at FROM users WHERE id = ?;";
-
-const SQLITE_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
-    SELECT id, name, email FROM users ORDER BY name;";
-
-const SQLITE_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
-    DELETE FROM users WHERE id = ?;";
-
-const MSSQL_SCHEMA: &str = "CREATE TABLE users (\
-    id INT IDENTITY(1,1) PRIMARY KEY, \
-    name NVARCHAR(255) NOT NULL, \
-    email NVARCHAR(255), \
-    status NVARCHAR(50) NOT NULL DEFAULT 'active', \
-    created_at DATETIME2 NOT NULL\
-);";
-
-const MSSQL_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
-    SELECT id, name, email, status, created_at FROM users WHERE id = @p1;";
-
-const MSSQL_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
-    SELECT id, name, email FROM users ORDER BY name;";
-
-const MSSQL_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
-    DELETE FROM users WHERE id = @p1;";
-
-const ORACLE_SCHEMA: &str = "CREATE TABLE users (\
-    id NUMBER(10) PRIMARY KEY, \
-    name VARCHAR2(255) NOT NULL, \
-    email VARCHAR2(255), \
-    status VARCHAR2(50) DEFAULT 'active' NOT NULL, \
-    created_at TIMESTAMP NOT NULL\
-);";
-
-const ORACLE_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
-    SELECT id, name, email, status, created_at FROM users WHERE id = :1;";
-
-const ORACLE_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
-    SELECT id, name, email FROM users ORDER BY name;";
-
-const ORACLE_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
-    DELETE FROM users WHERE id = :1;";
-
-const SNOWFLAKE_SCHEMA: &str = "CREATE TABLE users (\
-    id INTEGER PRIMARY KEY, \
-    name VARCHAR(255) NOT NULL, \
-    email VARCHAR(255), \
-    status VARCHAR(50) NOT NULL DEFAULT 'active', \
-    created_at TIMESTAMP_NTZ NOT NULL\
-);";
-
-const SNOWFLAKE_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
-    SELECT id, name, email, status, created_at FROM users WHERE id = ?;";
-
-const SNOWFLAKE_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
-    SELECT id, name, email FROM users ORDER BY name;";
-
-const SNOWFLAKE_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
-    DELETE FROM users WHERE id = ?;";
-
 fn generate_full_file(backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").unwrap();
     generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::PostgreSQL)
@@ -163,37 +68,7 @@ fn generate_full_file_with_options(backend_name: &str, options: &std::collection
 }
 
 fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBackend, dialect: &SqlDialect) -> String {
-    // ~keep The engine alias is carried alongside the fixtures purely so the
-    // provenance header this harness emits below says something truthful;
-    // nothing about the languages' acceptance of that line depends on it.
-    let (schema, queries, engine) = match dialect {
-        SqlDialect::MySQL => (
-            MYSQL_SCHEMA,
-            [MYSQL_QUERY_ONE, MYSQL_QUERY_MANY, MYSQL_QUERY_EXEC],
-            "mysql",
-        ),
-        SqlDialect::SQLite => (
-            SQLITE_SCHEMA,
-            [SQLITE_QUERY_ONE, SQLITE_QUERY_MANY, SQLITE_QUERY_EXEC],
-            "sqlite",
-        ),
-        SqlDialect::MsSql => (
-            MSSQL_SCHEMA,
-            [MSSQL_QUERY_ONE, MSSQL_QUERY_MANY, MSSQL_QUERY_EXEC],
-            "mssql",
-        ),
-        SqlDialect::Oracle => (
-            ORACLE_SCHEMA,
-            [ORACLE_QUERY_ONE, ORACLE_QUERY_MANY, ORACLE_QUERY_EXEC],
-            "oracle",
-        ),
-        SqlDialect::Snowflake => (
-            SNOWFLAKE_SCHEMA,
-            [SNOWFLAKE_QUERY_ONE, SNOWFLAKE_QUERY_MANY, SNOWFLAKE_QUERY_EXEC],
-            "snowflake",
-        ),
-        _ => (SCHEMA, [QUERY_ONE, QUERY_MANY, QUERY_EXEC], "postgresql"),
-    };
+    let (schema, queries, engine) = (SCHEMA, [QUERY_ONE, QUERY_MANY, QUERY_EXEC], "postgresql");
 
     let catalog = Catalog::from_ddl_with_dialect(&[schema], dialect).unwrap();
 
@@ -424,12 +299,12 @@ backend_test_with_options!(test_typescript_bun_camel, "typescript-bun", "field_c
 // -- javascript-* (JSDoc emit mode, #81) -------------------------------------
 //
 // These backends reuse `generate_full_file*`/`backend_test!` above for
-// their `:one`/`:many`/`:exec` coverage (each dialect's schema already has
+// their `:one`/`:many`/`:exec` coverage (the schema already has
 // a nullable `email` column, so that path is exercised for free). The tests
 // below add the two cases #81's release plan calls out explicitly and that
 // produced real defects during development: a nullable column emitting
 // `{T | null}` (never JSDoc's bracket-optional or `?`-suffix syntax), and a
-// `:grouped` query (where the mysql2/better-sqlite3 untyped-return defects
+// `:grouped` query (where untyped-return defects
 // lived). Both are run through `validate_with_tools`, which for a
 // `javascript-*` backend name now shells out to real `node --check` and
 // (if present) real `tsc --checkJs --strict` -- see `validate_javascript_tools`
@@ -603,43 +478,23 @@ fn test_javascript_bun_grouped_and_nullable_pass_real_tools() {
 ///   did it to shorten the list.
 ///
 /// Rust is the sharpest entry: `validate_structural` returns `vec![]` for the
-/// four `rust-*` backends too. Their generated suites parse all four with
+/// two `rust-*` backends too. Their generated suites parse both with
 /// `syn`, but this file still has no real driver-backed validator for them.
 #[cfg(all(feature = "lang-rust", feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
     const NO_TOOL_VALIDATOR: &[&str] = &[
-        // C#: every backend here references a NuGet-only driver (Npgsql,
-        // MySqlConnector, Microsoft.Data.Sqlite, Microsoft.Data.SqlClient,
-        // Oracle.ManagedDataAccess.Core, Snowflake.Data.Client). `using
-        // Npgsql;` with no compiled `Npgsql.dll` on the reference path is a
-        // hard `CS0246` -- unlike Elixir's soft "module not available"
-        // warning below -- so there is no stub-free path through `dotnet
-        // build`/`csc`, and six distinct driver APIs is too much surface to
-        // hand-stub credibly.
         // Rust: `rust-sqlx` expands `sqlx::query_as!`/`sqlx::query!` at
         // compile time, needing either a live database or an `SQLX_OFFLINE`
-        // `.sqlx` query cache. `rust-tokio-postgres`/`rust-tiberius`/
-        // `rust-sibyl` reference their driver crates by fully-qualified path
+        // `.sqlx` query cache. `rust-tokio-postgres` references its driver crate by fully-qualified path
         // with no `use` to stub around, so resolving them needs `--extern`
         // pointing at real compiled `.rlib`s -- a full Cargo dependency graph
         // per backend. The generated suite provides `syn::parse_file` syntax
-        // coverage for all four, and `crates/scythe-cli/tests/compile_check.rs`
+        // coverage for both, and `crates/scythe-cli/tests/compile_check.rs`
         // additionally reaches `rust-sqlx`; neither is a real driver-backed
         // validator, so these remain in this inventory.
         "rust-sqlx",
         "rust-tokio-postgres",
-        // `kotlin-exposed` needs the Exposed DSL framework (`transaction { }`,
-        // `exec(sql, args) { rs -> }`, a `*ColumnType` per scalar);
-        // `kotlin-r2dbc` needs `kotlinx.coroutines.flow.Flow` plus the
-        // `awaitFirst`/`asFlow` suspend bridges, whose stubs would have to
-        // reproduce the coroutines compiler plugin's view of `suspend`.
-        // `kotlin-jdbc` itself has a real `kotlinc` validator -- see
-        // `validate_kotlin_tools` -- because it touches nothing but
-        // `java.sql`/`java.math`/`java.time`. `java-r2dbc` has a real `javac`
-        // one now too: R2DBC SPI and Reactor turned out to be stubbable
-        // faithfully (`tests/java_stubs/`) where the coroutines runtime is
-        // not.
     ];
 
     for backend in NO_TOOL_VALIDATOR {

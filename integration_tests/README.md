@@ -7,12 +7,10 @@ engine combination:
 |---------|---------|--------|
 | `rust-sqlx` | `rust-sqlx` | PostgreSQL |
 | `rust-sqlx-nested-json` | `rust-sqlx` with nested aggregates | PostgreSQL |
-| `rust-sqlx-sqlite` | `rust-sqlx` | SQLite |
 | `rust-tokio-postgres` | `rust-tokio-postgres` | PostgreSQL |
 | `typescript-bun` | `typescript-bun` | PostgreSQL |
 
-Each harness applies its own schema from `sql/pg/schema.sql` or `sql/sqlite/schema.sql`.
-`sql/torture/` is a wider PostgreSQL schema for stress-testing the generators.
+Each harness applies its own schema from `sql/pg/schema.sql`.
 
 ## Running them
 
@@ -21,12 +19,12 @@ devenv tasks run sqlkit:integration
 ```
 
 The task starts devenv's PostgreSQL (port 5433, database `scythe_test`, user and password `scythe`)
-and runs every project; the SQLite project uses a temporary database file.
+and runs every project.
 
 ## How these directories are produced
 
-`tools/integration-test-generator` renders the `rust-sqlx`, `rust-sqlx-sqlite` and
-`rust-tokio-postgres` scaffolding (`sqlkit.toml`, the harness and `Cargo.toml`) from
+`tools/integration-test-generator` renders the `rust-sqlx` and `rust-tokio-postgres`
+scaffolding (`sqlkit.toml`, the harness and `Cargo.toml`) from
 `tools/integration-test-generator/templates/`; `rust-sqlx-nested-json` and `typescript-bun` are kept
 by hand. `sqlkit generate` then writes each project's query code. Never hand-edit generated files:
 change the generator or the templates, run `devenv tasks run sqlkit:generate` and commit the result.

@@ -4,10 +4,8 @@
 //!
 //! The other half of #82 — removing the implicit, working-directory-relative
 //! `backends/<name>/manifest.toml` lookup — is covered by
-//! `manifest_determinism.rs`. That lookup was engine-blind: all five
-//! `rust-sqlx` engine arms probed the same path and `java-jdbc` collapsed
-//! nine engines onto one, so a MySQL target could silently receive
-//! PostgreSQL type mappings. The replacement is therefore keyed per
+//! `manifest_determinism.rs`. That lookup was global, so one
+//! override applied to every target using the backend. The replacement is therefore keyed per
 //! `[[sql.gen]]` target — which already names a backend and inherits its
 //! engine from the enclosing `[[sql]]` block — and never globally by backend
 //! name. `override_is_per_target_not_global_across_engines` is the
@@ -243,7 +241,7 @@ fn unknown_section_errors_naming_backend_and_key() {
 #[test]
 fn backend_section_is_rejected() {
     let (dir, config_path) = project(&config_with_manifest(r#"manifest = "custom.toml""#));
-    std::fs::write(dir.path().join("custom.toml"), "[backend]\nengine = \"mysql\"\n").unwrap();
+    std::fs::write(dir.path().join("custom.toml"), "[backend]\nengine = \"other\"\n").unwrap();
 
     let output = generate_from(&config_path, dir.path());
     assert!(!output.status.success(), "a [backend] override must fail the run");
@@ -308,7 +306,7 @@ fn missing_override_file_errors_naming_the_resolved_path() {
 }
 
 /// Requirement 5: the engine-blindness guard. Two `[[sql]]` blocks use the
-/// *same* backend name (`rust-sqlx`) under *different* engines, each with its
+/// *same* backend name (`rust-sqlx`) in two blocks, each with its
 /// own override. Each target must pick up its own file and only its own —
 /// the failure mode of the removed global, engine-blind lookup was handing
 /// one manifest to every engine.
@@ -317,7 +315,7 @@ fn override_is_per_target_not_global_across_engines() {
     let dir = TempDir::new().unwrap();
     write_sources(dir.path());
     std::fs::write(dir.path().join("pg.toml"), int64_overlay("PostgresOnlySentinel")).unwrap();
-    std::fs::write(dir.path().join("my.toml"), int64_overlay("SqliteOnlySentinel")).unwrap();
+    std::fs::write(dir.path().join("my.toml"), int64_overlay("SecondTargetSentinel")).unwrap();
 
     let config = r#"[sqlkit]
 version = "1"
@@ -335,7 +333,7 @@ manifest = "pg.toml"
 
 [[sql]]
 name = "my"
-engine = "sqlite"
+engine = "postgres"
 schema = ["schema.sql"]
 queries = ["queries.sql"]
 
@@ -358,16 +356,16 @@ manifest = "my.toml"
         "the postgres target must use its own override, got:\n{pg}"
     );
     assert!(
-        !pg.contains("SqliteOnlySentinel"),
-        "the sqlite target's override must not leak into the postgres target, got:\n{pg}"
+        !pg.contains("SecondTargetSentinel"),
+        "the second target's override must not leak into the postgres target, got:\n{pg}"
     );
     assert!(
-        my.contains("SqliteOnlySentinel"),
-        "the sqlite target must use its own override, got:\n{my}"
+        my.contains("SecondTargetSentinel"),
+        "the second target must use its own override, got:\n{my}"
     );
     assert!(
         !my.contains("PostgresOnlySentinel"),
-        "the postgres target's override must not leak into the sqlite target, got:\n{my}"
+        "the postgres target's override must not leak into the second target, got:\n{my}"
     );
 }
 

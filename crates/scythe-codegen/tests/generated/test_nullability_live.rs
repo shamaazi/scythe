@@ -791,7 +791,7 @@ fn test_live_coalesce_with_literal_default_is_never_null() {
 #[test]
 fn test_live_age_on_nullable_operand_is_null() {
     // From: testing_data/nullability_live/date_functions/live_age_on_nullable_operand_is_null.json
-    // "AGE over a nullable operand is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised AGE at all, so a fix that only changed the analyzer's model of AGE(NOW(), NULL) could regress silently. AGE is PostgreSQL-only (no MySQL/MariaDB/SQLite/MSSQL/Oracle equivalent that this suite's single shared query_sql could target), so this fixture runs on postgresql alone."
+    // "AGE over a nullable operand is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised AGE at all, so a fix that only changed the analyzer's model of AGE(NOW(), NULL) could regress silently."
     let schema_sql = &["CREATE TABLE accounts (id SERIAL PRIMARY KEY, deleted_at TIMESTAMPTZ);"];
 
     let query_sql =
@@ -1269,7 +1269,7 @@ fn test_live_right_side_not_null_becomes_nullable() {
 #[test]
 fn test_live_power_sqrt_on_nullable_operand_is_null() {
     // From: testing_data/nullability_live/math_functions/live_power_sqrt_on_nullable_operand_is_null.json
-    // "POWER and SQRT over a nullable operand are observed NULL against live engines, not merely asserted from the model -- the #163 gap: no live fixture exercised either function, so a fix that only changed the analyzer's model could regress silently. SQLite is excluded: this suite's SQLite leg links rusqlite's bundled amalgamation, and libsqlite3-sys's build.rs does not pass -DSQLITE_ENABLE_MATH_FUNCTIONS, so SQRT/POWER are compiled out there too, not merely absent from the system sqlite3 binary -- see the sqlite_leg_lacks_math_functions regression test in crates/scythe-conformance/tests/live.rs, which fails the build if that ever stops being true."
+    // "POWER and SQRT over a nullable operand are observed NULL against live engines, not merely asserted from the model -- the #163 gap: no live fixture exercised either function, so a fix that only changed the analyzer's model could regress silently."
     let schema_sql = &["CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION);"];
 
     let query_sql = "-- @name PowerSqrtLive\n-- @returns :many\nSELECT id, POWER(value, 2) AS squared, SQRT(value) AS root FROM measurements ORDER BY id";
@@ -1741,7 +1741,7 @@ fn test_live_nullif_with_equal_operands_is_null() {
 #[test]
 fn test_live_like_on_nullable_operand_is_null() {
     // From: testing_data/nullability_live/pattern_matching/live_like_on_nullable_operand_is_null.json
-    // "LIKE over a nullable column is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised LIKE at all, so a fix that only changed the analyzer's model of NULL LIKE 'x' could regress silently. Restricted to the engines where a LIKE predicate is a legal value expression in a select list: T-SQL and Oracle have no boolean type there, so MSSQL fails with 'Incorrect syntax near the keyword LIKE' and Oracle with ORA-00923 before any nullability is observed. Covering them needs a CASE wrapper, and the harness runs one literal query_sql per engine with no per-engine rewrite."
+    // "LIKE over a nullable column is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised LIKE at all, so a fix that only changed the analyzer's model of NULL LIKE 'x' could regress silently."
     let schema_sql = &[
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];

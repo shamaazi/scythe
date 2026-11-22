@@ -49,43 +49,24 @@ const TS_BACKENDS: [(&str, &str, SqlDialect); 2] = [
     ("typescript-bun", "postgresql", SqlDialect::PostgreSQL),
 ];
 
-/// The identifier-quoting character(s) each dialect's parser accepts, and a
-/// schema/query pair written with them.
-fn fixture(dialect: &SqlDialect) -> (&'static str, [&'static str; 3]) {
-    match dialect {
-        SqlDialect::MySQL => (
-            "CREATE TABLE weird (\
-                id INT AUTO_INCREMENT PRIMARY KEY, \
-                `with-dash` VARCHAR(50) NOT NULL, \
-                `my col` VARCHAR(50) NOT NULL, \
-                `2fa` VARCHAR(50) NOT NULL\
-            );",
-            [
-                "-- @name FindWeird\n-- @returns :one\n\
-                 SELECT id, `with-dash`, `my col`, `2fa` FROM weird WHERE id = ?;",
-                "-- @name ListWeird\n-- @returns :many\n\
-                 SELECT id, `with-dash`, `my col`, `2fa` FROM weird;",
-                "-- @name AddWeird\n-- @returns :batch\n\
-                 INSERT INTO weird (`with-dash`, `my col`, `2fa`) VALUES (?, ?, ?);",
-            ],
-        ),
-        _ => (
-            "CREATE TABLE weird (\
+/// A schema/query pair whose column names need quoting.
+fn fixture(_dialect: &SqlDialect) -> (&'static str, [&'static str; 3]) {
+    (
+        "CREATE TABLE weird (\
                 id INT PRIMARY KEY, \
                 \"with-dash\" VARCHAR(50) NOT NULL, \
                 \"my col\" VARCHAR(50) NOT NULL, \
                 \"2fa\" VARCHAR(50) NOT NULL\
             );",
-            [
-                "-- @name FindWeird\n-- @returns :one\n\
+        [
+            "-- @name FindWeird\n-- @returns :one\n\
                  SELECT id, \"with-dash\", \"my col\", \"2fa\" FROM weird WHERE id = $1;",
-                "-- @name ListWeird\n-- @returns :many\n\
+            "-- @name ListWeird\n-- @returns :many\n\
                  SELECT id, \"with-dash\", \"my col\", \"2fa\" FROM weird;",
-                "-- @name AddWeird\n-- @returns :batch\n\
+            "-- @name AddWeird\n-- @returns :batch\n\
                  INSERT INTO weird (\"with-dash\", \"my col\", \"2fa\") VALUES ($1, $2, $3);",
-            ],
-        ),
-    }
+        ],
+    )
 }
 
 /// The `javascript-*` (JSDoc emit mode, #81) counterpart of [`TS_BACKENDS`].
@@ -176,9 +157,9 @@ fn tool_check(backend_name: &str, file: &str) {
 
 /// This must fail before the fix on every backend: a `:batch` params
 /// interface spliced `p.field_name` in bare (`2fa: string;`), the per-item
-/// bind read it back with `item.2fa`, and the pg/mysql2 row remaps read
+/// bind read it back with `item.2fa`, and the pg row remaps read
 /// driver rows with `row.my col`.
-#[cfg(all(feature = "lang-typescript", feature = "postgres", feature = "sqlite"))]
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn every_typescript_backend_quotes_non_identifier_column_names() {
     for (backend_name, engine, dialect) in TS_BACKENDS {
@@ -218,7 +199,7 @@ fn every_typescript_backend_quotes_non_identifier_column_names() {
 /// parseable JSDoc name token (a whitespace-containing one splits into a
 /// name and a bogus description; a leading digit is not a valid identifier
 /// start either).
-#[cfg(all(feature = "lang-typescript", feature = "postgres", feature = "sqlite"))]
+#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]
 fn every_javascript_backend_describes_non_identifier_columns_with_a_quoted_typedef_key() {
     for (backend_name, engine, dialect) in JS_BACKENDS {

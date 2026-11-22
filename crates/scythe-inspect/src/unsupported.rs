@@ -1,17 +1,5 @@
-//! The driver used for every engine `sqlkit inspect` does not implement.
-//!
-//! Live inspection now covers PostgreSQL and MySQL/MariaDB (see
-//! [`crate::postgres::PostgresDriver`] and [`crate::mysql::MySqlDriver`]); every
-//! other engine — SQLite, MSSQL, Oracle, Snowflake, Redshift — has no `SC-INS`
-//! checks and no equivalent this crate implements. That gap is real and is
-//! tracked separately; what this module fixes is the *diagnostic*.
-//!
-//! Before this, the dispatch fell through to a MySQL stub for every
-//! unimplemented engine, so a SQLite user was told `engine "mysql" is not yet
-//! supported` — an engine they never mentioned. That reads as a scythe bug
-//! rather than an unsupported-engine notice and sends the reader looking for a
-//! defect that is not there. [`UnsupportedDriver`] carries the engine the user
-//! actually asked for, so the message names it.
+//! The driver for an engine `sqlkit inspect` does not implement: anything but PostgreSQL. It
+//! refuses every operation with an error naming the engine the user asked for.
 
 use async_trait::async_trait;
 use scythe_lint::reporters::Finding;
@@ -37,13 +25,11 @@ impl UnsupportedDriver {
     }
 
     fn unsupported(&self) -> InspectError {
-        // Only PostgreSQL and MySQL/MariaDB have inspection drivers; every
-        // other engine is unsupported here whether or not its feature is on.
+        // Only PostgreSQL has an inspection driver.
         match disabled_engine(&self.engine) {
             Some(
                 error @ InspectError::EngineDisabled {
-                    feature: "postgres" | "mysql",
-                    ..
+                    feature: "postgres", ..
                 },
             ) => error,
             _ => InspectError::Unsupported {
@@ -59,17 +45,14 @@ impl UnsupportedDriver {
 ///
 /// Callers dispatch to a driver only under that driver's Cargo feature and
 /// fall back here, so a disabled engine is reported as a missing feature
-/// rather than as an engine scythe does not support.
+/// rather than as an unsupported engine.
 pub fn disabled_engine(engine: &str) -> Option<InspectError> {
     // Each driver feature, the engine names it serves, and whether this build has it.
-    const DRIVERS: &[(&str, &[&str], bool)] = &[
-        (
-            "postgres",
-            &["postgres", "postgresql", "pg", "cockroachdb", "crdb"],
-            cfg!(feature = "postgres"),
-        ),
-        ("sqlite", &["sqlite", "sqlite3"], cfg!(feature = "sqlite")),
-    ];
+    const DRIVERS: &[(&str, &[&str], bool)] = &[(
+        "postgres",
+        &["postgres", "postgresql", "pg"],
+        cfg!(feature = "postgres"),
+    )];
     let engine_lower = engine.to_ascii_lowercase();
     let (feature, _, _) = DRIVERS
         .iter()
@@ -103,51 +86,41 @@ impl DbDriver for UnsupportedDriver {
 mod tests {
     use super::*;
 
-    /// The defect this type exists for: a SQLite user must not be told about
-    /// MySQL. Both the error and `engine()` have to agree with the request.
+    /// Both the error and `engine()` have to agree with the engine requested.
     #[test]
-    fn should_report_the_requested_engine_when_the_engine_is_sqlite() {
-        let driver = UnsupportedDriver::new("sqlite");
-        assert_eq!(driver.engine(), "sqlite");
+    fn should_report_the_requested_engine() {
+        let driver = UnsupportedDriver::new("nosuchdb");
+        assert_eq!(driver.engine(), "nosuchdb");
     }
 
     #[tokio::test]
-    async fn should_fail_connect_naming_sqlite_when_the_engine_is_sqlite() {
-        let mut driver = UnsupportedDriver::new("sqlite");
-        let error = driver.connect("sqlite://app.db").await.unwrap_err();
+    async fn should_fail_connect_naming_the_requested_engine() {
+        let mut driver = UnsupportedDriver::new("nosuchdb");
+        let error = driver.connect("nosuchdb://app").await.unwrap_err();
 
         let InspectError::Unsupported { engine } = &error else {
             panic!("expected Unsupported, got {error:?}");
         };
-        assert_eq!(engine, "sqlite");
-        // ~keep Checks the *subject* of the message, not bare substring
-        // presence: MySQL is now a supported engine the message names in its
-        // list, so `!contains("mysql")` would fail for a message that is
-        // entirely correct.
+        assert_eq!(engine, "nosuchdb");
         let rendered = error.to_string();
         assert!(
-            rendered.starts_with("engine `sqlite` is not supported"),
+            rendered.starts_with("engine `nosuchdb` is not supported"),
             "the message must name the engine the user actually asked for: {rendered}"
-        );
-        assert!(
-            !rendered.contains("engine `mysql`"),
-            "the message must not name an engine the user never asked for: {rendered}"
         );
     }
 
     #[tokio::test]
     async fn should_fail_run_all_naming_the_engine_when_never_connected() {
-        let mut driver = UnsupportedDriver::new("snowflake");
+        let mut driver = UnsupportedDriver::new("nosuchdb");
         let error = driver.run_all().await.unwrap_err();
-        assert!(matches!(&error, InspectError::Unsupported { engine } if engine == "snowflake"));
+        assert!(matches!(&error, InspectError::Unsupported { engine } if engine == "nosuchdb"));
     }
 
     #[test]
     fn should_report_a_disabled_engine_only_when_its_feature_is_off() {
         assert_eq!(disabled_engine("PostgreSQL").is_some(), !cfg!(feature = "postgres"));
-        assert_eq!(disabled_engine("sqlite3").is_some(), !cfg!(feature = "sqlite"));
         assert!(
-            disabled_engine("snowflake").is_none(),
+            disabled_engine("nosuchdb").is_none(),
             "an engine with no driver is unsupported, not disabled"
         );
     }
@@ -163,6 +136,6 @@ mod tests {
 
     #[test]
     fn should_expose_an_empty_check_catalog_for_an_unsupported_engine() {
-        assert!(UnsupportedDriver::new("mariadb").checks().is_empty());
+        assert!(UnsupportedDriver::new("nosuchdb").checks().is_empty());
     }
 }

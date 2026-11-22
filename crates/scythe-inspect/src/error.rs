@@ -2,35 +2,6 @@
 
 use thiserror::Error;
 
-/// Safe, stable categories for schema-file failures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(C)]
-pub enum SchemaExecutionErrorCategory {
-    /// The schema file could not be read.
-    Read,
-    /// The embedded database rejected the schema SQL.
-    SqlRejected,
-}
-
-impl SchemaExecutionErrorCategory {
-    /// Stable code suitable for conversion at language boundaries.
-    pub const fn code(self) -> &'static str {
-        match self {
-            Self::Read => "SCHEMA_READ_ERROR",
-            Self::SqlRejected => "SCHEMA_SQL_REJECTED",
-        }
-    }
-}
-
-impl std::fmt::Display for SchemaExecutionErrorCategory {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Read => formatter.write_str("schema file could not be read"),
-            Self::SqlRejected => formatter.write_str("database rejected schema SQL"),
-        }
-    }
-}
-
 /// Render an error together with its full `source()` chain.
 ///
 /// `tokio_postgres::Error` displays as a bare `"db error"` — the SQLSTATE and
@@ -51,23 +22,6 @@ pub fn error_chain(error: &dyn std::error::Error) -> String {
 /// or interpreting a connection URL.
 #[derive(Debug, Error)]
 pub enum InspectError {
-    /// Reading or executing one configured schema file failed.
-    #[error(
-        "{engine} schema file `{path}` failed while {operation} [{code}]: {category}",
-        code = category.code(),
-        path = path.display()
-    )]
-    SchemaExecution {
-        /// Engine executing the schema.
-        engine: &'static str,
-        /// File whose read or execution failed.
-        path: std::path::PathBuf,
-        /// Operation in progress when the failure occurred.
-        operation: &'static str,
-        /// Sanitized category. The engine error is deliberately not retained because it may echo SQL.
-        category: SchemaExecutionErrorCategory,
-    },
-
     /// Engine introspection produced definitions rejected by the catalog boundary.
     #[error("{engine} catalog construction failed while {operation}: {source}")]
     CatalogConstruction {
@@ -115,12 +69,12 @@ pub enum InspectError {
     ///
     /// Carries the engine the *user* asked for, not the engine of whichever
     /// driver happened to be constructed. Naming the wrong engine here reads
-    /// as a scythe bug rather than an unsupported-engine notice, and sends the
+    /// as a bug rather than an unsupported-engine notice, and sends the
     /// reader looking for a defect that is not there.
     #[error(
         "engine `{engine}` is not supported by `sqlkit inspect` — live inspection, \
          schema drift and the SC-INS checks are implemented for PostgreSQL \
-         (`postgres`, `postgresql`) and MySQL/MariaDB (`mysql`, `mariadb`) only"
+         (`postgres`, `postgresql`) only"
     )]
     Unsupported {
         /// The engine name as the user spelled it (URL scheme or `--dialect`).
@@ -160,7 +114,7 @@ pub enum InspectError {
         check_id: String,
         /// The `{var}` name, which is also the projected column name.
         binding: String,
-        /// Engine that reported the type (e.g. `"postgres"`, `"mysql"`).
+        /// Engine that reported the type (`"postgres"`).
         engine: &'static str,
         /// The driver-reported type name for that column.
         type_name: String,
@@ -319,20 +273,14 @@ mod tests {
     }
 
     /// The unsupported-engine message must name the engine the user asked for.
-    /// Naming a different one sends the reader hunting for a scythe bug.
+    /// Naming a different one sends the reader hunting for a bug.
     #[test]
     fn should_name_the_requested_engine_when_it_is_unsupported() {
         let error = InspectError::Unsupported {
-            engine: "sqlite".to_string(),
+            engine: "nosuchdb".to_string(),
         };
         let rendered = error.to_string();
-        assert!(rendered.starts_with("engine `sqlite` is not supported"), "{rendered}");
-        // ~keep A bare `!contains("mysql")` used to stand in for this, and
-        // stopped meaning anything once MySQL became a supported engine the
-        // message legitimately lists. What must never happen is naming some
-        // other engine as the *subject* of the failure -- the original defect,
-        // where a SQLite user was told `engine "mysql" is not supported`.
-        assert!(!rendered.contains("engine `mysql`"), "{rendered}");
+        assert!(rendered.starts_with("engine `nosuchdb` is not supported"), "{rendered}");
         assert!(!rendered.contains("engine `postgres`"), "{rendered}");
     }
 
@@ -350,18 +298,5 @@ mod tests {
              postgres type `numeric`, which cannot be rendered as text — cast it to text in the \
              check's SQL and re-alias it as `ratio`"
         );
-    }
-
-    /// The variant is shared across drivers — a MySQL check's error must name
-    /// `mysql`, not carry over PostgreSQL's label.
-    #[test]
-    fn should_name_the_engine_that_reported_an_unrenderable_type() {
-        let error = InspectError::UnrenderableBinding {
-            check_id: "SC-INS-MY03".to_string(),
-            binding: "max_value".to_string(),
-            engine: "mysql",
-            type_name: "decimal".to_string(),
-        };
-        assert!(error.to_string().contains("mysql type `decimal`"), "{error}");
     }
 }

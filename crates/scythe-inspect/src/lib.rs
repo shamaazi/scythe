@@ -7,34 +7,15 @@
 //!
 //! ## Engines
 //!
-//! **The `SC-INS` health checks are implemented for PostgreSQL and
-//! MySQL/MariaDB.** [`PostgresDriver`] (backed by `tokio-postgres`) and
-//! [`mysql::MySqlDriver`] (backed by `mysql_async`) are the two drivers
-//! implementing them, each from its own TOML-driven check registry
-//! (`postgres/checks.toml`, `mysql/checks.toml`) merged into one
-//! [`CheckRegistry`] by [`CheckRegistry::canonical`]. The two check sets are
-//! not symmetric: PostgreSQL's row-level-security, extension and
-//! `SECURITY DEFINER` search-path checks have no MySQL equivalent and are not
-//! approximated there, and query verification
-//! ([`verify_queries`]) uses PostgreSQL's extended-query protocol describe
-//! response, which MySQL has no equivalent driver call for.
+//! The `SC-INS` health checks run against PostgreSQL through [`PostgresDriver`] (backed by
+//! `tokio-postgres`), from the TOML check registry `postgres/checks.toml`. Any other engine gets
+//! [`UnsupportedDriver`], which refuses every operation with [`InspectError::Unsupported`]
+//! naming that engine rather than reporting an empty, clean-looking result.
 //!
-//! Every engine with no [`DbDriver`] implementation — SQLite, MSSQL, Oracle,
-//! Snowflake, Redshift — gets [`UnsupportedDriver`], which refuses every
-//! operation with [`InspectError::Unsupported`] naming *that* engine. It
-//! deliberately does not pretend to connect and does not return an empty
-//! finding set: an inspection that reports nothing because it never ran is
-//! indistinguishable from a clean database.
-//!
-//! **Catalog introspection — tables, columns, neutral types, nullability,
-//! primary keys — is a separate, narrower concern from the health checks
-//! above, and it is not PostgreSQL-only.** [`schema_diff::SchemaCatalogDriver`]
-//! is the engine-agnostic trait for reading a live database into a
-//! [`SchemaDescription`]; [`PostgresCatalogSource`] and
-//! [`sqlite::SqliteCatalogSource`] implement it. PostgreSQL also exposes [`fetch_live_catalog`] for code-generation
-//! callers. See [`schema_diff`]'s module docs for why the two concerns are
-//! split and what implementing one gets an engine that implementing the other
-//! does not.
+//! Catalog introspection (tables, columns, neutral types, nullability, primary keys) is a
+//! separate concern: [`schema_diff::SchemaCatalogDriver`] reads a live database into a
+//! [`SchemaDescription`], implemented by [`PostgresCatalogSource`], and [`fetch_live_catalog`]
+//! serves code-generation callers.
 
 pub mod config;
 pub mod driver;
@@ -45,8 +26,6 @@ pub mod postgres;
 pub mod registry;
 pub mod schema_diff;
 pub mod spec;
-#[cfg(feature = "sqlite")]
-pub mod sqlite;
 pub mod suppression;
 pub mod unsupported;
 #[cfg(feature = "postgres")]
@@ -54,7 +33,7 @@ pub mod verify;
 
 pub use config::{InspectConfig, SuppressionRule, parse_inspect_section};
 pub use driver::{CheckCatalogEntry, DbDriver};
-pub use error::{InspectError, SchemaExecutionErrorCategory};
+pub use error::InspectError;
 pub use neutral::normalize_neutral_type;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresDriver;
@@ -66,8 +45,6 @@ pub use schema_diff::{
 #[cfg(feature = "postgres")]
 pub use schema_diff::{PostgresCatalogSource, drift_findings, fetch_live_catalog, fetch_live_schema};
 pub use spec::{CheckCategory, CheckSpec, ConfigError, load_checks_from_file, parse_check_file};
-#[cfg(feature = "sqlite")]
-pub use sqlite::{SqliteCatalogSource, execute_sqlite_schema_files};
 pub use suppression::SuppressionEngine;
 pub use unsupported::{UnsupportedDriver, disabled_engine};
 #[cfg(feature = "postgres")]

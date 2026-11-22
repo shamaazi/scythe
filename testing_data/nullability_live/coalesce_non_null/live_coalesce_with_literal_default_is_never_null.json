@@ -31,7 +31,7 @@
   },
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql", "sqlite"],
+    "engines": ["postgresql"],
     "runs": [
       {
         "name": "one_with_email_one_without",

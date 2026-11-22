@@ -142,7 +142,7 @@ fn audit_from_config_rejects_unknown_engine() {
 #[test]
 fn lint_from_config_still_accepts_a_known_engine_alias() {
     let dir = TempDir::new().unwrap();
-    let config_path = write_project(&dir, "mysql");
+    let config_path = write_project(&dir, "pg");
 
     let output = scythe_bin()
         .args(["lint", "--config", &config_path])

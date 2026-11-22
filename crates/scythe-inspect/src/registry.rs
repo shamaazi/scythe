@@ -97,7 +97,7 @@ impl CheckRegistry {
     /// Iterate checks that apply to `engine`.
     ///
     /// `engine` is matched case-sensitively against the `engines` list of each
-    /// spec. Use `"postgres"` or `"mysql"`.
+    /// spec, e.g. `"postgres"`.
     pub fn for_engine<'a>(&'a self, engine: &'a str) -> impl Iterator<Item = &'a CheckSpec> {
         self.checks
             .iter()
@@ -162,17 +162,12 @@ mod tests {
     fn for_engine_filters_by_engine() {
         use crate::spec::CANONICAL_CHECK_IDS;
         let mut reg = CheckRegistry::canonical();
-        // ~keep "duckdb" rather than "mysql": the canonical registry now carries
-        // its own MySQL checks, so asserting an exact `for_engine("mysql")`
-        // count here would couple this test to how many ship, not to whether
-        // filtering itself works. An engine with no canonical checks isolates
-        // that.
         reg.checks.push(CheckSpec {
-            id: "USER-INS-DUCKDB-01".to_string(),
-            name: "duckdb-only".to_string(),
+            id: "USER-INS-OTHER-01".to_string(),
+            name: "other-engine-only".to_string(),
             category: crate::spec::CheckCategory::Schema,
             severity: scythe_lint::types::Severity::Warn,
-            engines: vec!["duckdb".to_string()],
+            engines: vec!["nosuchdb".to_string()],
             description: "test".to_string(),
             message: "test".to_string(),
             sql: "SELECT 1 AS x".to_string(),
@@ -185,7 +180,7 @@ mod tests {
         });
 
         assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());
-        assert_eq!(reg.for_engine("duckdb").count(), 1);
+        assert_eq!(reg.for_engine("nosuchdb").count(), 1);
     }
 
     #[test]

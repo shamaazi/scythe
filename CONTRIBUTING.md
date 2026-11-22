@@ -47,7 +47,7 @@ scythe-cli
   |-- scythe-codegen
   |     |-- scythe-backend  (manifests, type resolution, naming)
   |     +-- scythe-core     (SQL parsing, catalog, type analysis)
-  |-- scythe-inspect        (live PostgreSQL checks, schema drift, SQLite schema execution)
+  |-- scythe-inspect        (live PostgreSQL checks, schema drift)
   +-- scythe-lint           (lint and audit rules, sqruff integration)
 ```
 
@@ -56,7 +56,7 @@ scythe-cli
 | `crates/scythe-codegen/manifests/` | Backend manifests: type mappings per backend and engine |
 | `crates/scythe-codegen/src/backends/` | `sqlx.rs`, `tokio_postgres.rs`, and `typescript_postgres.rs` (postgres.js and Bun) on `typescript_common.rs` |
 | `crates/scythe-lint/src/rules/` | Lint and audit rules |
-| `crates/scythe-conformance/` | Live nullability conformance suite (PostgreSQL and SQLite) |
+| `crates/scythe-conformance/` | Live nullability conformance suite against PostgreSQL |
 | `testing_data/` | JSON fixtures the test generator turns into tests |
 | `integration_tests/` | Projects that run generated code against real databases |
 | `tools/test-generator/` | Generates `crates/scythe-codegen/tests/generated` from `testing_data/` |
@@ -71,7 +71,7 @@ regenerated files; `sqlkit:generated-fresh` fails otherwise.
 
 ## Integration projects
 
-`rust-sqlx`, `rust-tokio-postgres` and `rust-sqlx-sqlite` are rendered by
+`rust-sqlx` and `rust-tokio-postgres` are rendered by
 `tools/integration-test-generator`; `rust-sqlx-nested-json` and `typescript-bun` are kept by hand.
 Every project must be run by the `sqlkit:integration` task:
 `tools/integration-test-generator/tests/coverage_completeness.rs` fails otherwise.

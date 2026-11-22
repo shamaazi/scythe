@@ -45,21 +45,17 @@ use super::model::SchemaDescription;
 /// Splitting them keeps a driver usable in contexts that only need identity
 /// (e.g. a future `--list-engines`) without touching the network or disk.
 ///
-/// `fetch_schema` takes `&mut self` rather than `&self`: `mysql_async`'s
-/// `Queryable` trait requires an exclusive reference for every query, and a
-/// trait meant to be implemented by more than one driver has to accept the
-/// stricter of the two rather than force each implementation to hide
-/// interior mutability behind a lock it does not otherwise need.
+/// `fetch_schema` takes `&mut self` rather than `&self` so a driver can hold an
+/// exclusively-owned connection.
 #[async_trait]
 pub trait SchemaCatalogDriver: Send {
-    /// Stable engine identifier — e.g. `"sqlite"`, `"mysql"`. Matches the
+    /// Stable engine identifier, e.g. `"postgres"`. Matches the
     /// engine strings [`DbDriver::engine`](crate::driver::DbDriver::engine)
     /// and `scythe_core::dialect::SqlDialect::from_str` use, so a caller that
     /// already resolved an engine name for one can reuse it for the other.
     fn engine(&self) -> &'static str;
 
-    /// Open a connection (or, for an embedded engine like SQLite, a file
-    /// handle) using `url`. Implementations should be idempotent: calling
+    /// Open a connection using `url`. Implementations should be idempotent: calling
     /// `connect` twice replaces any connection already held.
     async fn connect(&mut self, url: &str) -> Result<(), InspectError>;
 
@@ -69,9 +65,7 @@ pub trait SchemaCatalogDriver: Send {
     /// declares — see [`fetch_live_schema`](super::live::fetch_live_schema)'s
     /// doc comment for why PostgreSQL's version unions this with the
     /// connection's search path. Engines with no comparable multi-schema
-    /// scoping (SQLite has exactly one implicit schema per file) are free to
-    /// ignore the parameter; it is part of the trait so a caller does not
-    /// need to special-case engines that do have the concept.
+    /// scoping are free to ignore the parameter.
     async fn fetch_schema(&mut self, declared_schemas: &[String]) -> Result<SchemaDescription, InspectError>;
 }
 

@@ -107,7 +107,7 @@ mod tests {
     fn live_block(runs: Vec<Run>, engine_expectations: AHashMap<Engine, EngineExpectation>) -> LiveBlock {
         LiveBlock {
             schema_profile: "profile".to_string(),
-            engines: vec![Engine::Sqlite],
+            engines: vec![Engine::Postgresql],
             runs,
             null_together: vec![],
             engine_expectations,
@@ -120,7 +120,7 @@ mod tests {
     fn resolve_run_rows_uses_base_rows_when_no_override_is_registered() {
         let r = run("run1", vec![base_row()]);
         let live = live_block(vec![r.clone()], AHashMap::new());
-        let resolved = resolve_run_rows(&live, &r, Engine::Sqlite);
+        let resolved = resolve_run_rows(&live, &r, Engine::Postgresql);
         assert_eq!(resolved, &[base_row()]);
     }
 
@@ -134,9 +134,9 @@ mod tests {
             runs,
         };
         let mut engine_expectations = AHashMap::new();
-        engine_expectations.insert(Engine::Sqlite, exp);
+        engine_expectations.insert(Engine::Postgresql, exp);
         let live = live_block(vec![r.clone()], engine_expectations);
-        let resolved = resolve_run_rows(&live, &r, Engine::Sqlite);
+        let resolved = resolve_run_rows(&live, &r, Engine::Postgresql);
         assert_eq!(resolved, &[override_row()]);
     }
 
@@ -150,9 +150,9 @@ mod tests {
             runs,
         };
         let mut engine_expectations = AHashMap::new();
-        engine_expectations.insert(Engine::Sqlite, exp);
+        engine_expectations.insert(Engine::Postgresql, exp);
         let live = live_block(vec![r.clone()], engine_expectations);
-        let resolved = resolve_run_rows(&live, &r, Engine::Sqlite);
+        let resolved = resolve_run_rows(&live, &r, Engine::Postgresql);
         assert_eq!(resolved, &[base_row()]);
     }
 
@@ -168,7 +168,7 @@ mod tests {
             runs,
         };
         let mut engine_expectations = AHashMap::new();
-        engine_expectations.insert(Engine::Sqlite, exp);
+        engine_expectations.insert(Engine::Postgresql, exp);
         let live = live_block(vec![r], engine_expectations);
         assert!(validate(&live).is_ok());
     }
@@ -183,8 +183,9 @@ mod tests {
             runs,
         };
         let mut engine_expectations = AHashMap::new();
-        engine_expectations.insert(Engine::Postgresql, exp); // live_block only lists SQLite
-        let live = live_block(vec![r], engine_expectations);
+        engine_expectations.insert(Engine::Postgresql, exp);
+        let mut live = live_block(vec![r], engine_expectations);
+        live.engines.clear();
         assert!(matches!(
             validate(&live),
             Err(ExpectationError::UnknownEngine {
@@ -203,7 +204,7 @@ mod tests {
             runs,
         };
         let mut engine_expectations = AHashMap::new();
-        engine_expectations.insert(Engine::Sqlite, exp);
+        engine_expectations.insert(Engine::Postgresql, exp);
         let live = live_block(vec![r], engine_expectations);
         assert!(matches!(validate(&live), Err(ExpectationError::UnknownRun { .. })));
     }
@@ -218,12 +219,12 @@ mod tests {
             runs,
         };
         let mut engine_expectations = AHashMap::new();
-        engine_expectations.insert(Engine::Sqlite, exp);
+        engine_expectations.insert(Engine::Postgresql, exp);
         let live = live_block(vec![r], engine_expectations);
         assert!(matches!(
             validate(&live),
             Err(ExpectationError::RowCountMismatch {
-                engine: Engine::Sqlite,
+                engine: Engine::Postgresql,
                 base: 2,
                 override_count: 1,
                 ..

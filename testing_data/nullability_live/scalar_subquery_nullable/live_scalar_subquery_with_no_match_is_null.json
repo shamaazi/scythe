@@ -32,7 +32,7 @@
   },
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql", "sqlite"],
+    "engines": ["postgresql"],
     "runs": [
       {
         "name": "one_user_with_an_order_one_without",

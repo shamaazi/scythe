@@ -8,11 +8,7 @@
 #[cfg(feature = "pg")]
 pub mod postgres;
 
-#[cfg(feature = "sqlite")]
-pub mod sqlite;
-
-/// A namespace name (a Postgres schema, a MySQL/SQL Server database, an
-/// Oracle user) unique to this call, for an executor to isolate itself into.
+/// A namespace name (a PostgreSQL schema) unique to this call, for an executor to isolate itself into.
 ///
 /// It must be unique per *connection*, not per process. `run_one_leg`
 /// connects once per (fixture, engine), and the test binary runs its
@@ -20,9 +16,7 @@ pub mod sqlite;
 /// concurrent tests issued `DROP ... IF EXISTS` / `CREATE ...` against the
 /// same namespace and dropped it out from under each other mid-run. That
 /// surfaced as an opaque "preparing an isolated schema: db error", and
-/// would have failed the PostgreSQL, MySQL and MariaDB CI jobs on their
-/// first run. SQLite was immune only because each in-memory connection is
-/// already its own universe.
+/// would have failed every live run.
 ///
 /// The process id keeps concurrent `cargo test` invocations (and leftovers
 /// from an earlier crashed run) from colliding; the counter separates
@@ -30,7 +24,7 @@ pub mod sqlite;
 /// safe SQL identifier.
 ///
 /// Namespaces are not dropped at the end of a run: there is no async
-/// `Drop`, and the containers CI uses are discarded wholesale. A developer
+/// `Drop`, and test databases are usually discarded wholesale. A developer
 /// pointing this at a long-lived database will accumulate
 /// `scythe_conformance_*` namespaces and can drop them by prefix.
 #[cfg(feature = "pg")]

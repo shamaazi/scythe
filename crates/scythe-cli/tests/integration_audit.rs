@@ -317,11 +317,4 @@ fn pg_only_rule_skipped_on_non_pg_dialect() {
         "expected SC-SEC11 on Postgres for SET ROLE; got: {:#?}",
         pg_set
     );
-
-    let sqlite_set = run_rules("sqlite.sql", set_role_sql, &SqlDialect::SQLite, &catalog_pg, &registry);
-    assert!(
-        !sqlite_set.iter().any(|f| f.rule_id == "SC-SEC11"),
-        "SC-SEC11 must not fire on SQLite (PG-only); got: {:#?}",
-        sqlite_set
-    );
 }

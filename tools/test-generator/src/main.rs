@@ -7,15 +7,11 @@ use std::fmt::Write;
 use std::fs;
 use std::path::PathBuf;
 
-/// The candidate backend names probed for codegen verification. Kept as the generator's
-/// original fixed list -- widening it to the full ~55-name `scythe_codegen::get_backend`
-/// registry (to add real MySQL/SQLite/etc. coverage) is separate follow-up work from the defect
-/// this list exists to fix: which of these actually applies to a *given* fixture's engine. See
-/// #156.
+/// The backend names probed for codegen verification.
 const CANDIDATE_BACKENDS: &[&str] = &["rust-sqlx", "rust-tokio-postgres", "typescript-postgres"];
 
 /// The engine string a fixture targets, defaulting to `"postgresql"` when unset -- the same
-/// default `catalog_expr` and `Engine::dialect_path` use.
+/// default `catalog_expr` uses.
 fn fixture_engine_str(fixture: &Fixture) -> &'static str {
     fixture
         .config
@@ -28,8 +24,7 @@ fn fixture_engine_str(fixture: &Fixture) -> &'static str {
 /// Ask the real `get_backend` registry which of `CANDIDATE_BACKENDS` accept `engine`, at
 /// generation time. Before this, the generated test embedded the *full* candidate list for
 /// every fixture regardless of engine and silently `continue`d past whichever ones didn't apply
-/// -- `ruby-trilogy` (MySQL/MariaDB only) appeared, and contributed zero assertions, in every
-/// one of the ~370 non-error query fixtures, all of which target PostgreSQL. Filtering here
+/// -- backends that did not apply contributed zero assertions to every fixture. Filtering here
 /// means the list embedded in a generated test is exactly the backends expected to construct,
 /// so a construction failure in the generated test is a real regression rather than an expected
 /// engine mismatch. See #156.
@@ -214,36 +209,9 @@ fn generate_single_test(fixture: &Fixture) -> String {
     }
 }
 
-/// The `let catalog = ...;` line for a query test, honouring the fixture's
-/// declared engine.
-///
-/// A fixture that declares no engine, or declares PostgreSQL, keeps the
-/// plain `Catalog::from_ddl` call this generator has always emitted — so
-/// adding engine awareness leaves every existing PostgreSQL fixture's
-/// generated test byte-identical.
-///
-/// Two axes, because `SqlDialect` collapses PostgreSQL-compatible engines
-/// onto one variant: the dialect drives parsing and type resolution, while
-/// `with_engine` carries the engine name that gates capabilities the dialect
-/// cannot express (Redshift parses as PostgreSQL but has no `json_agg`).
-fn catalog_expr(fixture: &Fixture) -> String {
-    let Some(engine) = fixture.config.as_ref().and_then(|c| c.engine) else {
-        return "    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n".to_string();
-    };
-
-    let base = match engine.dialect_path() {
-        Some(dialect) => format!(
-            "scythe_core::catalog::Catalog::from_ddl_with_dialect(\n        schema_sql,\n        \
-             &scythe_core::dialect::SqlDialect::{dialect},\n    )\n    .unwrap()"
-        ),
-        None => "scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap()".to_string(),
-    };
-
-    if matches!(engine, fixture::Engine::Postgresql) {
-        format!("    let catalog = {base};\n")
-    } else {
-        format!("    let catalog = {base}.with_engine({:?});\n", engine.as_str())
-    }
+/// The `let catalog = ...;` line for a query test.
+fn catalog_expr(_fixture: &Fixture) -> String {
+    "    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n".to_string()
 }
 
 fn generate_catalog_test(fixture: &Fixture, file_path: &str) -> String {

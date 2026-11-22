@@ -712,30 +712,6 @@ fn test_audit_severity_filter_drops_warnings() {
     );
 }
 
-#[test]
-fn test_audit_dialect_flag_skips_pg_only_rule_on_sqlite() {
-    let temp = tempfile::TempDir::new().unwrap();
-    let sql_path = temp.path().join("set_role.sql");
-    std::fs::write(&sql_path, "SET ROLE admin;\n").unwrap();
-
-    let output = scythe_bin()
-        .args([
-            "audit",
-            "--dialect",
-            "sqlite",
-            "--exit-zero",
-            sql_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("audit run");
-    assert!(output.status.success(), "audit must exit 0");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        !stdout.contains("SC-SEC11"),
-        "SC-SEC11 must not fire under --dialect sqlite; got: {stdout}"
-    );
-}
-
 /// The `javascript-*` backends reuse the TypeScript manifests, which
 /// declare `file_extension = "ts"`. Nothing else in the tree exercises the
 /// filename they actually write: there is no javascript integration project,

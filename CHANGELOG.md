@@ -20,30 +20,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   devenv tasks (`sqlkit:*`). Crate names, Rust module paths and rule ids
   (`SC-...`) are unchanged. Generated files need regenerating for the new
   header; their fingerprints are unchanged.
-- Two database engines: PostgreSQL (with its `postgres`, `pg`, `cockroachdb`
-  and `crdb` aliases) and SQLite. The DuckDB, MySQL/MariaDB, SQL Server,
-  Oracle, Snowflake and Redshift engines are gone from the Cargo features, the
-  config's engine names and the backends' manifests; `scythe inspect` keeps its
-  PostgreSQL driver (dropping the MySQL/MariaDB driver and its `SC-INS-MY*`
-  checks), `schema_source = "execute"` keeps SQLite (dropping DuckDB), and the
-  live conformance suite keeps its PostgreSQL and SQLite executors. The
-  `duckdb`, `mysql_async`, `tiberius`, `sibyl` and `serde_yaml` dependencies
-  went with them. The parser, analyzer and catalog keep their dialect
-  handling unchanged.
+- PostgreSQL is the only database engine (`postgresql`, with its `postgres`
+  and `pg` aliases). SQLite, DuckDB, MySQL/MariaDB, SQL Server, Oracle,
+  Snowflake, Redshift and CockroachDB are gone from the Cargo features, the
+  config's engine names, the backends' manifests, `sqlkit inspect` (which
+  drops its MySQL/MariaDB driver and `SC-INS-MY*` checks), the live
+  conformance suite and the integration projects, and so are the `duckdb`,
+  `mysql_async`, `rusqlite`, `tiberius`, `sibyl` and `serde_yaml`
+  dependencies. The parser, analyzer and catalog drop every other dialect's
+  branches: MySQL/SQLite/Snowflake/Oracle/MSSQL type spellings, SQLite's
+  primary-key and rowid nullability, Oracle's empty-string-as-NULL and `:N`
+  placeholders, MSSQL's `@pN` placeholders, `OUTPUT` and `IDENTITY(n,m)`,
+  MySQL's inline enums, `CONCAT`, `GREATEST`/`LEAST`, bare `FLOAT` and
+  `EXTRACT` rules, and the backtick, `#` and bracket lexing in generated SQL.
+  `SqlDialect` has the one variant, `PostgreSQL`; `Catalog::with_engine` and
+  `CatalogBuilder::engine` are gone. `sqlkit fmt`/`lint --dialect` accept
+  only `postgres` (or `ansi`). Generated code for PostgreSQL is unchanged.
 - Code generation keeps three targets: `typescript-bun` (built on the shared
   postgres.js TypeScript generator, so `typescript-postgres` and the
-  `javascript-postgres`/`javascript-bun` JSDoc modes remain), `rust-sqlx` (with
-  its SQLite support) and `rust-tokio-postgres`. Every other backend, its
-  manifests, integration project and tests are gone: C#, Elixir, Go, Java,
+  `javascript-postgres`/`javascript-bun` JSDoc modes remain), `rust-sqlx` and
+  `rust-tokio-postgres`. Every other backend, its manifests, integration project and tests are gone: C#, Elixir, Go, Java,
   Kotlin, PHP, Python, Ruby, `rust-tiberius`, `rust-sibyl` and the TypeScript
   `pg`, `kysely`, `mysql2`, `better-sqlite3`, `node-sqlite`, `wasm-sqlite`,
   `duckdb`, `mssql`, `oracledb` and `snowflake` backends. The `lang-*` Cargo
   features are now `lang-rust` and `lang-typescript`, and the legacy
   `[sql.gen]` table form accepts only `rust` and `typescript`.
 - Development runs on devenv instead of mise: `devenv.nix` provides the
-  Rust toolchain, Bun and a PostgreSQL service, and the `scythe:build`,
-  `scythe:test`, `scythe:lint`, `scythe:generate`, `scythe:generated-fresh`,
-  `scythe:integration` and `scythe:cluster-scope` tasks. There is no CI any
+  Rust toolchain, Bun and a PostgreSQL service, and the `sqlkit:build`,
+  `sqlkit:test`, `sqlkit:lint`, `sqlkit:generate`, `sqlkit:generated-fresh`,
+  `sqlkit:integration` and `sqlkit:cluster-scope` tasks. There is no CI any
   more: every GitHub workflow is gone, with the issue and pull request
   templates, `deny.toml` (cargo-deny) and the CI-only generated-code scripts
   under `scripts/`. The mise, poly, uv, renovate, dependabot and ai-rulez
@@ -53,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - `scythe migrate`, the sqlc importer.
+- The `schema_source` option of `[[sql]]` blocks: `"execute"` only ever ran
+  SQLite. A config that sets it is now rejected as an unknown key.
 - The documentation website (`website/`) and its snippet validator
   (`tools/snippet-runner`). The README now carries the configuration reference
   for the kept backends, and CONTRIBUTING.md the fork's branch, devenv and

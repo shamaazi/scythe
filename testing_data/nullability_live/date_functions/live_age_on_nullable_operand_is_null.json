@@ -1,7 +1,7 @@
 {
   "name": "live_age_on_nullable_operand_is_null",
   "category": "nullability_live/date_functions",
-  "description": "AGE over a nullable operand is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised AGE at all, so a fix that only changed the analyzer's model of AGE(NOW(), NULL) could regress silently. AGE is PostgreSQL-only (no MySQL/MariaDB/SQLite/MSSQL/Oracle equivalent that this suite's single shared query_sql could target), so this fixture runs on postgresql alone.",
+  "description": "AGE over a nullable operand is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised AGE at all, so a fix that only changed the analyzer's model of AGE(NOW(), NULL) could regress silently.",
   "tags": ["nullability", "date", "age", "live"],
   "schema_sql": ["CREATE TABLE accounts (id SERIAL PRIMARY KEY, deleted_at TIMESTAMPTZ);"],
   "query_sql": "-- @name AgeLive\n-- @returns :many\nSELECT id, AGE(NOW(), deleted_at) AS elapsed FROM accounts ORDER BY id",

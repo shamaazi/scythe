@@ -80,19 +80,16 @@ impl Catalog {
     ///   different file than the table that uses it in a multi-file schema,
     ///   never surfaces through any table's resolved column type -- so it
     ///   needs its own line to be covered at all.
-    /// - The dialect this catalog was parsed with, as the 6-variant
-    ///   [`SqlDialect`] rather than the 9-way engine alias — so `mysql` and
-    ///   `mariadb`, which both resolve to [`SqlDialect::MySQL`], never
-    ///   register as drift against each other.
+    /// - The dialect this catalog was parsed with.
     /// - Inspected metadata that changes how a catalog is consumed: views,
     ///   generated-column persistence, materially distinct database-reported
     ///   types, and preserved qualified or case-sensitive object names.
     ///
     /// Table, enum, composite, and domain names all have a single leading
-    /// `schema.` qualifier stripped before hashing, on every dialect --
-    /// mirroring [`Catalog::get_table`]'s dialect-blind, qualifier-agnostic
+    /// `schema.` qualifier stripped before hashing --
+    /// mirroring [`Catalog::get_table`]'s qualifier-agnostic
     /// resolution (see [`canonical_entries`]). So `myschema.users` and
-    /// `users`, or MSSQL's `dbo.users` and `users`, fingerprint identically
+    /// `users` fingerprint identically
     /// when they would also resolve to the same lookup. Inspected catalogs
     /// additionally preserve the database-reported object identity; a
     /// qualified or case-sensitive spelling is therefore significant when
@@ -359,18 +356,10 @@ fn generated_column_kind_tag(kind: GeneratedColumnKind) -> &'static str {
     }
 }
 
-/// Stable string tag for a dialect. Deliberately distinct from
-/// [`SqlDialect::from_str`]'s engine-alias parsing (`mariadb`, `crdb`,
-/// `duckdb`, `redshift`, ... all collapse to one of these 6 variants before
-/// this function ever sees them).
+/// Stable string tag for a dialect, hashed into the fingerprint.
 fn dialect_tag(dialect: SqlDialect) -> &'static str {
     match dialect {
         SqlDialect::PostgreSQL => "postgresql",
-        SqlDialect::MySQL => "mysql",
-        SqlDialect::SQLite => "sqlite",
-        SqlDialect::MsSql => "mssql",
-        SqlDialect::Oracle => "oracle",
-        SqlDialect::Snowflake => "snowflake",
     }
 }
 
@@ -379,16 +368,8 @@ fn dialect_tag(dialect: SqlDialect) -> &'static str {
 /// (`catalog/mod.rs`'s `get_table`), which already treats `myschema.users`
 /// and `users` as the same table.
 ///
-/// Two things distinguish this from a naive `public.`-only strip:
+/// What distinguishes this from a naive `public.`-only strip:
 ///
-/// - **Every dialect, not just PostgreSQL.** `get_table` never checks
-///   `self.dialect` at all — it splits on `.` and looks up the remainder
-///   unconditionally. MSSQL's `dbo.` prefix, or any other schema name on any
-///   dialect, resolves exactly the same way `public.` does on PostgreSQL. A
-///   fingerprint gated on `dialect == SqlDialect::PostgreSQL` would treat
-///   `dbo.users` and `users` as different tables even though `get_table`
-///   resolves them to the same one — a guaranteed false-positive drift
-///   report the moment someone adds or drops that qualifier.
 /// - **Any qualifier text, not just the literal `public`.** `get_table`
 ///   splits on the first `.` and looks up whatever comes after it,
 ///   regardless of what the prefix says. So `myschema.users` and `users`
@@ -563,7 +544,7 @@ mod tests {
     #[test]
     fn test_inspected_column_default_change_produces_same_hash() {
         let build = |default: &str| {
-            CatalogBuilder::new(SqlDialect::SQLite)
+            CatalogBuilder::new(SqlDialect::PostgreSQL)
                 .relation(RelationDefinition::table(
                     CatalogObjectName::new("items"),
                     vec![ColumnDefinition::new("quantity", "INTEGER", false).default(default)],
@@ -581,14 +562,14 @@ mod tests {
 
     #[test]
     fn test_inspected_table_and_view_produce_different_hashes() {
-        let table = CatalogBuilder::new(SqlDialect::SQLite)
+        let table = CatalogBuilder::new(SqlDialect::PostgreSQL)
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("items"),
                 vec![ColumnDefinition::new("id", "INTEGER", false)],
             ))
             .build()
             .expect("valid inspected table");
-        let view = CatalogBuilder::new(SqlDialect::SQLite)
+        let view = CatalogBuilder::new(SqlDialect::PostgreSQL)
             .relation(RelationDefinition::view(
                 CatalogObjectName::new("items"),
                 vec![ColumnDefinition::new("id", "INTEGER", false)],
@@ -602,7 +583,7 @@ mod tests {
     #[test]
     fn test_inspected_virtual_and_stored_columns_produce_different_hashes() {
         let build = |kind| {
-            CatalogBuilder::new(SqlDialect::SQLite)
+            CatalogBuilder::new(SqlDialect::PostgreSQL)
                 .relation(RelationDefinition::table(
                     CatalogObjectName::new("items"),
                     vec![ColumnDefinition::new("computed", "INTEGER", false).generated(kind)],
@@ -698,9 +679,9 @@ mod tests {
     #[test]
     fn test_default_inspection_metadata_remains_parser_compatible() {
         let parsed =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE items (id INTEGER NOT NULL);"], &SqlDialect::SQLite)
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE items (id INTEGER NOT NULL);"], &SqlDialect::PostgreSQL)
                 .expect("valid DDL catalog");
-        let inspected = CatalogBuilder::new(SqlDialect::SQLite)
+        let inspected = CatalogBuilder::new(SqlDialect::PostgreSQL)
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("items"),
                 vec![ColumnDefinition::new("id", "INTEGER", false)],
@@ -745,23 +726,6 @@ mod tests {
     }
 
     #[test]
-    fn test_dialect_participates() {
-        let pg = Catalog::from_ddl_with_dialect(&["CREATE TABLE t (id INTEGER);"], &SqlDialect::PostgreSQL).unwrap();
-        let mysql = Catalog::from_ddl_with_dialect(&["CREATE TABLE t (id INT);"], &SqlDialect::MySQL).unwrap();
-
-        assert_ne!(pg.fingerprint(), mysql.fingerprint());
-    }
-
-    #[test]
-    fn test_mysql_and_mariadb_alias_share_one_dialect_variant() {
-        // ~keep `mariadb` is not a distinct `SqlDialect` variant; `from_str` folds
-        // it into `SqlDialect::MySQL`, so there is nothing further for the
-        // fingerprint to distinguish -- this test documents that guarantee
-        // at the alias-resolution boundary the fingerprint depends on.
-        assert_eq!(SqlDialect::from_str("mysql"), SqlDialect::from_str("mariadb"));
-    }
-
-    #[test]
     fn test_public_prefix_stripped_when_no_collision() {
         let a = Catalog::from_ddl_with_dialect(&["CREATE TABLE public.users (id INTEGER);"], &SqlDialect::PostgreSQL)
             .unwrap();
@@ -803,25 +767,6 @@ mod tests {
     }
 
     #[test]
-    fn test_schema_qualifier_stripped_on_non_postgresql_dialect() {
-        // ~keep `get_table` (catalog/mod.rs) never checks `self.dialect` before
-        // splitting on `.` -- MSSQL's `dbo.` prefix resolves to the bare
-        // table exactly like PostgreSQL's `public.` does. Gating the strip
-        // on `dialect == SqlDialect::PostgreSQL` (the pre-fix behavior)
-        // would fingerprint `dbo.users` and `users` differently even though
-        // `get_table` treats them as the same table.
-        let qualified =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE dbo.users (id INTEGER);"], &SqlDialect::MsSql).unwrap();
-        let bare = Catalog::from_ddl_with_dialect(&["CREATE TABLE users (id INTEGER);"], &SqlDialect::MsSql).unwrap();
-
-        assert_eq!(
-            qualified.fingerprint(),
-            bare.fingerprint(),
-            "a schema-qualified table must fingerprint the same as its bare name on every dialect, not just PostgreSQL"
-        );
-    }
-
-    #[test]
     fn test_non_public_schema_qualifier_stripped_under_postgresql() {
         // The pre-fix strip only recognized the literal `public.` prefix.
         // `get_table` strips *any* single leading qualifier, so
@@ -836,42 +781,6 @@ mod tests {
             qualified.fingerprint(),
             bare.fingerprint(),
             "any leading schema qualifier must be stripped under PostgreSQL, not only the literal `public.`"
-        );
-    }
-
-    #[test]
-    fn test_non_public_schema_collision_falls_back_to_raw_keys_on_other_dialects() {
-        // Mirrors `test_public_schema_collision_falls_back_to_raw_keys`, but
-        // exercises the collision fallback for a non-`public`, non-PostgreSQL
-        // qualifier -- the fallback is now reachable from every dialect and
-        // every qualifier text, not just PostgreSQL's `public.`.
-        let base = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE dbo.users (id INTEGER); CREATE TABLE users (name TEXT);"],
-            &SqlDialect::MsSql,
-        )
-        .unwrap();
-        let fp_base = base.fingerprint();
-
-        let changed_bare = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE dbo.users (id INTEGER); CREATE TABLE users (name TEXT, extra BOOLEAN);"],
-            &SqlDialect::MsSql,
-        )
-        .unwrap();
-        assert_ne!(
-            fp_base,
-            changed_bare.fingerprint(),
-            "changing the bare `users` table must change the hash even though `dbo.users` also exists"
-        );
-
-        let changed_qualified = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE dbo.users (id INTEGER, extra BOOLEAN); CREATE TABLE users (name TEXT);"],
-            &SqlDialect::MsSql,
-        )
-        .unwrap();
-        assert_ne!(
-            fp_base,
-            changed_qualified.fingerprint(),
-            "changing `dbo.users` must change the hash even though bare `users` also exists"
         );
     }
 
@@ -1002,16 +911,6 @@ mod tests {
                 "CREATE TABLE public.users (id INTEGER PRIMARY KEY);",
                 SqlDialect::PostgreSQL,
                 "sch2:83901ff72944cf53",
-            ),
-            (
-                "CREATE TABLE t (id INT NOT NULL, note VARCHAR(255));",
-                SqlDialect::MySQL,
-                "sch2:d1b6623bd34edc4b",
-            ),
-            (
-                "CREATE TABLE t (id INTEGER NOT NULL, note TEXT);",
-                SqlDialect::SQLite,
-                "sch2:4eb52891d7937ab9",
             ),
         ];
 

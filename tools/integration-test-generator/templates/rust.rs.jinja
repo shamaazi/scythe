@@ -2,50 +2,23 @@
 mod queries;
 
 use queries::{
-{%- if engine == "mysql" %}
-    GetLastInsertUserRow, GetLastInsertOrderRow,
-{%- elif engine == "sqlite" %}
-    {# SQLite: no CreateUserRow/GetLastInsertUserRow — use GetUserByIdRow + last_insert_rowid() #}
-{%- elif driver == "sibyl" %}
-    CreateAttachmentRow, CreateOrderRow, CreateUserRow,
-{%- else %}
     CreateOrderRow, CreateUserRow,
-{%- endif %}
-{%- if driver == "sibyl" %}
-    GetAttachmentByIdRow, GetAttachmentsByOrderRow, GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
-{%- else %}
     GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
-{%- endif %}
-{%- if engine == "postgresql" and engine != "redshift" %}
     UserStatus,
-{%- endif %}
-{%- if engine == "postgresql" and engine != "redshift" and (driver == "sqlx" or driver == "tokio-postgres") %}
     GetUserProfileRow, UserAddress,
 {%- if driver == "sqlx" %}
     RoundTripUserAddressRow,
 {%- endif %}
-{%- endif %}
 };
-{%- if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-mariadb" or driver == "sqlx-sqlite" %}
+{%- if driver == "sqlx" %}
 use rust_decimal::Decimal;
 {%- if driver == "sqlx" %}
 use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
-{%- elif driver == "sqlx-mysql" or driver == "sqlx-mariadb" %}
-use sqlx::mysql::MySqlPoolOptions;
-{%- elif driver == "sqlx-sqlite" %}
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 {%- endif %}
 {%- elif driver == "tokio-postgres" %}
 use rust_decimal::Decimal;
 use tokio_postgres::NoTls;
-{%- elif driver == "tiberius" %}
-use tiberius::{Client, Config, AuthMethod};
-use tokio::net::TcpStream;
-use tokio_util::compat::TokioAsyncWriteCompatExt;
-use rust_decimal::Decimal;
-{%- elif driver == "sibyl" %}
-use sibyl::Environment;
 {%- endif %}
 use std::str::FromStr;
 
@@ -69,42 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url =
         std::env::var("{{ connection_env }}").expect("{{ connection_env }} environment variable required");
 
-{% if driver == "sibyl" -%}
-    // Parse oracle://user:pass@host:port/service URL
-    let url = url::Url::parse(&database_url).expect("invalid ORACLE_URL");
-    let oracle_user = url.username();
-    let oracle_pass = url.password().unwrap_or("");
-    let oracle_host = url.host_str().unwrap_or("localhost");
-    let oracle_port = url.port().unwrap_or(1521);
-    let oracle_service = url.path().trim_start_matches('/');
-    let oracle_connect = format!("{}:{}/{}", oracle_host, oracle_port, oracle_service);
-
-    let oracle = Environment::new().expect("Oracle environment");
-    let session = oracle
-        .connect(&oracle_connect, oracle_user, oracle_pass)
-        .await?;
-
-    // Clean slate: drop tables and sequences, ignore errors, then recreate
-    for table in &["attachments", "user_tags", "tags", "orders", "users"] {
-        if let Ok(stmt) = session.prepare(&format!("DROP TABLE {}", table)).await {
-            let _ = stmt.execute(()).await;
-        }
-    }
-    for seq in &["attachments_seq", "tags_seq", "orders_seq", "users_seq"] {
-        if let Ok(stmt) = session.prepare(&format!("DROP SEQUENCE {}", seq)).await {
-            let _ = stmt.execute(()).await;
-        }
-    }
-
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{{ schema_file }}")?;
-    for block in schema_sql.split("/\n") {
-        let block = block.trim();
-        if !block.is_empty() {
-            let stmt = session.prepare(block).await?;
-            stmt.execute(()).await?;
-        }
-    }
-{%- elif driver == "sqlx" -%}
+{% if driver == "sqlx" -%}
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
@@ -123,94 +61,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query("DROP TABLE IF EXISTS users CASCADE")
         .execute(&pool)
         .await?;
-{%- if engine == "postgresql" and engine != "redshift" %}
     sqlx::query("DROP TYPE IF EXISTS user_status CASCADE")
         .execute(&pool)
         .await?;
     sqlx::query("DROP TYPE IF EXISTS user_address CASCADE")
         .execute(&pool)
         .await?;
-{%- endif %}
 
     let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{{ schema_file }}")?;
-    sqlx::raw_sql(sqlx::AssertSqlSafe(schema_sql)).execute(&pool).await?;
-{%- elif driver == "sqlx-mysql" -%}
-    let pool = MySqlPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await?;
-
-    // Clean slate: drop tables in dependency order, then recreate
-    sqlx::query("DROP TABLE IF EXISTS user_tags")
-        .execute(&pool)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS tags")
-        .execute(&pool)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS orders")
-        .execute(&pool)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS users")
-        .execute(&pool)
-        .await?;
-
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
-    for stmt in schema_sql.split(';') {
-        let stmt = stmt.trim();
-        if !stmt.is_empty() {
-            sqlx::query(sqlx::AssertSqlSafe(stmt)).execute(&pool).await?;
-        }
-    }
-{%- elif driver == "sqlx-mariadb" -%}
-    let pool = MySqlPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await?;
-
-    // Clean slate: drop tables in dependency order, then recreate
-    sqlx::query("DROP TABLE IF EXISTS user_tags")
-        .execute(&pool)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS tags")
-        .execute(&pool)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS orders")
-        .execute(&pool)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS users")
-        .execute(&pool)
-        .await?;
-
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
-    for stmt in schema_sql.split(';') {
-        let stmt = stmt.trim();
-        if !stmt.is_empty() {
-            sqlx::query(sqlx::AssertSqlSafe(stmt)).execute(&pool).await?;
-        }
-    }
-{%- elif driver == "sqlx-sqlite" -%}
-    let connect_options = database_url.parse::<SqliteConnectOptions>()?
-        .create_if_missing(true);
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(connect_options)
-        .await?;
-
-    // Clean slate: drop tables in dependency order, then recreate
-    sqlx::query("DROP TABLE IF EXISTS user_tags")
-        .execute(&pool)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS tags")
-        .execute(&pool)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS orders")
-        .execute(&pool)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS users")
-        .execute(&pool)
-        .await?;
-
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
     sqlx::raw_sql(sqlx::AssertSqlSafe(schema_sql)).execute(&pool).await?;
 {%- elif driver == "tokio-postgres" -%}
     let (client, connection) = tokio_postgres::connect(&database_url, NoTls).await?;
@@ -235,181 +93,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client
         .execute("DROP TABLE IF EXISTS users CASCADE", &[])
         .await?;
-{%- if engine == "postgresql" and engine != "redshift" %}
     client
         .execute("DROP TYPE IF EXISTS user_status CASCADE", &[])
         .await?;
     client
         .execute("DROP TYPE IF EXISTS user_address CASCADE", &[])
         .await?;
-{%- endif %}
 
     let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{{ schema_file }}")?;
     client.batch_execute(&schema_sql).await?;
-{%- elif driver == "tiberius" -%}
-    // Parse sqlserver://user:pass@host:port?database=db URL
-    let url = url::Url::parse(&database_url).expect("invalid MSSQL_URL");
-    let mut config = Config::new();
-    config.host(url.host_str().unwrap_or("localhost"));
-    config.port(url.port().unwrap_or(1433));
-    config.authentication(AuthMethod::sql_server(
-        url.username(),
-        url.password().unwrap_or(""),
-    ));
-    if let Some(db) = url.query_pairs().find(|(k, _)| k == "database").map(|(_, v)| v) {
-        config.database(db);
-    }
-    config.trust_cert();
-    let tcp = TcpStream::connect(config.get_addr()).await?;
-    tcp.set_nodelay(true)?;
-    let mut client = Client::connect(config, tcp.compat_write()).await?;
-
-    // Clean slate
-    for table in &["user_tags", "tags", "orders", "users"] {
-        client
-            .execute(
-                &format!(
-                    "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
-                    table, table
-                ),
-                &[],
-            )
-            .await?;
-    }
-
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
-    for stmt in schema_sql.split(';') {
-        let stmt = stmt.trim();
-        if !stmt.is_empty() {
-            client.execute(stmt, &[]).await?;
-        }
-    }
 {%- endif %}
 
     // Test: CreateUser
-{% if driver == "sqlx-mysql" -%}
-    let insert_result = sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
-        .bind("Alice")
-        .bind("alice@example.com")
-        .bind("active")
-        .execute(&pool)
-        .await?;
-    let user_id_mysql = insert_result.last_insert_id() as i32;
-    let user: GetLastInsertUserRow =
-        sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
-            .bind(user_id_mysql)
-            .fetch_one(&pool)
-            .await?;
-{%- elif driver == "sqlx-sqlite" -%}
-    let insert_result = sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
-        .bind("Alice")
-        .bind("alice@example.com")
-        .bind("active")
-        .execute(&pool)
-        .await?;
-    let user_id_sqlite = insert_result.last_insert_rowid() as i64;
-    let user: GetUserByIdRow = sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
-        .bind(user_id_sqlite)
-        .fetch_one(&pool)
-        .await?;
-{%- elif driver == "sqlx-mariadb" -%}
-    sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
-        .bind("Alice")
-        .bind("alice@example.com")
-        .bind("active")
-        .execute(&pool)
-        .await?;
-    let user: CreateUserRow = sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email FROM users WHERE name = ? AND email = ? LIMIT 1")
-        .bind("Alice")
-        .bind("alice@example.com")
-        .fetch_one(&pool)
-        .await?;
-{%- elif driver == "sqlx" -%}
+{% if driver == "sqlx" -%}
     let user: CreateUserRow = sqlx::query_as(
         "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at",
     )
     .bind("Alice")
     .bind("alice@example.com")
-    .bind({% if engine == "redshift" %}"active"{% else %}UserStatus::Active{% endif %})
+    .bind(UserStatus::Active)
     .fetch_one(&pool)
     .await?;
 {%- elif driver == "tokio-postgres" -%}
     let row = client
         .query_one(
             "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at",
-            &[&"Alice", &"alice@example.com", &({% if engine == "redshift" %}"active".to_string(){% else %}UserStatus::Active{% endif %})],
+            &[&"Alice", &"alice@example.com", &(UserStatus::Active)],
         )
         .await?;
     let user = CreateUserRow::from_row(&row);
-{%- elif driver == "tiberius" -%}
-    let mut stream = client
-        .query(
-            "INSERT INTO users (id, name, email, active) OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)",
-            &[&1i32, &"Alice", &"alice@example.com", &true],
-        )
-        .await?;
-    let row = stream
-        .into_row()
-        .await?
-        .expect("expected a row");
-    let user = CreateUserRow::from_row(&row)?;
-{%- elif driver == "sibyl" -%}
-    let user = queries::create_user(&session, "Alice", Some("alice@example.com"), 1i64).await?;
 {%- endif %}
     assert_test!(user.name == "Alice", "CreateUser");
     assert_test!(
         user.email.as_deref() == Some("alice@example.com"),
         "CreateUser"
     );
-{%- if engine == "postgresql" and engine != "redshift" %}
     assert_test!(user.status == UserStatus::Active, "CreateUser");
-{%- endif %}
     let user_id = user.id;
     pass!("CreateUser");
 
     // Test: GetUserById
-{% if driver == "sibyl" -%}
-    let fetched = queries::get_user_by_id(&session, user_id).await?;
-{%- elif driver == "tiberius" -%}
-    let mut stream = client
-        .query(
-            "SELECT id, name, email, active, created_at FROM users WHERE id = @p1",
-            &[&user_id],
-        )
-        .await?;
-    let row = stream
-        .into_row()
-        .await?
-        .expect("expected a row");
-    let fetched = GetUserByIdRow::from_row(&row)?;
-{%- elif driver == "sqlx-mariadb" -%}
-    let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, status, created_at FROM users WHERE id = ?")
-            .bind(&user_id)
-            .fetch_one(&pool)
-            .await?;
-{%- elif driver == "sqlx" -%}
+{% if driver == "sqlx" -%}
     let fetched: GetUserByIdRow =
         sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&pool)
-            .await?;
-{%- elif driver == "sqlx-mysql" -%}
-    let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
-            .bind(user_id)
-            .fetch_one(&pool)
-            .await?;
-{%- elif driver == "sqlx-sqlite" -%}
-    let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
             .bind(user_id)
             .fetch_one(&pool)
             .await?;
 {%- elif driver == "tokio-postgres" %}
     let row = client
         .query_one(
-            "SELECT id, name, email{% if engine == "postgresql" or engine == "redshift" %}, status{% endif %}, created_at FROM users WHERE id = $1",
+            "SELECT id, name, email, status, created_at FROM users WHERE id = $1",
             &[&user_id],
         )
         .await?;
@@ -421,48 +154,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fetched.email.as_deref() == Some("alice@example.com"),
         "GetUserById"
     );
-{%- if engine == "postgresql" and engine != "redshift" %}
     assert_test!(fetched.status == UserStatus::Active, "GetUserById");
-{%- endif %}
     pass!("GetUserById");
 
     // Test: ListActiveUsers
-{% if driver == "sibyl" -%}
-    let active_users = queries::list_active_users(&session).await?;
-{%- elif driver == "tiberius" -%}
-    let rows = client
-        .query(
-            "SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)",
-            &[],
-        )
-        .await?
-        .into_first_result()
-        .await?;
-    let active_users: Vec<ListActiveUsersRow> =
-        rows.iter().map(|r| ListActiveUsersRow::from_row(r).unwrap()).collect();
-{%- elif driver == "sqlx-mariadb" -%}
-    let active_users: Vec<ListActiveUsersRow> =
-        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email FROM users WHERE status = ?")
-            .bind("active")
-            .fetch_all(&pool)
-            .await?;
-{%- elif driver == "sqlx" -%}
+{% if driver == "sqlx" -%}
     let active_users: Vec<ListActiveUsersRow> =
         sqlx::query_as("SELECT id, name, email FROM users WHERE status = $1")
-            .bind({% if engine == "redshift" %}"active"{% else %}UserStatus::Active{% endif %})
-            .fetch_all(&pool)
-            .await?;
-{%- elif driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
-    let active_users: Vec<ListActiveUsersRow> =
-        sqlx::query_as("SELECT id, name, email FROM users WHERE status = ?")
-            .bind("active")
+            .bind(UserStatus::Active)
             .fetch_all(&pool)
             .await?;
 {%- elif driver == "tokio-postgres" -%}
     let rows = client
         .query(
             "SELECT id, name, email FROM users WHERE status = $1",
-            &[&({% if engine == "postgresql" or engine == "redshift" %}{% if engine == "redshift" %}"active".to_string(){% else %}UserStatus::Active{% endif %}{% endif %})],
+            &[&(UserStatus::Active)],
         )
         .await?;
     let active_users: Vec<ListActiveUsersRow> = rows.iter().map(ListActiveUsersRow::from_row).collect();
@@ -472,76 +178,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("ListActiveUsers");
 
     // Test: CreateOrder
-{% if driver == "sibyl" -%}
-    let order_total: f64 = 9999.0;
-    let order = queries::create_order(&session, user_id, order_total, Some("first order")).await?;
-{%- elif driver == "tiberius" -%}
+
     let total = Decimal::from_str("99.95").unwrap();
-{%- else %}
-{%- if engine == "sqlite" %}
-    {# SQLite REAL is an 8-byte IEEE float, so generated columns are f64. #}
-    let total: f64 = 99.95;
-{%- else %}
-    let total = Decimal::from_str("99.95").unwrap();
-{%- endif %}
-{%- endif %}
-{% if driver == "tiberius" -%}
-    let mut stream = client
-        .query(
-            "INSERT INTO orders (id, user_id, total, notes) OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)",
-            &[&1i32, &user_id, &total, &"first order"],
-        )
-        .await?;
-    let row = stream
-        .into_row()
-        .await?
-        .expect("expected a row");
-    let order = CreateOrderRow::from_row(&row)?;
-{%- elif driver == "sqlx-mariadb" -%}
-    sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
-        .bind(&user_id)
-        .bind(&total)
-        .bind("first order")
-        .execute(&pool)
-        .await?;
-    let order: GetOrdersByUserRow = sqlx::query_as("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 1")
-        .bind(&user_id)
-        .fetch_one(&pool)
-        .await?;
-{%- elif driver == "sqlx" -%}
+{% if driver == "sqlx" -%}
     let order: CreateOrderRow = sqlx::query_as(
         "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at",
     )
     .bind(user_id)
     .bind(&total)
     .bind("first order")
-    .fetch_one(&pool)
-    .await?;
-{%- elif driver == "sqlx-mysql" -%}
-    let insert_result = sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
-        .bind(&user_id)
-        .bind(&total)
-        .bind("first order")
-        .execute(&pool)
-        .await?;
-    let order_id_mysql = insert_result.last_insert_id() as i32;
-    let order: GetLastInsertOrderRow = sqlx::query_as(
-        "SELECT id, user_id, total, notes, created_at FROM orders WHERE id = ?",
-    )
-    .bind(order_id_mysql)
-    .fetch_one(&pool)
-    .await?;
-{%- elif driver == "sqlx-sqlite" -%}
-    sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
-        .bind(user_id)
-        .bind(&total)
-        .bind("first order")
-        .execute(&pool)
-        .await?;
-    let order: GetOrdersByUserRow = sqlx::query_as(
-        "SELECT id, total, notes, created_at FROM orders WHERE user_id = ?",
-    )
-    .bind(user_id)
     .fetch_one(&pool)
     .await?;
 {%- elif driver == "tokio-postgres" %}
@@ -553,14 +198,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     let order = CreateOrderRow::from_row(&row);
 {%- endif %}
-{%- if engine != "sqlite" and driver != "sqlx-mariadb" %}
     assert_test!(order.user_id == user_id, "CreateOrder");
-{%- endif %}
-{%- if driver == "sibyl" %}
-    assert_test!(order.total == order_total, "CreateOrder");
-{%- else %}
     assert_test!(order.total == total, "CreateOrder");
-{%- endif %}
     assert_test!(
         order.notes.as_deref() == Some("first order"),
         "CreateOrder"
@@ -568,37 +207,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("CreateOrder");
 
     // Test: GetOrdersByUser
-{% if driver == "sibyl" -%}
-    let orders = queries::get_orders_by_user(&session, user_id).await?;
-{%- elif driver == "tiberius" -%}
-    let rows = client
-        .query(
-            "SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC",
-            &[&user_id],
-        )
-        .await?
-        .into_first_result()
-        .await?;
-    let orders: Vec<GetOrdersByUserRow> = rows.iter().map(|r| GetOrdersByUserRow::from_row(r).unwrap()).collect();
-{%- elif driver == "sqlx-mariadb" -%}
-    let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
-        "SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC",
-    )
-    .bind(&user_id)
-    .fetch_all(&pool)
-    .await?;
-{%- elif driver == "sqlx" -%}
+{% if driver == "sqlx" -%}
     let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
         "SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC",
     )
     .bind(user_id)
-    .fetch_all(&pool)
-    .await?;
-{%- elif driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
-    let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
-        "SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC",
-    )
-    .bind(&user_id)
     .fetch_all(&pool)
     .await?;
 {%- elif driver == "tokio-postgres" %}
@@ -611,59 +224,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orders: Vec<GetOrdersByUserRow> = rows.iter().map(GetOrdersByUserRow::from_row).collect();
 {%- endif %}
     assert_test!(orders.len() == 1, "GetOrdersByUser");
-{%- if driver == "sibyl" %}
-    assert_test!(orders[0].total == order_total, "GetOrdersByUser");
-    // Round-trips the CLOB `notes` column through the LOB-locator read path
-    // (regression coverage for the fixed row.get::<String> CLOB defect).
-    assert_test!(
-        orders[0].notes.as_deref() == Some("first order"),
-        "GetOrdersByUser"
-    );
-{%- else %}
     assert_test!(orders[0].total == total, "GetOrdersByUser");
-{%- endif %}
     pass!("GetOrdersByUser");
-{%- if driver == "sibyl" %}
-
-    // Test: CreateAttachment / GetAttachmentsByOrder / GetAttachmentById.
-    // `payload` is BLOB (binary, non-UTF8-safe bytes) and `description` is
-    // NCLOB (multi-byte text); both must round-trip through the LOB-locator
-    // read loop, not the broken `row.get::<String>`/`row.get::<Vec<u8>>` path.
-    let payload: Vec<u8> = (0u16..8000).map(|i| (i % 256) as u8).collect();
-    let description = "attachment notes: caf\u{e9}, \u{1f600}, \u{4e2d}\u{6587}".repeat(50);
-    let attachment = queries::create_attachment(
-        &session,
-        order.id,
-        "report.bin",
-        &payload,
-        Some(description.as_str()),
-    )
-    .await?;
-    assert_test!(attachment.order_id == order.id, "CreateAttachment");
-    assert_test!(attachment.filename == "report.bin", "CreateAttachment");
-    pass!("CreateAttachment");
-
-    let attachments = queries::get_attachments_by_order(&session, order.id).await?;
-    assert_test!(attachments.len() == 1, "GetAttachmentsByOrder");
-    assert_test!(attachments[0].payload == payload, "GetAttachmentsByOrder");
-    assert_test!(
-        attachments[0].description.as_deref() == Some(description.as_str()),
-        "GetAttachmentsByOrder"
-    );
-    pass!("GetAttachmentsByOrder");
-
-    let fetched_attachment = queries::get_attachment_by_id(&session, attachment.id)
-        .await?
-        .expect("get_attachment_by_id returned None");
-    assert_test!(fetched_attachment.payload == payload, "GetAttachmentById");
-    assert_test!(
-        fetched_attachment.description.as_deref() == Some(description.as_str()),
-        "GetAttachmentById"
-    );
-    pass!("GetAttachmentById");
-{%- endif %}
-
-{%- if engine == "postgresql" and engine != "redshift" and (driver == "sqlx" or driver == "tokio-postgres") %}
     // Test: GetUserProfile (board #197) -- a nullable enum and a nullable
     // composite column, each observed both present and as SQL NULL. Seeded
     // via raw SQL because a composite VALUES literal is outside this
@@ -795,46 +357,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_test!(null_profile.address.is_none(), "GetUserProfile address null");
 {%- endif %}
     pass!("GetUserProfile (nullable enum + composite)");
-{%- endif %}
 
-    // Test: DeleteUser (delete{% if driver == "sibyl" %} attachments, then orders,{% else %} orders first{% endif %} due to FK)
-{% if driver == "sibyl" -%}
-    queries::delete_attachments_by_order(&session, order.id).await?;
-    queries::delete_orders_by_user(&session, user_id).await?;
-    queries::delete_user(&session, user_id).await?;
-    // Verify user is gone
-    let deleted = queries::get_user_by_id(&session, user_id).await;
-{%- elif driver == "tiberius" -%}
-    client
-        .execute("DELETE FROM orders WHERE user_id = @p1", &[&user_id])
-        .await?;
-    client
-        .execute("DELETE FROM users WHERE id = @p1", &[&user_id])
-        .await?;
-    // Verify user is gone
-    let mut stream = client
-        .query(
-            "SELECT id, name, email, active, created_at FROM users WHERE id = @p1",
-            &[&user_id],
-        )
-        .await?;
-    let deleted = stream.into_row().await?;
-{%- elif driver == "sqlx-mariadb" -%}
-    sqlx::query("DELETE FROM orders WHERE user_id = ?")
-        .bind(&user_id)
-        .execute(&pool)
-        .await?;
-    sqlx::query("DELETE FROM users WHERE id = ?")
-        .bind(&user_id)
-        .execute(&pool)
-        .await?;
-    // Verify user is gone
-    let deleted: Option<GetUserByIdRow> =
-        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, status, created_at FROM users WHERE id = ?")
-            .bind(&user_id)
-            .fetch_optional(&pool)
-            .await?;
-{%- elif driver == "sqlx" -%}
+    // Test: DeleteUser (delete orders first due to FK)
+{% if driver == "sqlx" -%}
     sqlx::query("DELETE FROM orders WHERE user_id = $1")
         .bind(user_id)
         .execute(&pool)
@@ -849,21 +374,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .bind(user_id)
             .fetch_optional(&pool)
             .await?;
-{%- elif driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
-    sqlx::query("DELETE FROM orders WHERE user_id = ?")
-        .bind(&user_id)
-        .execute(&pool)
-        .await?;
-    sqlx::query("DELETE FROM users WHERE id = ?")
-        .bind(&user_id)
-        .execute(&pool)
-        .await?;
-    // Verify user is gone
-    let deleted: Option<GetUserByIdRow> =
-        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
-            .bind(user_id)
-            .fetch_optional(&pool)
-            .await?;
 {%- elif driver == "tokio-postgres" %}
     client
         .execute("DELETE FROM orders WHERE user_id = $1", &[&user_id])
@@ -874,20 +384,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verify user is gone
     let row = client
         .query_opt(
-            "SELECT id, name, email{% if engine == "postgresql" or engine == "redshift" %}, status{% endif %}, created_at FROM users WHERE id = $1",
+            "SELECT id, name, email, status, created_at FROM users WHERE id = $1",
             &[&user_id],
         )
         .await?;
     let deleted: Option<GetUserByIdRow> = row.as_ref().map(GetUserByIdRow::from_row);
 {%- endif %}
-{%- if driver == "sibyl" %}
-    {#- ~keep GetUserById is `:one`, which errors on a missing row rather than
-        returning None. Absence is therefore observed as an Err, and asserting
-        `is_none()` here would not compile. #}
-    assert_test!(deleted.is_err(), "DeleteUser");
-{%- else %}
     assert_test!(deleted.is_none(), "DeleteUser");
-{%- endif %}
     pass!("DeleteUser");
 
     println!("ALL TESTS PASSED");

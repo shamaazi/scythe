@@ -55,19 +55,8 @@ pub struct GeneratedCode {
     /// because `backend` did not opt the referenced struct into
     /// [`CodegenBackend::generate_nested_struct_def`] (GH #147).
     ///
-    /// Populated even though the rewrite itself is not an error. Counting by
-    /// all 102 manifests overstates the reach: `catalog_has_nested_aggregates`
-    /// (`scythe-core`, `analyzer/expressions.rs`) only infers a nested
-    /// aggregate for the PostgreSQL dialect on a postgresql-family engine --
-    /// Redshift and DuckDB are excluded by name even though `SqlDialect`
-    /// maps them onto PostgreSQL -- so only the **19** postgresql-engine
-    /// manifests can reach this code at all. Of those, 4 build a real struct
-    /// (`generate_nested_struct_def`), 9 keep the array shape via
-    /// `json_array` (including `ruby-pg`, as of GH #147's fix -- its
-    /// `ruby_coercion` now genuinely decodes JSON, so the `json_array`
-    /// marker is honest there too), and **6** collapse to plain `json`:
-    /// csharp-npgsql, java-jdbc, java-r2dbc, kotlin-exposed, kotlin-jdbc and
-    /// kotlin-r2dbc. Failing those 6 by default would break working setups.
+    /// Populated even though the rewrite itself is not an error, since failing
+    /// would break working setups.
     /// But the rewrite is a
     /// silent narrowing (a structured row collapses to an opaque JSON
     /// string or array scalar a caller must parse itself), and before this

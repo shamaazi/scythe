@@ -20,8 +20,8 @@ use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
 use scythe_lint::{QueryViolation, RuleRegistry, Severity};
 
 use super::shared::{
-    CatalogLoadRequest, ParseSeverities, SchemaSource, config_dir, has_unannotated_sql, load_catalog,
-    redact_url_password, resolve_contained_output, resolve_globs, split_query_file, validate_schema_source,
+    CatalogLoadRequest, ParseSeverities, config_dir, has_unannotated_sql, load_catalog, redact_url_password,
+    resolve_contained_output, resolve_globs, split_query_file,
 };
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +45,6 @@ struct ScytheMeta {
 struct SqlConfig {
     name: String,
     engine: String,
-    schema_source: SchemaSource,
     schema: Vec<String>,
     queries: Vec<String>,
     /// Legacy: output directory, used as the default when no `[[sql.gen]]`
@@ -71,7 +70,7 @@ struct SqlConfig {
 /// `#[serde(deny_unknown_fields)]` is safe here specifically because this
 /// struct's field list is already the complete, documented `[[sql]]` schema
 /// (see the Fields table for `[[sql]]` in `configuration.md`): `name`,
-/// `engine`, `schema_source`, `schema`, `queries`, `output`, `gen`,
+/// `engine`, `schema`, `queries`, `output`, `gen`,
 /// `type_overrides`. It is deliberately *not* applied to `ScytheConfig` (the
 /// enclosing top-level struct) or to the separate, narrower `SqlConfig`
 /// copies in `audit.rs`, `lint_cmd.rs`, and `fmt.rs`: those are intentionally
@@ -84,8 +83,6 @@ struct SqlConfig {
 struct RawSqlConfig {
     name: String,
     engine: String,
-    #[serde(default)]
-    schema_source: SchemaSource,
     schema: Vec<String>,
     queries: Vec<String>,
     #[serde(default)]
@@ -108,7 +105,6 @@ impl TryFrom<RawSqlConfig> for SqlConfig {
         Ok(SqlConfig {
             name: raw.name,
             engine: raw.engine,
-            schema_source: raw.schema_source,
             schema: raw.schema,
             queries: raw.queries,
             output: raw.output,
@@ -505,23 +501,10 @@ fn run_generate_inner(
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
-    for sql_config in &config.sql {
-        validate_schema_source(
-            "generate",
-            &sql_config.name,
-            &sql_config.engine,
-            sql_config.schema_source,
-        )?;
-    }
-
     let base_dir = config_dir(config_path);
 
     for sql_config in &config.sql {
-        eprintln!(
-            "[{}] {} schema...",
-            sql_config.name,
-            sql_config.schema_source.progress_verb()
-        );
+        eprintln!("[{}] Parsing schema...", sql_config.name);
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
 
@@ -532,7 +515,6 @@ fn run_generate_inner(
             engine: &sql_config.engine,
             dialect,
             schema_files: &schema_files,
-            source: sql_config.schema_source,
         })?
         .catalog;
 
@@ -1974,10 +1956,6 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
-    for sql_config in &config.sql {
-        validate_schema_source("check", &sql_config.name, &sql_config.engine, sql_config.schema_source)?;
-    }
-
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
         registry.apply_config(lint_config);
@@ -2026,11 +2004,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     let base_dir = config_dir(config_path);
 
     for sql_config in &config.sql {
-        eprintln!(
-            "[{}] {} schema...",
-            sql_config.name,
-            sql_config.schema_source.progress_verb()
-        );
+        eprintln!("[{}] Parsing schema...", sql_config.name);
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
 
@@ -2041,7 +2015,6 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             engine: &sql_config.engine,
             dialect,
             schema_files: &schema_files,
-            source: sql_config.schema_source,
         })?
         .catalog;
 
@@ -3878,7 +3851,7 @@ backend = \"rust-sqlx\"
     fn partition_verifiable_blocks_splits_postgres_from_other_engines() {
         let blocks = vec![
             verifiable_block("pg_block", "postgresql"),
-            verifiable_block("mysql_block", "mysql"),
+            verifiable_block("other_block", "nosuchdb"),
         ];
 
         let (pg, skipped) = partition_verifiable_blocks(&blocks);
@@ -3887,48 +3860,28 @@ backend = \"rust-sqlx\"
         assert_eq!(pg[0].name, "pg_block");
 
         assert_eq!(skipped.len(), 1, "exactly one block must be skipped");
-        assert_eq!(skipped[0].name, "mysql_block");
+        assert_eq!(skipped[0].name, "other_block");
     }
 
-    /// `postgres`, `pg`, and `cockroachdb` are aliases for the same
-    /// PostgreSQL-wire-compatible engine and must all be treated as
-    /// verifiable, matching `scythe-codegen`'s `normalize_engine` table.
+    /// `postgres`, `pg` and `postgresql` are aliases for the same engine and must
+    /// all be treated as verifiable, matching `normalize_engine`.
     #[test]
     fn partition_verifiable_blocks_treats_postgres_aliases_as_verifiable() {
         let blocks = vec![
             verifiable_block("a", "postgres"),
             verifiable_block("b", "pg"),
             verifiable_block("c", "postgresql"),
-            verifiable_block("d", "cockroachdb"),
         ];
 
         let (pg, skipped) = partition_verifiable_blocks(&blocks);
 
         assert_eq!(
             pg.len(),
-            4,
-            "all four postgres aliases must be verifiable, got: {:?}",
+            3,
+            "all three postgres aliases must be verifiable, got: {:?}",
             pg
         );
         assert!(skipped.is_empty());
-    }
-
-    /// Non-PostgreSQL engines (mysql, sqlite, mssql, oracle, ...) must never
-    /// reach live verification, since `verify_against_database` only speaks
-    /// the PostgreSQL wire protocol.
-    #[test]
-    fn partition_verifiable_blocks_skips_non_postgres_engines() {
-        let blocks = vec![
-            verifiable_block("a", "mysql"),
-            verifiable_block("b", "sqlite"),
-            verifiable_block("c", "mssql"),
-            verifiable_block("d", "oracle"),
-        ];
-
-        let (pg, skipped) = partition_verifiable_blocks(&blocks);
-
-        assert!(pg.is_empty(), "no non-postgres engine may be verifiable, got: {:?}", pg);
-        assert_eq!(skipped.len(), 4);
     }
 
     fn query_result(model_struct: Option<&str>, row_struct: Option<&str>, query_fn: Option<&str>) -> QueryResult {
@@ -4891,7 +4844,6 @@ backend = \"rust-sqlx\"
         SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
-            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: Some(output_dir.to_string_lossy().into_owned()),
@@ -5102,7 +5054,6 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
-            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5210,7 +5161,6 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
-            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5422,7 +5372,6 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
-            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5593,7 +5542,6 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "oracle".to_string(),
-            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: Some(dir.path().to_string_lossy().into_owned()),
@@ -5641,7 +5589,6 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
-            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -6136,7 +6083,6 @@ backend = \"rust-sqlx\"
             &SqlConfig {
                 name: "main".to_string(),
                 engine: "postgresql".to_string(),
-                schema_source: SchemaSource::Parse,
                 schema: Vec::new(),
                 queries: Vec::new(),
                 output: None,
@@ -6181,7 +6127,6 @@ backend = \"rust-sqlx\"
             &SqlConfig {
                 name: "main".to_string(),
                 engine: "postgresql".to_string(),
-                schema_source: SchemaSource::Parse,
                 schema: Vec::new(),
                 queries: Vec::new(),
                 output: None,

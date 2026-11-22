@@ -278,13 +278,11 @@ fn every_backend_manifest_has_an_integration_project() {
 ///
 /// Without this, the manifest check above is satisfiable by committing a
 /// project nothing runs — generated output that the freshness check inspects
-/// and no driver ever touches. That is precisely how the csharp-snowflake
-/// parameter-binding bug survived from v0.6.0 to 0.14.0, so closing the
-/// manifest gap and leaving this one open would just relocate the defect.
+/// and no driver ever touches. Closing the manifest gap and leaving this one open would just relocate the defect.
 ///
 /// The task names each project as a whole word in `devenv.nix`, so a project is
 /// matched by token rather than substring (`rust-sqlx` must not count for
-/// `rust-sqlx-sqlite`).
+/// `rust-sqlx-nested-json`).
 #[test]
 fn every_integration_project_runs_in_the_devenv_task() {
     let devenv = repo_root().join("devenv.nix");

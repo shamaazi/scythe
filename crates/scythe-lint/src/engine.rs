@@ -747,33 +747,4 @@ mod tests {
         assert_eq!(from_report, from_standalone);
         assert_eq!(from_report.len(), 1);
     }
-
-    /// #167: a dialect-gated rule that cannot run must be countable up
-    /// front, not merely invisible. The engine's answer must match the
-    /// registry's, since a caller reaches it through either.
-    #[test]
-    fn rules_inapplicable_to_reports_dialect_gated_rules() {
-        use crate::audit::{MatcherRegistry, MatcherRule, canonical_specs};
-
-        let mut reg = RuleRegistry::new();
-        let matchers = MatcherRegistry::canonical();
-        for spec in canonical_specs() {
-            let matcher_fn = matchers.get(&spec.matcher).expect("canonical matcher must exist");
-            reg.register(Box::new(MatcherRule::new(spec, matcher_fn)));
-        }
-        let engine = LintEngine::new(reg);
-
-        let skipped_for_mysql = engine.rules_inapplicable_to(SqlDialect::MySQL);
-        assert_eq!(
-            skipped_for_mysql.len(),
-            28,
-            "28 canonical audit rules declare dialects = [\"postgres\"]; \
-             if this number moves, `sqlkit audit`'s skipped-rule summary moves with it"
-        );
-
-        assert!(
-            engine.rules_inapplicable_to(SqlDialect::PostgreSQL).is_empty(),
-            "no canonical rule is gated away from PostgreSQL"
-        );
-    }
 }

@@ -304,7 +304,6 @@ impl DomainDefinition {
 #[derive(Debug)]
 pub struct CatalogBuilder {
     dialect: SqlDialect,
-    engine: Option<String>,
     search_path: Option<Vec<String>>,
     relations: Vec<RelationDefinition>,
     enums: Vec<EnumDefinition>,
@@ -318,7 +317,6 @@ impl CatalogBuilder {
     pub fn new(dialect: SqlDialect) -> Self {
         Self {
             dialect,
-            engine: None,
             search_path: None,
             relations: Vec::new(),
             enums: Vec::new(),
@@ -326,13 +324,6 @@ impl CatalogBuilder {
             domains: Vec::new(),
             functions: Vec::new(),
         }
-    }
-
-    /// Attach the concrete engine name when it is known.
-    #[must_use]
-    pub fn engine(mut self, engine: impl Into<String>) -> Self {
-        self.engine = Some(engine.into());
-        self
     }
 
     /// Register the ordered schemas used to resolve unqualified object names.
@@ -389,7 +380,6 @@ impl CatalogBuilder {
             domains: AHashMap::new(),
             functions: AHashMap::new(),
             dialect: self.dialect,
-            engine: normalize_optional_engine(self.engine)?,
             search_path: normalize_search_path(self.search_path)?,
             relation_names: AHashMap::new(),
             relation_kinds: AHashMap::new(),
@@ -591,10 +581,6 @@ fn add_domains(catalog: &mut Catalog, definitions: Vec<DomainDefinition>) -> Res
     Ok(())
 }
 
-fn normalize_optional_engine(engine: Option<String>) -> Result<Option<String>, ScytheError> {
-    engine.map(|value| normalized_identifier(&value, "engine")).transpose()
-}
-
 fn normalize_search_path(search_path: Option<Vec<String>>) -> Result<Option<Vec<String>>, ScytheError> {
     search_path
         .map(|schemas| {
@@ -656,8 +642,7 @@ mod tests {
 
     #[test]
     fn should_preserve_relation_metadata_raw_types_and_defaults() {
-        let catalog = CatalogBuilder::new(SqlDialect::SQLite)
-            .engine("sqlite")
+        let catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
             .relation(RelationDefinition::view(
                 CatalogObjectName::qualified("Main", "UserRollup"),
                 vec![
@@ -717,7 +702,7 @@ mod tests {
 
     #[test]
     fn should_fingerprint_equivalent_definitions_independent_of_insertion_order() {
-        let first = CatalogBuilder::new(SqlDialect::SQLite)
+        let first = CatalogBuilder::new(SqlDialect::PostgreSQL)
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("alpha"),
                 vec![id_column()],
@@ -728,7 +713,7 @@ mod tests {
             ))
             .build()
             .expect("valid definitions");
-        let second = CatalogBuilder::new(SqlDialect::SQLite)
+        let second = CatalogBuilder::new(SqlDialect::PostgreSQL)
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("beta"),
                 vec![id_column()],
@@ -784,7 +769,7 @@ mod tests {
 
     #[test]
     fn should_reject_duplicate_columns_after_normalization() {
-        let error = CatalogBuilder::new(SqlDialect::SQLite)
+        let error = CatalogBuilder::new(SqlDialect::PostgreSQL)
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("users"),
                 vec![
@@ -818,14 +803,14 @@ mod tests {
 
     #[test]
     fn should_change_fingerprint_when_semantic_definition_changes() {
-        let integer_catalog = CatalogBuilder::new(SqlDialect::SQLite)
+        let integer_catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("users"),
                 vec![ColumnDefinition::new("id", "INTEGER", false)],
             ))
             .build()
             .expect("valid catalog");
-        let text_catalog = CatalogBuilder::new(SqlDialect::SQLite)
+        let text_catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
             .relation(RelationDefinition::table(
                 CatalogObjectName::new("users"),
                 vec![ColumnDefinition::new("id", "TEXT", false)],

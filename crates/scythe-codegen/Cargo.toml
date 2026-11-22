@@ -25,16 +25,14 @@ include = [
 ]
 
 [features]
-# Every engine and every language. A build that targets fewer can disable the
+# The engine and every language. A build that targets fewer can disable the
 # rest with `default-features = false`; `get_backend` then reports a backend
 # or engine left out of the build as an error naming the feature to enable.
 default = ["all-engines", "all-languages"]
-all-engines = ["postgres", "sqlite"]
+all-engines = ["postgres"]
 all-languages = ["lang-rust", "lang-typescript"]
-# Engines: whether `get_backend` accepts the engine (and its aliases).
-# PostgreSQL and CockroachDB.
+# The engine: whether `get_backend` accepts `postgresql` (and its aliases).
 postgres = []
-sqlite = []
 # Languages: which backend modules are compiled. `lang-typescript` includes
 # the JavaScript variants of every TypeScript backend.
 lang-rust = []

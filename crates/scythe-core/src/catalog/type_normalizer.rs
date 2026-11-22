@@ -1,19 +1,13 @@
 use ahash::AHashMap;
 use sqlparser::ast::{ArrayElemTypeDef, DataType, ObjectName, TimezoneInfo};
 
-use crate::dialect::SqlDialect;
-
 use super::DomainDef;
 
 /// Normalize a sqlparser DataType into a lowercase PostgreSQL type string.
 /// Returns (type_string, is_serial).
-pub(crate) fn normalize_data_type(
-    dt: &DataType,
-    domains: &AHashMap<String, DomainDef>,
-    dialect: SqlDialect,
-) -> (String, bool) {
+pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, DomainDef>) -> (String, bool) {
     match dt {
-        DataType::Custom(name, tokens) => {
+        DataType::Custom(name, _) => {
             let raw = object_name_to_key(name);
             match raw.as_str() {
                 "serial" | "serial4" => return ("integer".to_string(), true),
@@ -21,17 +15,6 @@ pub(crate) fn normalize_data_type(
                 "smallserial" | "serial2" => return ("smallint".to_string(), true),
                 "timestamptz" => return ("timestamptz".to_string(), false),
                 "timetz" => return ("timetz".to_string(), false),
-                // ~keep Only a non-zero scale makes NUMBER a decimal. Rewriting
-                // NUMBER(p,0) to numeric(p,0) sent it to the decimal arm, so an
-                // explicit zero scale disagreed with both NUMBER(p) and bare
-                // NUMBER -- and NUMBER(38,0) is exactly how Snowflake's own
-                // DESCRIBE TABLE reports the storage behind INT, so a schema
-                // dumped from a live table typed its keys as decimal while the
-                // same table written with INT typed them as int64.
-                "number" if tokens.len() >= 2 && tokens[1] != "0" => {
-                    return (format!("numeric({},{})", tokens[0], tokens[1]), false);
-                }
-                "number" if tokens.len() >= 2 => return ("number".to_string(), false),
                 _ => {}
             }
             // Qualifier-tolerant, same as `Catalog::get_domain_base_type`:
@@ -61,49 +44,9 @@ pub(crate) fn normalize_data_type(
                 ExactNumberInfo::Precision(_) | ExactNumberInfo::PrecisionAndScale(_, _) => {
                     ("double precision".to_string(), false)
                 }
-                // ~keep Bare `FLOAT` with no precision: MySQL's bare `FLOAT` is a genuine
-                // 4-byte single-precision type. Every other engine here (PostgreSQL,
-                // MSSQL, Oracle, SQLite, Snowflake) defaults bare `FLOAT` to 8-byte
-                // double precision (equivalent to `FLOAT(53)`).
-                ExactNumberInfo::None if dialect == SqlDialect::MySQL => ("real".to_string(), false),
                 ExactNumberInfo::None => ("double precision".to_string(), false),
             }
         }
-        // MySQL's UNSIGNED numeric qualifier does not change the neutral width, so
-        // these canonicalize to the same string as their signed counterparts.
-        DataType::FloatUnsigned(info) => {
-            use sqlparser::ast::ExactNumberInfo;
-            match info {
-                ExactNumberInfo::Precision(p) if *p <= 24 => ("real".to_string(), false),
-                ExactNumberInfo::Precision(_) | ExactNumberInfo::PrecisionAndScale(_, _) => {
-                    ("double precision".to_string(), false)
-                }
-                ExactNumberInfo::None if dialect == SqlDialect::MySQL => ("real".to_string(), false),
-                ExactNumberInfo::None => ("double precision".to_string(), false),
-            }
-        }
-        DataType::RealUnsigned => ("real".to_string(), false),
-        DataType::DoubleUnsigned(_) | DataType::DoublePrecisionUnsigned => ("double precision".to_string(), false),
-        DataType::DecimalUnsigned(info) | DataType::DecUnsigned(info) => {
-            use sqlparser::ast::ExactNumberInfo;
-            match info {
-                ExactNumberInfo::PrecisionAndScale(p, s) => (format!("numeric({},{})", p, s), false),
-                ExactNumberInfo::Precision(p) => (format!("numeric({})", p), false),
-                ExactNumberInfo::None => ("numeric".to_string(), false),
-            }
-        }
-        // ~keep MySQL UNSIGNED integer types. There is no dedicated "unsigned" neutral
-        // type, so these canonicalize to the same-width signed spelling; the
-        // neutral-type mapping (`sql_type_to_neutral`) maps them to the same-width
-        // signed integer and documents the resulting range caveat.
-        DataType::TinyIntUnsigned(_) => ("tinyint unsigned".to_string(), false),
-        DataType::Int2Unsigned(_) | DataType::SmallIntUnsigned(_) => ("smallint unsigned".to_string(), false),
-        DataType::MediumIntUnsigned(_) => ("mediumint unsigned".to_string(), false),
-        DataType::IntUnsigned(_) | DataType::Int4Unsigned(_) | DataType::IntegerUnsigned(_) => {
-            ("int unsigned".to_string(), false)
-        }
-        DataType::BigIntUnsigned(_) | DataType::Int8Unsigned(_) => ("bigint unsigned".to_string(), false),
-
         DataType::Varchar(len) | DataType::CharVarying(len) | DataType::CharacterVarying(len) => match len {
             Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => {
                 (format!("varchar({})", length), false)
@@ -116,30 +59,6 @@ pub(crate) fn normalize_data_type(
         },
         DataType::Text => ("text".to_string(), false),
 
-        DataType::Nvarchar(len) => match len {
-            Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => {
-                (format!("varchar({})", length), false)
-            }
-            _ => ("text".to_string(), false),
-        },
-
-        // ~keep T-SQL's unbounded `VARBINARY(MAX)`. Without this arm it fell to the
-        // generic `other => other.to_string().to_lowercase()` branch below, which
-        // renders `BinaryLength::Max` as the literal `"varbinary(max)"`.
-        // `sql_type_to_neutral`'s `strip_precision` only strips a trailing
-        // `(<digits>)`, so that survives intact, never matches the bare
-        // `"varbinary"` arm, and resolves to the invalid neutral type
-        // `"varbinary(max)"` rather than `"bytes"`. The `Varchar`/`Nvarchar` arms
-        // above are unaffected because their `_` catch-all already routes
-        // `CharacterLength::Max` to `"text"`.
-        //
-        // `DataType::Binary` needs no equivalent arm: sqlparser types it
-        // `Option<u64>`, so `BINARY(MAX)` is unrepresentable and the bounded form
-        // already round-trips through `strip_precision`.
-        DataType::Varbinary(len) => match len {
-            Some(sqlparser::ast::BinaryLength::IntegerLength { length }) => (format!("varbinary({})", length), false),
-            _ => ("varbinary".to_string(), false),
-        },
         DataType::Numeric(info) | DataType::Decimal(info) | DataType::Dec(info) => {
             use sqlparser::ast::ExactNumberInfo;
             match info {
@@ -182,19 +101,19 @@ pub(crate) fn normalize_data_type(
         DataType::Array(elem) => {
             let inner = match elem {
                 ArrayElemTypeDef::SquareBracket(inner_dt, _) => {
-                    let (inner_type, _) = normalize_data_type(inner_dt, domains, dialect);
+                    let (inner_type, _) = normalize_data_type(inner_dt, domains);
                     inner_type
                 }
                 ArrayElemTypeDef::AngleBracket(inner_dt) => {
-                    let (inner_type, _) = normalize_data_type(inner_dt, domains, dialect);
+                    let (inner_type, _) = normalize_data_type(inner_dt, domains);
                     inner_type
                 }
                 ArrayElemTypeDef::Parenthesis(inner_dt) => {
-                    let (inner_type, _) = normalize_data_type(inner_dt, domains, dialect);
+                    let (inner_type, _) = normalize_data_type(inner_dt, domains);
                     inner_type
                 }
                 ArrayElemTypeDef::Qualified(inner_dt, _) => {
-                    let (inner_type, _) = normalize_data_type(inner_dt, domains, dialect);
+                    let (inner_type, _) = normalize_data_type(inner_dt, domains);
                     inner_type
                 }
                 ArrayElemTypeDef::None => "unknown".to_string(),
@@ -209,7 +128,7 @@ pub(crate) fn normalize_data_type(
 
         // ~keep Preserve the declared width so downstream neutral-type resolution can
         // distinguish a single-bit `BIT`/`BIT(1)` (boolean-ish) from a multi-bit
-        // `BIT(n)` (a bitfield in MySQL, a true bit string in PostgreSQL). `BIT
+        // `BIT(n)` (a bit string). `BIT
         // VARYING`/`VARBIT` has no fixed width worth preserving here.
         DataType::Bit(width) => match width {
             Some(w) => (format!("bit({})", w), false),
@@ -250,8 +169,7 @@ pub(crate) fn ident_to_lower(ident: &sqlparser::ast::Ident) -> String {
 /// function instead applies [`ident_to_lower`]'s quote-aware rule to just
 /// the final part: a quoted identifier keeps its literal casing (the
 /// database preserves it verbatim), an unquoted one is folded to lowercase
-/// (what an unquoted identifier resolves to in every dialect this catalog
-/// targets). For a bare identifier this therefore equals the normalised
+/// (what an unquoted identifier resolves to in PostgreSQL). For a bare identifier this therefore equals the normalised
 /// key's bare name -- the two values only diverge when the DDL quoted a
 /// mixed-case or uppercase name, which is exactly the case a
 /// naming-convention lint (SC-N02) needs to observe. Callers that need a
@@ -277,18 +195,11 @@ pub(crate) fn bare_name(key: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use crate::catalog::Catalog;
-    use crate::dialect::SqlDialect;
 
     /// Helper to create a single-column table and return (sql_type, nullable).
     fn col_type(col_ddl: &str) -> (String, bool) {
-        col_type_with_dialect(col_ddl, SqlDialect::PostgreSQL)
-    }
-
-    /// Helper to create a single-column table under a specific dialect and return
-    /// (sql_type, nullable).
-    fn col_type_with_dialect(col_ddl: &str, dialect: SqlDialect) -> (String, bool) {
         let ddl = format!("CREATE TABLE _t_ ({});", col_ddl);
-        let catalog = Catalog::from_ddl_with_dialect(&[&ddl], &dialect).unwrap();
+        let catalog = Catalog::from_ddl(&[&ddl]).unwrap();
         let table = catalog.get_table("_t_").unwrap();
         let col = &table.columns[0];
         (col.sql_type.clone(), col.nullable)
@@ -379,22 +290,6 @@ mod tests {
         assert_eq!(col_type("a JSONB").0, "jsonb");
     }
 
-    /// Regression for https://github.com/Goldziher/scythe/issues/73: a bare `FLOAT`
-    /// (no precision) normalizes to 8-byte `double precision` everywhere except
-    /// MySQL, where bare `FLOAT` is a genuine 4-byte type and normalizes to `real`.
-    #[test]
-    fn test_bare_float_normalizes_by_dialect() {
-        assert_eq!(
-            col_type_with_dialect("a FLOAT", SqlDialect::PostgreSQL).0,
-            "double precision"
-        );
-        assert_eq!(
-            col_type_with_dialect("a FLOAT", SqlDialect::MsSql).0,
-            "double precision"
-        );
-        assert_eq!(col_type_with_dialect("a FLOAT", SqlDialect::MySQL).0, "real");
-    }
-
     /// Regression for https://github.com/Goldziher/scythe/issues/75: the declared
     /// width of `BIT(n)` must survive normalization so downstream neutral-type
     /// resolution can distinguish `BIT(1)` (boolean-ish) from `BIT(n>1)` (a
@@ -407,44 +302,6 @@ mod tests {
         assert_eq!(col_type("a BIT(8)").0, "bit(8)");
         assert_eq!(col_type("a BIT VARYING(16)").0, "bit varying");
         assert_eq!(col_type("a VARBIT(16)").0, "bit varying");
-    }
-
-    /// Regression for https://github.com/Goldziher/scythe/issues/74: MySQL's
-    /// `UNSIGNED` numeric qualifier must normalize to a clean string with the
-    /// display width discarded (`strip_precision` cannot rescue a string like
-    /// `"bigint(20) unsigned"` because the parens are not trailing), so the
-    /// neutral-type resolver has a matching arm instead of dying as
-    /// `BackendError::UnknownType`.
-    #[test]
-    fn test_mysql_unsigned_types_normalize_without_width() {
-        assert_eq!(
-            col_type_with_dialect("a BIGINT(20) UNSIGNED", SqlDialect::MySQL).0,
-            "bigint unsigned"
-        );
-        assert_eq!(
-            col_type_with_dialect("a BIGINT UNSIGNED", SqlDialect::MySQL).0,
-            "bigint unsigned"
-        );
-        assert_eq!(
-            col_type_with_dialect("a INT(11) UNSIGNED", SqlDialect::MySQL).0,
-            "int unsigned"
-        );
-        assert_eq!(
-            col_type_with_dialect("a INT UNSIGNED", SqlDialect::MySQL).0,
-            "int unsigned"
-        );
-        assert_eq!(
-            col_type_with_dialect("a SMALLINT UNSIGNED", SqlDialect::MySQL).0,
-            "smallint unsigned"
-        );
-        assert_eq!(
-            col_type_with_dialect("a TINYINT UNSIGNED", SqlDialect::MySQL).0,
-            "tinyint unsigned"
-        );
-        assert_eq!(
-            col_type_with_dialect("a MEDIUMINT UNSIGNED", SqlDialect::MySQL).0,
-            "mediumint unsigned"
-        );
     }
 
     #[test]

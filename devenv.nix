@@ -105,7 +105,7 @@ in
       '';
     };
     "sqlkit:integration" = {
-      description = "Run the PostgreSQL, SQLite and Bun integration projects";
+      description = "Run the PostgreSQL and Bun integration projects";
       after = [ "devenv:processes:postgres@ready" ];
       env.DATABASE_URL = databaseUrl;
       exec = ''
@@ -115,10 +115,6 @@ in
           echo "== $project"
           (cd "$project" && cargo run --quiet)
         done
-        echo "== rust-sqlx-sqlite"
-        sqlite_db="$(mktemp -d)/scythe_test.db"
-        touch "$sqlite_db"
-        (cd rust-sqlx-sqlite && SQLITE_PATH="$sqlite_db" DATABASE_URL="sqlite://$sqlite_db" cargo run --quiet)
         echo "== typescript-bun"
         (cd typescript-bun && bun install --frozen-lockfile && bunx tsc --noEmit && bun test.ts)
       '';

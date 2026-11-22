@@ -304,23 +304,6 @@ mod tests {
     }
 
     #[test]
-    fn matcher_rule_dialect_filter_skips_when_not_matching() {
-        let mut spec = minimal_spec("SC-TEST02", "msg", Severity::Warn);
-        spec.dialects = vec![SqlDialect::MySQL];
-
-        let rule = MatcherRule::new(spec, always_fires);
-
-        let sql = "SELECT 1";
-        let stmt = parse_stmt(sql);
-        let catalog = empty_catalog();
-        let analyzed = dummy_analyzed();
-        let annotations = dummy_annotations();
-        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
-        let violations = rule.check_query(&ctx);
-        assert!(violations.is_empty());
-    }
-
-    #[test]
     fn matcher_rule_silent_when_matcher_returns_empty() {
         let spec = minimal_spec("SC-TEST03", "msg", Severity::Error);
         let rule = MatcherRule::new(spec, never_fires);
@@ -381,32 +364,6 @@ mod tests {
         spec.cwe = vec![];
         let rule = MatcherRule::new(spec, never_fires);
         assert!(rule.cwe().is_empty());
-    }
-
-    /// Regression for #167: a rule scoped to Postgres must expose that
-    /// through `is_applicable_to`, not only via a silent `check_query`
-    /// early-return, so a caller can count and report skipped rules per
-    /// engine instead of `sqlkit audit` on a non-Postgres engine claiming
-    /// "no findings" while most rules never ran.
-    #[test]
-    fn matcher_rule_is_applicable_to_honours_spec_dialects() {
-        let mut spec = minimal_spec("SC-TEST06", "msg", Severity::Error);
-        spec.dialects = vec![SqlDialect::PostgreSQL];
-        let rule = MatcherRule::new(spec, never_fires);
-
-        assert!(rule.is_applicable_to(SqlDialect::PostgreSQL));
-        assert!(!rule.is_applicable_to(SqlDialect::MySQL));
-    }
-
-    /// An empty `dialects` list means "every dialect", matching the existing
-    /// `check_query` gate semantics.
-    #[test]
-    fn matcher_rule_is_applicable_to_empty_dialects_means_every_dialect() {
-        let spec = minimal_spec("SC-TEST07", "msg", Severity::Error);
-        let rule = MatcherRule::new(spec, never_fires);
-
-        assert!(rule.is_applicable_to(SqlDialect::PostgreSQL));
-        assert!(rule.is_applicable_to(SqlDialect::MySQL));
     }
 
     #[test]

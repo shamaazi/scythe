@@ -9,8 +9,8 @@ use scythe_lint::{SuppressionSet, emit_findings};
 
 use super::inspect::{build_driver_with_config, build_registry};
 use super::shared::{
-    CatalogLoadRequest, ParseSeverities, SchemaSource, config_dir, engine_to_sqruff_dialect, load_catalog,
-    resolve_globs, split_query_file, validate_dialect, validate_schema_source,
+    CatalogLoadRequest, ParseSeverities, config_dir, engine_to_sqruff_dialect, load_catalog, resolve_globs,
+    split_query_file, validate_dialect,
 };
 
 /// A combined lint violation that can come from either scythe rules, sqruff,
@@ -174,8 +174,6 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
         #[serde(default)]
         engine: Option<String>,
         #[serde(default)]
-        schema_source: SchemaSource,
-        #[serde(default)]
         schema: Vec<String>,
     }
 
@@ -192,7 +190,6 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
     };
 
     let engine_label = first.engine.as_deref().unwrap_or("");
-    validate_schema_source("lint", &first.name, engine_label, first.schema_source)?;
 
     let base_dir = config_dir(config_path);
     let schema_files = resolve_globs(&first.schema, base_dir, "[native lint] schema")?;
@@ -207,7 +204,6 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
         engine: engine_label,
         dialect: sql_dialect,
         schema_files: &schema_files,
-        source: first.schema_source,
     })?
     .catalog;
 
@@ -545,18 +541,12 @@ fn lint_from_config(
         #[allow(dead_code)]
         #[serde(default)]
         engine: String,
-        #[serde(default)]
-        schema_source: SchemaSource,
     }
 
     let config_str =
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
-
-    for sql_config in &config.sql {
-        validate_schema_source("lint", &sql_config.name, &sql_config.engine, sql_config.schema_source)?;
-    }
 
     // Same `[lint]` table applied to `SC-PARSE01`/`SC-PARSE02`'s own
     // registry below -- see `ParseSeverities` for why these two cannot pick
@@ -627,11 +617,7 @@ fn lint_from_config(
     let base_dir = config_dir(config_path);
 
     for (block_index, sql_config) in config.sql.iter().enumerate() {
-        eprintln!(
-            "[{}] {} schema...",
-            sql_config.name,
-            sql_config.schema_source.progress_verb()
-        );
+        eprintln!("[{}] Parsing schema...", sql_config.name);
 
         let inapplicable = inapplicable_rules_per_block
             .get(block_index)
@@ -695,7 +681,6 @@ fn lint_from_config(
             engine: &sql_config.engine,
             dialect: sql_dialect,
             schema_files: &schema_files,
-            source: sql_config.schema_source,
         })?
         .catalog;
 

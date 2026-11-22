@@ -3,7 +3,6 @@ use sqlparser::ast::{
     self, BinaryOperator, Expr, GroupByExpr, ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, Value,
 };
 
-use crate::dialect::SqlDialect;
 use crate::errors::{ErrorCode, ScytheError};
 
 use super::types::{AnalyzedColumn, AnalyzedParam, Scope, TypeInfo};
@@ -552,39 +551,6 @@ pub(super) fn is_literal(expr: &Expr) -> bool {
     }
 }
 
-/// Whether this literal *evaluates to NULL* under `dialect`.
-///
-/// Oracle is the only supported dialect where a literal can: it stores a
-/// zero-length string as NULL, so `''` and `N''` are NULL literals there,
-/// not empty values. Everywhere else `''` is a value distinct from NULL.
-///
-/// This is not a cosmetic difference. `COALESCE(email, '')` is inferred
-/// non-nullable *because of* its literal fallback, which makes codegen emit
-/// a non-optional field; on Oracle that column really does come back NULL
-/// and the generated code cannot decode the row. See
-/// `testing_data/nullability_live/coalesce_non_null/live_coalesce_with_empty_string_default_is_null_on_oracle.json`,
-/// which reproduces exactly that against a live Oracle instance and fails
-/// this suite's A2 soundness assertion if this branch is removed.
-pub(super) fn value_is_null_in_dialect(vws: &ast::ValueWithSpan, dialect: SqlDialect) -> bool {
-    if dialect != SqlDialect::Oracle {
-        return false;
-    }
-    // Deliberately not `DoubleQuotedString`: in Oracle double quotes
-    // delimit an identifier, so `""` is not an empty string at all.
-    matches!(
-        &vws.value,
-        Value::SingleQuotedString(s) | Value::NationalStringLiteral(s) if s.is_empty()
-    )
-}
-
-/// Whether `expr` is a literal that `dialect` guarantees is not NULL --
-/// the property callers actually want when a literal is used to prove an
-/// expression non-nullable. [`is_literal`] alone answers a syntactic
-/// question and would accept Oracle's `''`.
-pub(super) fn is_non_null_literal(expr: &Expr, dialect: SqlDialect) -> bool {
-    is_literal(expr) && !matches!(expr, Expr::Value(vws) if value_is_null_in_dialect(vws, dialect))
-}
-
 /// Whether `func` carries a `RESPECT NULLS` / `IGNORE NULLS` clause, in either
 /// of the two positions sqlparser recognizes: the postfix `Function::null_treatment`
 /// (`FIRST_VALUE(x) IGNORE NULLS OVER (...)`) or the BigQuery-style in-argument-list
@@ -954,23 +920,9 @@ pub(super) fn literal_number_neutral_type(text: &str) -> &'static str {
     }
 }
 
-/// `EXTRACT(field FROM source)` result type, which PostgreSQL and MySQL
-/// disagree on (see #123):
-///
-/// - MySQL's `EXTRACT` returns an integer (`BIGINT`).
-/// - PostgreSQL 14+ (and the engines that parse as `SqlDialect::PostgreSQL`:
-///   CockroachDB, Redshift, DuckDB), Oracle, and Snowflake all return an
-///   exact numeric type (`numeric` / `NUMBER`).
-/// - SQLite has no native `EXTRACT`, and MsSql spells this `DATEPART`
-///   (returning `int`) rather than supporting the `EXTRACT` syntax at all --
-///   for both, there is no real engine answer to model, so this keeps the
-///   historical `float64` default rather than inventing one.
-pub(super) fn extract_result_type(dialect: SqlDialect) -> &'static str {
-    match dialect {
-        SqlDialect::MySQL => "int64",
-        SqlDialect::PostgreSQL | SqlDialect::Oracle | SqlDialect::Snowflake => "decimal",
-        SqlDialect::SQLite | SqlDialect::MsSql => "float64",
-    }
+/// `EXTRACT(field FROM source)` result type: PostgreSQL 14+ returns `numeric` (see #123).
+pub(super) fn extract_result_type() -> &'static str {
+    "decimal"
 }
 
 /// `ROUND`/`TRUNC` result type: PostgreSQL's `round(double precision)`
@@ -1176,18 +1128,7 @@ mod tests {
 
     #[test]
     fn test_extract_result_type_postgresql_is_decimal() {
-        assert_eq!(extract_result_type(SqlDialect::PostgreSQL), "decimal");
-    }
-
-    #[test]
-    fn test_extract_result_type_mysql_is_int64() {
-        assert_eq!(extract_result_type(SqlDialect::MySQL), "int64");
-    }
-
-    #[test]
-    fn test_extract_result_type_sqlite_and_mssql_keep_float64_default() {
-        assert_eq!(extract_result_type(SqlDialect::SQLite), "float64");
-        assert_eq!(extract_result_type(SqlDialect::MsSql), "float64");
+        assert_eq!(extract_result_type(), "decimal");
     }
 
     #[test]

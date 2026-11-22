@@ -35,28 +35,8 @@ pub struct Catalog {
     functions: AHashMap<String, Vec<Function>>,
     /// Domain name -> resolved base type (lowercase)
     domains: AHashMap<String, DomainDef>,
-    /// SQL dialect this catalog was parsed with. Used downstream to resolve
-    /// dialect-specific type semantics (e.g. SQLite's `REAL` is an 8-byte
-    /// IEEE float, unlike PostgreSQL's 4-byte `real`).
+    /// SQL dialect this catalog was parsed with.
     dialect: SqlDialect,
-    /// Configured engine name (`sqlkit.toml`'s `[[sql]] engine`) when the
-    /// caller knows it, e.g. `"postgresql"`, `"redshift"`, `"duckdb"`.
-    ///
-    /// `SqlDialect` deliberately collapses every PostgreSQL-compatible
-    /// engine onto [`SqlDialect::PostgreSQL`] — `SqlDialect::from_str` maps
-    /// `redshift`, `duckdb` and `cockroachdb` all to that one variant —
-    /// because for *parsing and type resolution* they behave the same. That
-    /// collapse is wrong for capability questions: Redshift has no
-    /// `json_agg` at all and DuckDB spells it `json_group_array`, so a
-    /// dialect-only gate silently lets both through. Inference that depends
-    /// on a server-side function actually existing must consult this, not
-    /// the dialect.
-    ///
-    /// `None` means "not stated" and is treated as the dialect's flagship
-    /// engine, which keeps every [`Catalog::from_ddl`] caller (all of the
-    /// unit tests, and any embedder that never had an engine string)
-    /// behaving exactly as it did before this field existed.
-    engine: Option<String>,
     search_path: Option<Vec<String>>,
     relation_names: AHashMap<String, CatalogObjectName>,
     relation_kinds: AHashMap<String, RelationKind>,
@@ -212,7 +192,6 @@ impl Catalog {
             functions: AHashMap::new(),
             domains: AHashMap::new(),
             dialect: *dialect,
-            engine: None,
             search_path: None,
             relation_names: AHashMap::new(),
             relation_kinds: AHashMap::new(),
@@ -229,10 +208,8 @@ impl Catalog {
 
         for sql in schema_sql {
             let filtered = Self::strip_psql_meta_commands(sql);
-            let mut cleaned = catalog.extract_unsupported_statements(&filtered, dialect);
-            if *dialect == SqlDialect::PostgreSQL {
-                cleaned = crate::parser::spell_out_default_trim_characters(&cleaned);
-            }
+            let mut cleaned = catalog.extract_unsupported_statements(&filtered);
+            cleaned = crate::parser::spell_out_default_trim_characters(&cleaned);
 
             let trimmed = cleaned.trim();
             if trimmed.is_empty() {
@@ -256,23 +233,6 @@ impl Catalog {
     /// The SQL dialect this catalog was parsed with.
     pub(crate) fn dialect(&self) -> SqlDialect {
         self.dialect
-    }
-
-    /// Record the configured engine name for this catalog. See the `engine`
-    /// field for why this is tracked separately from [`SqlDialect`].
-    ///
-    /// Consumed builder-style so a call site that already has the engine
-    /// string can attach it in the same expression that builds the catalog.
-    #[must_use]
-    pub fn with_engine(mut self, engine: &str) -> Self {
-        self.engine = Some(engine.to_lowercase());
-        self
-    }
-
-    /// The configured engine name, or `None` when the caller never stated
-    /// one. See the `engine` field.
-    pub(crate) fn engine(&self) -> Option<&str> {
-        self.engine.as_deref()
     }
 
     pub fn get_table(&self, name: &str) -> Option<&Table> {
@@ -380,18 +340,12 @@ impl Catalog {
 
 impl Catalog {
     /// Pre-process a SQL string to extract statements that sqlparser cannot handle
-    /// (CREATE DOMAIN, CREATE SCHEMA, Oracle CREATE SEQUENCE, and triggers).
+    /// (CREATE DOMAIN, CREATE SCHEMA and triggers).
     /// Processes them internally and returns the remaining SQL with those
     /// statements removed.
-    fn extract_unsupported_statements(&mut self, sql: &str, dialect: &SqlDialect) -> String {
+    fn extract_unsupported_statements(&mut self, sql: &str) -> String {
         let mut result = String::with_capacity(sql.len());
-        let is_oracle_slash_script = *dialect == SqlDialect::Oracle && sql.lines().any(|line| line.trim() == "/");
-        let raw_statements = if is_oracle_slash_script {
-            Self::split_oracle_slash_statements(sql)
-        } else {
-            Self::split_top_level_statements(sql)
-        };
-        for raw_stmt in raw_statements {
+        for raw_stmt in Self::split_top_level_statements(sql) {
             let trimmed = raw_stmt.trim();
             if trimmed.is_empty() || trimmed.starts_with("--") && !trimmed.contains('\n') {
                 result.push_str(raw_stmt);
@@ -400,28 +354,13 @@ impl Catalog {
             let no_comments = Self::strip_leading_comments(trimmed);
             let upper = no_comments.to_uppercase();
             if upper.starts_with("CREATE DOMAIN") {
-                self.try_parse_create_domain(no_comments, dialect);
+                self.try_parse_create_domain(no_comments);
             } else if upper.starts_with("CREATE SCHEMA") {
-            } else if (*dialect == SqlDialect::Oracle && upper.starts_with("CREATE SEQUENCE"))
-                || (matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::Oracle) && Self::is_create_trigger(&upper))
-            {
-                // ~keep Sequences contribute no columns or types to the catalog, and
-                // Oracle allows their START WITH / INCREMENT BY options in any
-                // order, which sqlparser's positional option parser rejects.
-                // Trigger definitions do not add catalog state and may contain
-                // dialect-specific bodies or argument literals that sqlparser
-                // cannot parse. They are dropped before parser handoff.
+            } else if Self::is_create_trigger(&upper) {
+                // Trigger definitions add no catalog state and may have bodies
+                // sqlparser cannot parse, so they are dropped before parsing.
             } else {
-                let rewritten = if *dialect == SqlDialect::PostgreSQL {
-                    Self::rewrite_returns_table(raw_stmt)
-                } else {
-                    raw_stmt.to_string()
-                };
-                let stmt_to_add = if matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::MsSql) {
-                    Self::strip_identity_patterns(&rewritten)
-                } else {
-                    rewritten
-                };
+                let stmt_to_add = Self::rewrite_returns_table(raw_stmt);
                 result.push_str(&stmt_to_add);
                 if !stmt_to_add.ends_with(';') {
                     result.push(';');
@@ -467,186 +406,6 @@ impl Catalog {
             &sql[function_close..=function_close],
             &sql[table_close + 1..]
         )
-    }
-
-    /// Strip IDENTITY(seed,step) patterns from SQL for Redshift/MSSQL compatibility.
-    /// Redshift uses IDENTITY(1,1) syntax which PostgreSQL parser doesn't recognize.
-    /// This removes those patterns, converting columns to plain type WITHOUT the IDENTITY clause.
-    ///
-    /// Operates on `char_indices()` rather than raw bytes: pushing a raw
-    /// UTF-8 byte as if it were a Latin-1 code point (`bytes[i] as char`)
-    /// reinterprets every multi-byte character one byte at a time, mojibaking
-    /// any non-ASCII identifier, comment, or string literal the statement
-    /// contains. It also tracks single-quoted string, double-quoted
-    /// identifier, and comment state so an `IDENTITY(` spelled inside a
-    /// literal (e.g. a default value `'identity(x)'`) is copied through
-    /// verbatim rather than matched as the keyword. See issue #181.
-    fn strip_identity_patterns(sql: &str) -> String {
-        let chars: Vec<(usize, char)> = sql.char_indices().collect();
-        let len = chars.len();
-        let mut result = String::with_capacity(sql.len());
-        let mut i = 0usize;
-        let mut in_single_quote = false;
-        let mut in_double_quote = false;
-        let mut in_line_comment = false;
-        let mut in_block_comment = false;
-
-        while i < len {
-            let ch = chars[i].1;
-
-            if in_line_comment {
-                result.push(ch);
-                if ch == '\n' {
-                    in_line_comment = false;
-                }
-                i += 1;
-                continue;
-            }
-            if in_block_comment {
-                result.push(ch);
-                if ch == '*' && i + 1 < len && chars[i + 1].1 == '/' {
-                    result.push('/');
-                    in_block_comment = false;
-                    i += 2;
-                } else {
-                    i += 1;
-                }
-                continue;
-            }
-            if in_single_quote {
-                result.push(ch);
-                if ch == '\'' {
-                    if i + 1 < len && chars[i + 1].1 == '\'' {
-                        result.push('\'');
-                        i += 2;
-                    } else {
-                        in_single_quote = false;
-                        i += 1;
-                    }
-                } else {
-                    i += 1;
-                }
-                continue;
-            }
-            if in_double_quote {
-                result.push(ch);
-                if ch == '"' {
-                    in_double_quote = false;
-                }
-                i += 1;
-                continue;
-            }
-
-            match ch {
-                '\'' => {
-                    in_single_quote = true;
-                    result.push(ch);
-                    i += 1;
-                    continue;
-                }
-                '"' => {
-                    in_double_quote = true;
-                    result.push(ch);
-                    i += 1;
-                    continue;
-                }
-                '-' if i + 1 < len && chars[i + 1].1 == '-' => {
-                    in_line_comment = true;
-                    result.push_str("--");
-                    i += 2;
-                    continue;
-                }
-                '/' if i + 1 < len && chars[i + 1].1 == '*' => {
-                    in_block_comment = true;
-                    result.push_str("/*");
-                    i += 2;
-                    continue;
-                }
-                _ => {}
-            }
-
-            if ch.is_ascii_alphabetic() && Self::matches_identity_keyword(&chars, i) {
-                let is_start_boundary = i == 0 || {
-                    let prev = chars[i - 1].1;
-                    !(prev.is_ascii_alphanumeric() || prev == '_')
-                };
-                if is_start_boundary {
-                    let mut j = i + 8;
-                    while j < len && chars[j].1.is_ascii_whitespace() {
-                        j += 1;
-                    }
-                    if j < len && chars[j].1 == '(' {
-                        let mut k = j + 1;
-                        let mut found_valid_pattern = false;
-
-                        while k < len && chars[k].1.is_ascii_whitespace() {
-                            k += 1;
-                        }
-                        let num_start = k;
-                        while k < len && chars[k].1.is_ascii_digit() {
-                            k += 1;
-                        }
-                        if k > num_start {
-                            while k < len && chars[k].1.is_ascii_whitespace() {
-                                k += 1;
-                            }
-                            if k < len && chars[k].1 == ',' {
-                                k += 1;
-                                while k < len && chars[k].1.is_ascii_whitespace() {
-                                    k += 1;
-                                }
-                                let num_start2 = k;
-                                while k < len && chars[k].1.is_ascii_digit() {
-                                    k += 1;
-                                }
-                                if k > num_start2 {
-                                    while k < len && chars[k].1.is_ascii_whitespace() {
-                                        k += 1;
-                                    }
-                                    if k < len && chars[k].1 == ')' {
-                                        i = k + 1;
-                                        found_valid_pattern = true;
-                                    }
-                                }
-                            }
-                        }
-
-                        if !found_valid_pattern {
-                            result.push_str("IDENTITY(");
-                            // `j` is the position of the `(` we just emitted;
-                            // advance one char past it. The previous version
-                            // advanced 9 bytes from this same position, which
-                            // deleted up to 8 bytes of legitimate source past
-                            // the `(` -- see #181.
-                            i = j + 1;
-                        }
-                    } else {
-                        for &(_, keyword_ch) in &chars[i..i + 8] {
-                            result.push(keyword_ch);
-                        }
-                        i += 8;
-                    }
-                    continue;
-                }
-            }
-
-            result.push(ch);
-            i += 1;
-        }
-
-        result
-    }
-
-    /// Check if chars at position i match the IDENTITY keyword (case-insensitive, ASCII only)
-    fn matches_identity_keyword(chars: &[(usize, char)], i: usize) -> bool {
-        const IDENTITY: &str = "IDENTITY";
-        if i + 8 > chars.len() {
-            return false;
-        }
-        chars[i..i + 8]
-            .iter()
-            .zip(IDENTITY.chars())
-            .all(|(&(_, c), k)| c.to_ascii_uppercase() == k)
     }
 
     /// Split SQL text into top-level statements by semicolons, preserving
@@ -733,35 +492,6 @@ impl Catalog {
         statements
     }
 
-    /// Split an Oracle SQL*Plus script into top-level statements delimited by
-    /// a line containing only `/` (the conventional SQL*Plus statement
-    /// terminator). Unlike [`split_top_level_statements`], this does not treat
-    /// `;` as a boundary: PL/SQL blocks (e.g. `CREATE TRIGGER ... BEGIN ...
-    /// END;`) contain semicolons internally, and only the standalone `/` line
-    /// marks the end of the statement.
-    fn split_oracle_slash_statements(sql: &str) -> Vec<&str> {
-        let mut statements = Vec::new();
-        let mut block_start = 0usize;
-        let mut offset = 0usize;
-        for line in sql.split_inclusive('\n') {
-            if line.trim() == "/" {
-                let block = &sql[block_start..offset];
-                if !block.trim().is_empty() {
-                    statements.push(block);
-                }
-                block_start = offset + line.len();
-            }
-            offset += line.len();
-        }
-        if block_start < sql.len() {
-            let remainder = &sql[block_start..];
-            if !remainder.trim().is_empty() {
-                statements.push(remainder);
-            }
-        }
-        statements
-    }
-
     /// True if `upper` (an already-uppercased, comment-stripped statement) is
     /// a `CREATE TRIGGER` or `CREATE OR REPLACE TRIGGER` statement.
     fn is_create_trigger(upper: &str) -> bool {
@@ -821,7 +551,7 @@ impl Catalog {
     /// Try to parse `CREATE DOMAIN <name> AS <type> [NOT NULL] [CHECK ...]`.
     /// Returns true if the SQL was a CREATE DOMAIN statement (even if parsing
     /// was only partial).
-    fn try_parse_create_domain(&mut self, sql: &str, dialect: &SqlDialect) -> bool {
+    fn try_parse_create_domain(&mut self, sql: &str) -> bool {
         let trimmed = sql.trim();
         if !trimmed.to_ascii_uppercase().starts_with("CREATE DOMAIN") {
             return false;
@@ -894,7 +624,7 @@ impl Catalog {
         let not_null = top_level_contains_keyword(rest_upper, "NOT NULL");
 
         let mut constraints = ColumnConstraints::default();
-        let parser_dialect = dialect.to_sqlparser_dialect();
+        let parser_dialect = self.dialect.to_sqlparser_dialect();
         let normalized = match Parser::parse_sql(
             parser_dialect.as_ref(),
             &format!("CREATE TABLE _domain_tmp_ (_col_ {})", base_type_raw),
@@ -903,7 +633,7 @@ impl Catalog {
                 if let Some(Statement::CreateTable(ct)) = stmts.into_iter().next() {
                     if let Some(col) = ct.columns.first() {
                         constraints = ColumnConstraints::from_type(&col.data_type, &self.domains);
-                        let (t, _) = normalize_data_type(&col.data_type, &self.domains, *dialect);
+                        let (t, _) = normalize_data_type(&col.data_type, &self.domains);
                         t
                     } else {
                         base_type_raw.to_lowercase()
@@ -916,11 +646,7 @@ impl Catalog {
         };
 
         for (name, body) in constraints::domain_checks(&rest[end_pos..]) {
-            let body = if *dialect == SqlDialect::PostgreSQL {
-                crate::parser::spell_out_default_trim_characters(&body)
-            } else {
-                body
-            };
+            let body = crate::parser::spell_out_default_trim_characters(&body);
             let parsed = Parser::new(parser_dialect.as_ref())
                 .try_with_sql(&body)
                 .and_then(|mut parser| parser.parse_expr());
@@ -945,21 +671,17 @@ impl Catalog {
 impl Catalog {
     fn process_statement(&mut self, stmt: Statement, dialect: &SqlDialect) -> Result<(), ScytheError> {
         match stmt {
-            Statement::CreateTable(ct) => self.process_create_table(ct, dialect),
-            Statement::AlterTable(alter_table) => {
-                self.process_alter_table(alter_table.name, alter_table.operations, dialect)
-            }
+            Statement::CreateTable(ct) => self.process_create_table(ct),
+            Statement::AlterTable(alter_table) => self.process_alter_table(alter_table.name, alter_table.operations),
             Statement::CreateType { name, representation } => {
                 if let Some(repr) = representation {
-                    self.process_create_type(name, repr, dialect)
+                    self.process_create_type(name, repr)
                 } else {
                     Ok(())
                 }
             }
             Statement::AlterType(alter_type) => self.process_alter_type(alter_type.name, alter_type.operation),
-            Statement::CreateView(cv) => {
-                self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized, dialect)
-            }
+            Statement::CreateView(cv) => self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized),
             Statement::CreateFunction(function) => self.process_create_function(function, dialect),
             Statement::Comment {
                 object_type,
@@ -1010,7 +732,7 @@ impl Catalog {
         let key = object_name_to_key(&definition.name);
         let mut arguments = Vec::new();
         for argument in definition.args.unwrap_or_default() {
-            let sql_type = function_sql_type(&argument.data_type, &self.domains, *dialect);
+            let sql_type = function_sql_type(&argument.data_type, &self.domains);
             let mode = match argument.mode {
                 None | Some(ArgMode::In) => FunctionArgumentMode::In,
                 Some(ArgMode::Out) => FunctionArgumentMode::Out,
@@ -1043,11 +765,11 @@ impl Catalog {
         } else {
             match definition.return_type {
                 Some(FunctionReturnType::DataType(data_type)) => FunctionReturn::Scalar {
-                    sql_type: function_sql_type(&data_type, &self.domains, *dialect),
+                    sql_type: function_sql_type(&data_type, &self.domains),
                     nullable: true,
                 },
                 Some(FunctionReturnType::SetOf(data_type)) => FunctionReturn::SetOf {
-                    sql_type: function_sql_type(&data_type, &self.domains, *dialect),
+                    sql_type: function_sql_type(&data_type, &self.domains),
                     nullable: true,
                 },
                 None => return Ok(()),
@@ -1090,11 +812,7 @@ impl Catalog {
         Ok(())
     }
 
-    fn process_create_table(
-        &mut self,
-        ct: sqlparser::ast::CreateTable,
-        dialect: &SqlDialect,
-    ) -> Result<(), ScytheError> {
+    fn process_create_table(&mut self, ct: sqlparser::ast::CreateTable) -> Result<(), ScytheError> {
         let table_name = object_name_to_key(&ct.name);
         let raw_name = object_name_to_raw_name(&ct.name);
 
@@ -1125,31 +843,11 @@ impl Catalog {
 
             for col_def in &ct.columns {
                 let col_name = ident_to_lower(&col_def.name);
-                let (sql_type, is_serial) = normalize_data_type(&col_def.data_type, &self.domains, *dialect);
-
-                let sql_type = if let DataType::Enum(variants, _bits) = &col_def.data_type {
-                    if matches!(dialect, SqlDialect::MySQL | SqlDialect::SQLite) && !variants.is_empty() {
-                        let enum_key = format!("{}_{}", table_name.replace('.', "_"), col_name);
-                        let values: Vec<String> = variants
-                            .iter()
-                            .map(|v| match v {
-                                sqlparser::ast::EnumMember::Name(name) => name.trim_matches('\'').to_string(),
-                                sqlparser::ast::EnumMember::NamedValue(name, _) => name.trim_matches('\'').to_string(),
-                            })
-                            .collect();
-                        self.enums.insert(enum_key.clone(), EnumType { values });
-                        enum_key
-                    } else {
-                        sql_type
-                    }
-                } else {
-                    sql_type
-                };
+                let (sql_type, is_serial) = normalize_data_type(&col_def.data_type, &self.domains);
 
                 let mut nullable = !is_serial;
                 let mut default: Option<String> = None;
                 let mut primary_key = false;
-                let mut is_auto_increment = false;
                 let constraints = ColumnConstraints::from_type(&col_def.data_type, &self.domains);
 
                 for opt_def in &col_def.options {
@@ -1169,15 +867,7 @@ impl Catalog {
                         }
                         ColumnOption::PrimaryKey(_) => {
                             primary_key = true;
-                            let is_integer_rowid_alias = matches!(col_def.data_type, DataType::Integer(_));
-                            if sqlite_primary_key_forces_not_null(
-                                dialect,
-                                ct.without_rowid,
-                                ct.strict,
-                                is_integer_rowid_alias,
-                            ) {
-                                nullable = false;
-                            }
+                            nullable = false;
                         }
                         ColumnOption::Unique(_) => {}
                         ColumnOption::Generated {
@@ -1186,23 +876,8 @@ impl Catalog {
                         } => {
                             default = Some(format!("GENERATED ALWAYS AS ({})", expr));
                         }
-                        ColumnOption::DialectSpecific(tokens) => {
-                            let joined: String = tokens
-                                .iter()
-                                .map(|t| t.to_string().to_uppercase())
-                                .collect::<Vec<_>>()
-                                .join("");
-                            if joined.contains("AUTO_INCREMENT") || joined.contains("AUTOINCREMENT") {
-                                is_auto_increment = true;
-                                nullable = false;
-                            }
-                        }
                         _ => {}
                     }
-                }
-
-                if is_auto_increment {
-                    nullable = false;
                 }
 
                 columns.push(Column {
@@ -1220,36 +895,11 @@ impl Catalog {
                     pending_checks.push((check.name.as_ref().map(ident_to_lower), (*check.expr).clone()));
                 }
                 if let TableConstraint::PrimaryKey(pk_constraint) = constraint {
-                    // The rowid-alias escape hatch only exists for a
-                    // *single*-column primary key (SQLite has no composite
-                    // rowid alias), so look up its raw declared type from
-                    // `ct.columns` -- `columns` (built above) only carries
-                    // `normalize_data_type`'s output, which collapses `INT`
-                    // and `INTEGER` onto the same value and can no longer
-                    // answer this question.
-                    let is_integer_rowid_alias = match pk_constraint.columns.as_slice() {
-                        [single] => {
-                            let pk_name = pk_column_name(&single.column.expr);
-                            ct.columns.iter().any(|c| {
-                                ident_to_lower(&c.name) == pk_name && matches!(c.data_type, DataType::Integer(_))
-                            })
-                        }
-                        _ => false,
-                    };
-                    let force_not_null = sqlite_primary_key_forces_not_null(
-                        dialect,
-                        ct.without_rowid,
-                        ct.strict,
-                        is_integer_rowid_alias,
-                    );
-
                     for idx_col in &pk_constraint.columns {
                         let pk_name = pk_column_name(&idx_col.column.expr);
                         if let Some(col) = columns.iter_mut().find(|c| c.name == pk_name) {
                             col.primary_key = true;
-                            if force_not_null {
-                                col.nullable = false;
-                            }
+                            col.nullable = false;
                         }
                     }
                 }
@@ -1278,7 +928,6 @@ impl Catalog {
         &mut self,
         name: ObjectName,
         operations: Vec<AlterTableOperation>,
-        dialect: &SqlDialect,
     ) -> Result<(), ScytheError> {
         let table_key = object_name_to_key(&name);
 
@@ -1289,7 +938,7 @@ impl Catalog {
                         return Err(ScytheError::unknown_table(&table_key));
                     };
                     let col_name = ident_to_lower(&column_def.name);
-                    let (sql_type, is_serial) = normalize_data_type(&column_def.data_type, &self.domains, *dialect);
+                    let (sql_type, is_serial) = normalize_data_type(&column_def.data_type, &self.domains);
                     let mut nullable = !is_serial;
                     let mut default = None;
                     let mut primary_key = false;
@@ -1303,19 +952,7 @@ impl Catalog {
                             }
                             ColumnOption::PrimaryKey(_) => {
                                 primary_key = true;
-                                // SQLite supports neither adding a
-                                // primary-key column nor `WITHOUT
-                                // ROWID`/`STRICT` on an existing table, so
-                                // this branch is unreachable against real
-                                // SQLite; kept consistent with
-                                // `process_create_table` for other
-                                // dialects, using the same exact-`INTEGER`
-                                // rowid-alias rule rather than a blanket
-                                // `nullable = false`. See #108.
-                                let is_integer_rowid_alias = matches!(column_def.data_type, DataType::Integer(_));
-                                if sqlite_primary_key_forces_not_null(dialect, false, false, is_integer_rowid_alias) {
-                                    nullable = false;
-                                }
+                                nullable = false;
                             }
                             _ => {}
                         }
@@ -1404,7 +1041,7 @@ impl Catalog {
                                 col.nullable = true;
                             }
                             AlterColumnOperation::SetDataType { data_type, .. } => {
-                                let (new_type, _) = normalize_data_type(&data_type, &self.domains, *dialect);
+                                let (new_type, _) = normalize_data_type(&data_type, &self.domains);
                                 col.sql_type = new_type;
                                 col.constraints.retype(&data_type, &self.domains);
                             }
@@ -1426,27 +1063,11 @@ impl Catalog {
                         attach_check(&mut table.columns, check.name.as_ref().map(ident_to_lower), &check.expr);
                     }
                     if let TableConstraint::PrimaryKey(pk_constraint) = &constraint {
-                        // SQLite supports neither `ADD CONSTRAINT` nor
-                        // adding a primary key to an existing table, so
-                        // this branch is unreachable against real SQLite.
-                        // By the time an `ALTER TABLE` reaches here,
-                        // `table.columns` only carries
-                        // `normalize_data_type`'s output, which collapses
-                        // `INT` and `INTEGER` onto the same string -- the
-                        // rowid-alias exact-type check from
-                        // `process_create_table` cannot be reproduced
-                        // here. Kept sound rather than precise: never
-                        // force `NOT NULL` on SQLite through this path,
-                        // exactly like a composite SQLite primary key. See
-                        // #108.
-                        let force_not_null = sqlite_primary_key_forces_not_null(dialect, false, false, false);
                         for idx_col in &pk_constraint.columns {
                             let pk_name = pk_column_name(&idx_col.column.expr);
                             if let Some(col) = table.columns.iter_mut().find(|c| c.name == pk_name) {
                                 col.primary_key = true;
-                                if force_not_null {
-                                    col.nullable = false;
-                                }
+                                col.nullable = false;
                             }
                         }
                     }
@@ -1472,7 +1093,6 @@ impl Catalog {
         &mut self,
         name: ObjectName,
         repr: UserDefinedTypeRepresentation,
-        dialect: &SqlDialect,
     ) -> Result<(), ScytheError> {
         let type_key = object_name_to_key(&name);
 
@@ -1485,7 +1105,7 @@ impl Catalog {
                 let fields: Vec<CompositeField> = attributes
                     .iter()
                     .map(|attr| {
-                        let (ft, _) = normalize_data_type(&attr.data_type, &self.domains, *dialect);
+                        let (ft, _) = normalize_data_type(&attr.data_type, &self.domains);
                         CompositeField {
                             name: ident_to_lower(&attr.name),
                             sql_type: ft,
@@ -1533,7 +1153,7 @@ impl Catalog {
     }
 }
 
-fn function_sql_type(data_type: &DataType, domains: &AHashMap<String, DomainDef>, dialect: SqlDialect) -> String {
+fn function_sql_type(data_type: &DataType, domains: &AHashMap<String, DomainDef>) -> String {
     match data_type {
         DataType::Custom(name, _) if lookup_qualified(domains, &object_name_to_key(name), None).is_some() => {
             object_name_to_key(name)
@@ -1551,9 +1171,9 @@ fn function_sql_type(data_type: &DataType, domains: &AHashMap<String, DomainDef>
             {
                 return format!("{}[]", object_name_to_key(name));
             }
-            normalize_data_type(data_type, domains, dialect).0
+            normalize_data_type(data_type, domains).0
         }
-        _ => normalize_data_type(data_type, domains, dialect).0,
+        _ => normalize_data_type(data_type, domains).0,
     }
 }
 
@@ -1615,37 +1235,6 @@ fn lookup_qualified<'a, T>(map: &'a AHashMap<String, T>, name: &str, search_path
         .filter(|(k, _)| k.ends_with(&suffix))
         .min_by(|(a, _), (b, _)| a.cmp(b))
         .map(|(_, v)| v)
-}
-
-/// Whether a `PRIMARY KEY` on this column/constraint implies `NOT NULL`.
-///
-/// On every dialect other than SQLite, `PRIMARY KEY` always implies `NOT
-/// NULL`. SQLite is the outlier: a bare `PRIMARY KEY` does *not* imply `NOT
-/// NULL` at all -- SQLite 3.50.6 happily stores a `NULL` in `k INT PRIMARY
-/// KEY` or `k TEXT PRIMARY KEY`. The only cases where SQLite does enforce
-/// `NOT NULL` are:
-///
-/// - a single-column primary key whose *raw declared type name* is exactly
-///   `INTEGER` (case-insensitive) -- the "rowid alias" -- passed here as
-///   `is_integer_rowid_alias`; `INT`, `INTEGER(11)`, `INT4` and `BIGINT` do
-///   not qualify, only the exact spelling does,
-/// - a table declared `WITHOUT ROWID`,
-/// - a table declared `STRICT`.
-///
-/// `is_integer_rowid_alias` must be computed from the *raw* `DataType`
-/// before it passes through [`normalize_data_type`], which collapses `INT`
-/// and `INTEGER` onto the same normalized string and would make the two
-/// indistinguishable here. See issue #108.
-fn sqlite_primary_key_forces_not_null(
-    dialect: &SqlDialect,
-    without_rowid: bool,
-    strict: bool,
-    is_integer_rowid_alias: bool,
-) -> bool {
-    if !matches!(dialect, SqlDialect::SQLite) {
-        return true;
-    }
-    without_rowid || strict || is_integer_rowid_alias
 }
 
 /// Extract the column name referenced by a `PRIMARY KEY (...)` constraint
@@ -2048,196 +1637,9 @@ mod tests {
     }
 
     #[test]
-    fn test_mysql_basic_create_table() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE users (
-                id INT PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                email TEXT,
-                active BOOLEAN NOT NULL DEFAULT true
-            );"],
-            &crate::dialect::SqlDialect::MySQL,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("users").unwrap();
-        assert_eq!(table.columns.len(), 4);
-
-        let id = &table.columns[0];
-        assert_eq!(id.name, "id");
-        assert!(id.primary_key);
-        assert!(!id.nullable);
-
-        let name_col = &table.columns[1];
-        assert_eq!(name_col.name, "name");
-        assert!(!name_col.nullable);
-
-        let email = &table.columns[2];
-        assert_eq!(email.name, "email");
-        assert!(email.nullable);
-    }
-
-    #[test]
-    fn test_mysql_auto_increment() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(100)
-            );"],
-            &crate::dialect::SqlDialect::MySQL,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("t").unwrap();
-        assert_eq!(table.columns[0].name, "id");
-        assert!(!table.columns[0].nullable);
-        assert!(table.columns[0].primary_key);
-    }
-
-    #[test]
-    fn test_mysql_inline_enum() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (
-                status ENUM('active', 'inactive', 'pending') NOT NULL
-            );"],
-            &crate::dialect::SqlDialect::MySQL,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("t").unwrap();
-        assert_eq!(table.columns[0].name, "status");
-        assert!(!table.columns[0].nullable);
-        let enum_type = catalog.get_enum("t_status").unwrap();
-        assert_eq!(enum_type.values, vec!["active", "inactive", "pending"]);
-    }
-
-    #[test]
-    fn test_mysql_types() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (
-                a TINYINT,
-                b MEDIUMINT,
-                c BIGINT,
-                d DOUBLE,
-                e DATETIME,
-                f BLOB,
-                g JSON
-            );"],
-            &crate::dialect::SqlDialect::MySQL,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("t").unwrap();
-        assert_eq!(table.columns.len(), 7);
-    }
-
-    #[test]
-    fn test_sqlite_basic_create_table() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE users (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                email TEXT,
-                score REAL
-            );"],
-            &crate::dialect::SqlDialect::SQLite,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("users").unwrap();
-        assert_eq!(table.columns.len(), 4);
-
-        let id = &table.columns[0];
-        assert_eq!(id.name, "id");
-        assert!(id.primary_key);
-        assert!(!id.nullable);
-
-        let score = &table.columns[3];
-        assert_eq!(score.name, "score");
-        assert!(score.nullable);
-    }
-
-    #[test]
-    fn test_sqlite_types() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (
-                a INTEGER,
-                b REAL,
-                c TEXT,
-                d BLOB,
-                e NUMERIC,
-                f BOOLEAN
-            );"],
-            &crate::dialect::SqlDialect::SQLite,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("t").unwrap();
-        assert_eq!(table.columns.len(), 6);
-    }
-
-    #[test]
     fn test_from_ddl_backward_compat() {
         let catalog = Catalog::from_ddl(&["CREATE TABLE t (id INTEGER);"]).unwrap();
         assert!(catalog.get_table("t").is_some());
-    }
-
-    #[test]
-    fn test_redshift_identity_stripping() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE users (
-                id INTEGER IDENTITY(1,1) PRIMARY KEY,
-                name VARCHAR(100) NOT NULL
-            );"],
-            &crate::dialect::SqlDialect::PostgreSQL,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("users").unwrap();
-        assert_eq!(table.columns.len(), 2);
-
-        let id = &table.columns[0];
-        assert_eq!(id.name, "id");
-        assert!(id.primary_key);
-        assert!(!id.nullable);
-
-        let name = &table.columns[1];
-        assert_eq!(name.name, "name");
-        assert!(!name.nullable);
-    }
-
-    #[test]
-    fn test_mssql_identity_stripping() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE products (
-                id INT IDENTITY(100, 5) PRIMARY KEY,
-                product_name VARCHAR(255)
-            );"],
-            &crate::dialect::SqlDialect::MsSql,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("products").unwrap();
-        assert_eq!(table.columns.len(), 2);
-
-        let id = &table.columns[0];
-        assert_eq!(id.name, "id");
-        assert!(id.primary_key);
-    }
-
-    #[test]
-    fn test_identity_with_whitespace() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE test (
-                id INTEGER IDENTITY  (  1  ,  1  ) NOT NULL
-            );"],
-            &crate::dialect::SqlDialect::PostgreSQL,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("test").unwrap();
-        assert_eq!(table.columns.len(), 1);
-        assert_eq!(table.columns[0].name, "id");
     }
 
     #[test]
@@ -2275,73 +1677,6 @@ mod tests {
         assert_eq!(table.columns[1].name, "identity");
         assert_eq!(table.columns[1].sql_type, "text");
         assert!(!table.columns[1].nullable);
-    }
-
-    #[test]
-    fn test_redshift_full_schema() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE users (
-                    id INTEGER IDENTITY(1,1) NOT NULL,
-                    name VARCHAR(255) NOT NULL,
-                    email VARCHAR(255),
-                    status VARCHAR(50) NOT NULL DEFAULT 'active',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT GETDATE()
-                );
-
-                CREATE TABLE orders (
-                    id INTEGER IDENTITY(1,1) NOT NULL,
-                    user_id INTEGER NOT NULL,
-                    total DECIMAL(10, 2) NOT NULL,
-                    notes VARCHAR(4000),
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT GETDATE()
-                );
-
-                CREATE TABLE tags (
-                    id INTEGER IDENTITY(1,1) NOT NULL,
-                    name VARCHAR(255) NOT NULL
-                );
-
-                CREATE TABLE user_tags (
-                    user_id INTEGER NOT NULL,
-                    tag_id INTEGER NOT NULL
-                );"],
-            &crate::dialect::SqlDialect::PostgreSQL,
-        )
-        .unwrap();
-
-        assert!(catalog.get_table("users").is_some());
-        assert!(catalog.get_table("orders").is_some());
-        assert!(catalog.get_table("tags").is_some());
-        assert!(catalog.get_table("user_tags").is_some());
-
-        let users = catalog.get_table("users").unwrap();
-        assert_eq!(users.columns.len(), 5);
-        assert_eq!(users.columns[0].name, "id");
-        assert!(!users.columns[0].nullable);
-        assert_eq!(users.columns[1].name, "name");
-        assert!(!users.columns[1].nullable);
-        assert_eq!(users.columns[2].name, "email");
-        assert!(users.columns[2].nullable);
-
-        let orders = catalog.get_table("orders").unwrap();
-        assert_eq!(orders.columns.len(), 5);
-        assert_eq!(orders.columns[0].name, "id");
-        assert!(!orders.columns[0].nullable);
-    }
-
-    #[test]
-    fn test_identity_case_insensitive() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE test (
-                id INT Identity(1,1) NOT NULL
-            );"],
-            &crate::dialect::SqlDialect::PostgreSQL,
-        )
-        .unwrap();
-
-        let table = catalog.get_table("test").unwrap();
-        assert_eq!(table.columns.len(), 1);
-        assert_eq!(table.columns[0].name, "id");
     }
 
     #[test]
@@ -2419,60 +1754,6 @@ ALTER TABLE ONLY public.t\n\
     }
 
     #[test]
-    fn test_oracle_slash_script_skips_sequences_and_triggers() {
-        // Mirrors integration_tests/sql/oracle/schema_full.sql: SQL*Plus `/`
-        // terminators, a CREATE SEQUENCE whose START WITH precedes INCREMENT
-        // BY (an ordering sqlparser's positional option parser rejects), and
-        // a CREATE OR REPLACE TRIGGER with a PL/SQL body sqlparser cannot
-        // parse at all. None of the three should reach the parser as-is; the
-        // sequence and trigger must be skipped, and the table must still be
-        // extracted correctly.
-        let schema = "\
--- Full Oracle schema including sequences and triggers.\n\
-\n\
-CREATE SEQUENCE users_seq START WITH 1 INCREMENT BY 1\n\
-/\n\
-\n\
-CREATE TABLE users (\n\
-    id NUMBER NOT NULL PRIMARY KEY,\n\
-    name VARCHAR2(255) NOT NULL,\n\
-    email VARCHAR2(255)\n\
-)\n\
-/\n\
-\n\
-CREATE OR REPLACE TRIGGER users_bi\n\
-BEFORE INSERT ON users\n\
-FOR EACH ROW\n\
-BEGIN\n\
-    IF :NEW.id IS NULL THEN\n\
-        :NEW.id := users_seq.NEXTVAL;\n\
-    END IF;\n\
-END;\n\
-/\n\
-";
-        let catalog = Catalog::from_ddl_with_dialect(&[schema], &crate::dialect::SqlDialect::Oracle)
-            .expect("schema with sequences and triggers must parse");
-
-        assert_eq!(catalog.tables_iter().count(), 1, "only the table should be cataloged");
-
-        let table = catalog.get_table("users").expect("table users must exist");
-        assert_eq!(table.columns.len(), 3);
-
-        let id = &table.columns[0];
-        assert_eq!(id.name, "id");
-        assert!(id.primary_key);
-        assert!(!id.nullable);
-
-        let name = &table.columns[1];
-        assert_eq!(name.name, "name");
-        assert!(!name.nullable);
-
-        let email = &table.columns[2];
-        assert_eq!(email.name, "email");
-        assert!(email.nullable);
-    }
-
-    #[test]
     fn should_skip_postgresql_trigger_with_function_argument() {
         let schema = "\
 CREATE TABLE audit_events (id uuid PRIMARY KEY);\n\
@@ -2530,24 +1811,6 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
         assert!(catalog.get_table("audit_targets").is_some());
     }
 
-    #[test]
-    fn test_split_oracle_slash_statements_basic() {
-        let sql = "CREATE SEQUENCE s START WITH 1\n/\n\nCREATE TABLE t (id NUMBER)\n/\n";
-        let blocks = Catalog::split_oracle_slash_statements(sql);
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0].trim(), "CREATE SEQUENCE s START WITH 1");
-        assert_eq!(blocks[1].trim(), "CREATE TABLE t (id NUMBER)");
-    }
-
-    #[test]
-    fn test_split_oracle_slash_statements_no_trailing_slash() {
-        let sql = "CREATE TABLE t (id NUMBER)\n/\nCREATE TABLE u (id NUMBER)";
-        let blocks = Catalog::split_oracle_slash_statements(sql);
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0].trim(), "CREATE TABLE t (id NUMBER)");
-        assert_eq!(blocks[1].trim(), "CREATE TABLE u (id NUMBER)");
-    }
-
     // -- #178: quoted PRIMARY KEY column names ------------------------------
 
     #[test]
@@ -2583,62 +1846,6 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
         let user_id = table.columns.iter().find(|c| c.name == "UserId").unwrap();
         assert!(user_id.primary_key);
         assert!(!user_id.nullable);
-    }
-
-    // -- #181: strip_identity_patterns byte-index-as-char-index -------------
-
-    #[test]
-    fn test_strip_identity_patterns_preserves_non_ascii_text() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &[r#"CREATE TABLE t (id INTEGER NOT NULL, "naïve" TEXT NOT NULL, "café" TEXT NOT NULL);"#],
-            &crate::dialect::SqlDialect::PostgreSQL,
-        )
-        .unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let names: Vec<&String> = table.columns.iter().map(|c| &c.name).collect();
-        assert!(
-            table.columns.iter().any(|c| c.name == "naïve"),
-            "non-ASCII quoted identifier must survive identity-pattern stripping intact, got: {names:?}"
-        );
-        assert!(table.columns.iter().any(|c| c.name == "café"));
-    }
-
-    #[test]
-    fn test_strip_identity_patterns_skips_string_literal() {
-        // A `default` value textually containing `identity(` inside a
-        // string literal must not be treated as the IDENTITY(seed,step)
-        // keyword at all.
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (id INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'identity(x)', extra INTEGER NOT NULL);"],
-            &crate::dialect::SqlDialect::PostgreSQL,
-        )
-        .expect("legal DDL with an `identity(x)` string literal must parse");
-        let table = catalog.get_table("t").unwrap();
-        assert_eq!(table.columns.len(), 3, "no columns must be dropped/corrupted");
-        assert_eq!(table.columns[2].name, "extra");
-    }
-
-    #[test]
-    fn test_strip_identity_patterns_preserves_text_after_non_numeric_identity_paren() {
-        let result = Catalog::strip_identity_patterns("IDENTITY(abc) more_text_here");
-        assert!(
-            result.contains("more_text_here"),
-            "text following a non-numeric IDENTITY(...) payload must not be deleted, got: {result:?}"
-        );
-    }
-
-    #[test]
-    fn test_strip_identity_patterns_preserves_multibyte_chars_byte_for_byte() {
-        let input = "café naïve 日本語 ﬁ IDENTITY(1,1)";
-        let result = Catalog::strip_identity_patterns(input);
-        assert!(
-            result.starts_with("café naïve 日本語 ﬁ "),
-            "non-ASCII text before the IDENTITY(...) match must be byte-for-byte unchanged, got: {result:?}"
-        );
-        assert!(
-            !result.contains("IDENTITY(1,1)"),
-            "a valid numeric,numeric IDENTITY(...) pattern must still be stripped"
-        );
     }
 
     // -- #183: CTAS, IF NOT EXISTS, ALTER on an unknown table ----------------
@@ -2859,146 +2066,7 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
         }
     }
 
-    // -- #108: SQLite PRIMARY KEY is not implicitly NOT NULL ----------------
-    //
-    // On SQLite, `PRIMARY KEY` does NOT imply `NOT NULL`, except for the
-    // single-column `INTEGER PRIMARY KEY` rowid alias, or inside a
-    // `WITHOUT ROWID` / `STRICT` table. Verified against SQLite 3.50.6.
-
-    #[test]
-    fn test_sqlite_integer_primary_key_is_not_null() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (k INTEGER PRIMARY KEY);"], &SqlDialect::SQLite).unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(
-            !k.nullable,
-            "INTEGER PRIMARY KEY is the rowid alias and must be NOT NULL"
-        );
-    }
-
-    #[test]
-    fn test_sqlite_int_primary_key_is_nullable() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (k INT PRIMARY KEY);"], &SqlDialect::SQLite).unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(
-            k.nullable,
-            "INT PRIMARY KEY is not the rowid alias and must stay nullable"
-        );
-    }
-
-    #[test]
-    fn test_sqlite_text_primary_key_is_nullable() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (k TEXT PRIMARY KEY);"], &SqlDialect::SQLite).unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(k.nullable, "TEXT PRIMARY KEY must stay nullable on SQLite");
-    }
-
-    #[test]
-    fn test_sqlite_integer_primary_key_autoincrement_is_not_null() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (k INTEGER PRIMARY KEY AUTOINCREMENT);"],
-            &SqlDialect::SQLite,
-        )
-        .unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(!k.nullable);
-    }
-
-    #[test]
-    fn test_sqlite_without_rowid_forces_not_null() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (k TEXT PRIMARY KEY) WITHOUT ROWID;"],
-            &SqlDialect::SQLite,
-        )
-        .unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(!k.nullable, "WITHOUT ROWID tables enforce NOT NULL on the primary key");
-    }
-
-    #[test]
-    fn test_sqlite_strict_forces_not_null() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (k TEXT PRIMARY KEY) STRICT;"], &SqlDialect::SQLite)
-                .unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(!k.nullable, "STRICT tables enforce NOT NULL on the primary key");
-    }
-
-    #[test]
-    fn test_sqlite_composite_primary_key_is_nullable() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (a INTEGER, b TEXT, PRIMARY KEY (a, b));"],
-            &SqlDialect::SQLite,
-        )
-        .unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let a = table.columns.iter().find(|c| c.name == "a").unwrap();
-        let b = table.columns.iter().find(|c| c.name == "b").unwrap();
-        assert!(a.primary_key && b.primary_key);
-        assert!(a.nullable, "composite primary key columns must stay nullable on SQLite");
-        assert!(b.nullable, "composite primary key columns must stay nullable on SQLite");
-    }
-
-    #[test]
-    fn test_sqlite_composite_primary_key_without_rowid_is_not_null() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (a INTEGER, b TEXT, PRIMARY KEY (a, b)) WITHOUT ROWID;"],
-            &SqlDialect::SQLite,
-        )
-        .unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let a = table.columns.iter().find(|c| c.name == "a").unwrap();
-        let b = table.columns.iter().find(|c| c.name == "b").unwrap();
-        assert!(!a.nullable);
-        assert!(!b.nullable);
-    }
-
-    #[test]
-    fn test_sqlite_single_column_table_constraint_integer_primary_key_is_not_null() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (k INTEGER, PRIMARY KEY (k));"], &SqlDialect::SQLite)
-                .unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(!k.nullable);
-    }
-
-    #[test]
-    fn test_sqlite_explicit_not_null_with_text_primary_key_is_not_null() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (k TEXT PRIMARY KEY NOT NULL);"], &SqlDialect::SQLite)
-                .unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(!k.nullable);
-    }
-
-    #[test]
-    fn test_sqlite_explicit_not_null_before_text_primary_key_is_not_null() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (k TEXT NOT NULL PRIMARY KEY);"], &SqlDialect::SQLite)
-                .unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(!k.nullable);
-    }
+    // -- PRIMARY KEY implies NOT NULL -----------------------------------------
 
     #[test]
     fn test_postgresql_primary_key_still_implies_not_null() {
@@ -3014,16 +2082,6 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
     }
 
     #[test]
-    fn test_mysql_primary_key_still_implies_not_null() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (k INT PRIMARY KEY);"], &SqlDialect::MySQL).unwrap();
-        let table = catalog.get_table("t").unwrap();
-        let k = &table.columns[0];
-        assert!(k.primary_key);
-        assert!(!k.nullable, "MySQL PRIMARY KEY must remain unconditionally NOT NULL");
-    }
-
-    #[test]
     fn test_postgresql_composite_primary_key_still_implies_not_null() {
         let catalog = Catalog::from_ddl_with_dialect(
             &["CREATE TABLE t (a INT, b INT, PRIMARY KEY (a, b));"],
@@ -3035,48 +2093,6 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
         let b = table.columns.iter().find(|c| c.name == "b").unwrap();
         assert!(!a.nullable);
         assert!(!b.nullable);
-    }
-
-    #[test]
-    fn test_sqlite_without_rowid_then_strict_is_not_null() {
-        // sqlparser 0.62 parses `WITHOUT ROWID` immediately after the
-        // column/constraint list and `STRICT` much later (after ORDER BY /
-        // ON COMMIT / etc.) with no comma expected between them, so only
-        // this order (and no comma) round-trips.
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (k TEXT PRIMARY KEY) WITHOUT ROWID STRICT;"],
-            &SqlDialect::SQLite,
-        );
-        match catalog {
-            Ok(catalog) => {
-                let table = catalog.get_table("t").unwrap();
-                assert!(!table.columns[0].nullable);
-            }
-            Err(err) => {
-                panic!("expected WITHOUT ROWID STRICT to parse, got: {err}");
-            }
-        }
-    }
-
-    #[test]
-    fn test_sqlite_reverse_table_options_order() {
-        // issue #108 flagged that sqlparser reads `WITHOUT ROWID` and
-        // `STRICT` at different points in `parse_create_table`, so the
-        // reverse order (`STRICT` before `WITHOUT ROWID`) does not
-        // round-trip. This documents the actual behavior rather than
-        // silently masking it: if a future sqlparser upgrade changes this,
-        // this test should fail and be updated rather than deleted.
-        let result = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (k TEXT PRIMARY KEY) STRICT, WITHOUT ROWID;"],
-            &SqlDialect::SQLite,
-        );
-        assert!(
-            result.is_err(),
-            "sqlparser 0.62 parses STRICT well before WITHOUT ROWID's position and does not expect a comma \
-             between them, so `STRICT, WITHOUT ROWID` (STRICT first) is expected to fail to parse -- if this \
-             now succeeds, sqlparser's grammar changed and this test should be updated to assert the new \
-             behavior instead of just deleted"
-        );
     }
 
     #[test]

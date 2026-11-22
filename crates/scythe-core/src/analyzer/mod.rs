@@ -22,7 +22,6 @@ use std::collections::VecDeque;
 use ahash::{AHashMap, AHashSet};
 
 use crate::catalog::Catalog;
-use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 use crate::parser::{Query, QueryCommand};
 
@@ -446,23 +445,13 @@ fn unwrap_neutral_containers(neutral: &str) -> &str {
 /// placeholder with the resulting PascalCase name in place, and returns the
 /// resolved [`NestedStructInfo`] list for `AnalyzedQuery::nested_structs`.
 ///
-/// A non-PostgreSQL dialect returns an empty list and leaves `columns`
-/// untouched. In practice `pending` is only ever non-empty for a catalog
-/// that passed the fuller gate in `Analyzer::infer_nested_aggregate_type`
-/// (the phase-1 producer, `expressions.rs`), which also excludes engines
-/// like Redshift that map onto the PostgreSQL dialect without having
-/// `json_agg` — the dialect check here is a second, independent net so this
-/// pass cannot leave a half-substituted placeholder behind if that
-/// invariant is ever violated. It is deliberately the weaker of the two:
-/// its job is to never *partially* resolve, not to re-derive the engine
-/// policy.
 fn resolve_nested_struct_names(
     catalog: &Catalog,
     query_name: &str,
     pending: Vec<types::PendingNestedStruct>,
     columns: &mut [AnalyzedColumn],
 ) -> Vec<NestedStructInfo> {
-    if pending.is_empty() || catalog.dialect() != SqlDialect::PostgreSQL {
+    if pending.is_empty() {
         return Vec::new();
     }
 
@@ -1421,34 +1410,6 @@ SELECT name, age FROM users WHERE id = $1;",
         assert_ne!(columns[0].neutral_type, columns[1].neutral_type);
     }
 
-    #[test]
-    fn test_resolve_nested_struct_names_mysql_dialect_produces_none() {
-        let catalog =
-            Catalog::from_ddl_with_dialect(&["CREATE TABLE orders (id INTEGER NOT NULL);"], &SqlDialect::MySQL)
-                .unwrap();
-        let pending = vec![types::PendingNestedStruct {
-            id: 0,
-            fields: vec![NestedFieldInfo {
-                name: "id".to_string(),
-                neutral_type: "int32".to_string(),
-                nullable: false,
-            }],
-        }];
-        let original_neutral_type = "json_nested<array<__nested__0>>".to_string();
-        let mut columns = vec![nested_column("orders", &original_neutral_type)];
-
-        let structs = resolve_nested_struct_names(&catalog, "GetUserOrders", pending, &mut columns);
-
-        assert!(
-            structs.is_empty(),
-            "non-PostgreSQL dialects must never produce nested_structs"
-        );
-        assert_eq!(
-            columns[0].neutral_type, original_neutral_type,
-            "the placeholder must be left untouched, not partially substituted"
-        );
-    }
-
     // -----------------------------------------------------------------
     // Phase-1 producer: json_agg / row_to_json nested-aggregate inference
     // end to end through analyze().
@@ -1611,28 +1572,6 @@ SELECT json_agg(*) AS everything FROM users;",
         let result = analyze(&catalog, &query).unwrap();
 
         assert_eq!(result.columns[0].neutral_type, "json");
-        assert!(result.nested_structs.is_empty());
-    }
-
-    #[test]
-    fn test_json_agg_non_postgres_dialect_falls_back_to_plain_json() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE posts (id INTEGER NOT NULL, title TEXT NOT NULL);"],
-            &crate::dialect::SqlDialect::MySQL,
-        )
-        .unwrap();
-        let query = parse_query(
-            "-- @name GetPosts
--- @returns :many
-SELECT json_agg(p.*) AS posts FROM posts p;",
-        )
-        .unwrap();
-        let result = analyze(&catalog, &query).unwrap();
-
-        assert_eq!(
-            result.columns[0].neutral_type, "json",
-            "the dialect gate must produce byte-identical output to today's json_agg behaviour on non-PostgreSQL catalogs"
-        );
         assert!(result.nested_structs.is_empty());
     }
 
@@ -1962,34 +1901,9 @@ SELECT array_agg(p.id) AS ids FROM posts p;",
         assert!(result.nested_structs.is_empty());
     }
 
-    /// The engine gate, independent of the dialect gate: Redshift catalogs
-    /// map to `SqlDialect::PostgreSQL` (see `SqlDialect::from_str`) but
-    /// Redshift has no `json_agg`, so inference must fall back to plain
-    /// `json` exactly as it does for MySQL.
-    #[test]
-    fn test_json_agg_redshift_engine_falls_back_to_plain_json() {
-        let catalog = make_catalog().with_engine("redshift");
-        let query = parse_query(
-            "-- @name GetPostsRedshift
--- @returns :many
-SELECT json_agg(p.*) AS posts FROM posts p;",
-        )
-        .unwrap();
-        let result = analyze(&catalog, &query).unwrap();
-
-        assert_eq!(
-            result.columns[0].neutral_type, "json",
-            "a PostgreSQL-dialect catalog on the Redshift engine must not infer a nested struct"
-        );
-        assert!(result.nested_structs.is_empty());
-    }
-
-    /// The same catalog with the engine stated as PostgreSQL still infers,
-    /// so the gate above is the engine and not merely the presence of
-    /// `with_engine`.
     #[test]
     fn test_json_agg_postgresql_engine_still_infers() {
-        let catalog = make_catalog().with_engine("postgresql");
+        let catalog = make_catalog();
         let query = parse_query(
             "-- @name GetPostsPg
 -- @returns :many
@@ -2088,190 +2002,7 @@ WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 10) SEL
         assert_eq!(result.columns[0].neutral_type, "int32");
     }
 
-    // Regression tests for #170: `analyze_select` walks every projection
-    // expression twice -- `collect_params_from_where` then `infer_expr_type`
-    // -- and shapes like `Between` independently reach
-    // `resolve_placeholder_position` from both passes. `$N` is idempotent
-    // (it just parses the explicit number), but a bare `?` auto-increments,
-    // so without occurrence-based memoization the second pass minted brand
-    // new positions and doubled the reported parameter count. `?` only
-    // tokenizes as `Token::Placeholder` in dialects that don't claim it for
-    // PostgreSQL geometric operators (`?-`, `?|`, `?#`), so these use a
-    // MySQL-dialect catalog and parse.
-
-    fn make_mysql_catalog() -> Catalog {
-        Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE users (id INTEGER PRIMARY KEY, age INTEGER);"],
-            &SqlDialect::MySQL,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn test_bare_placeholder_in_between_projection_is_not_double_counted() {
-        let catalog = make_mysql_catalog();
-        let query = crate::parser::parse_query_with_dialect(
-            "-- @name UsersInRange
--- @returns :many
-SELECT (age BETWEEN ? AND ?) AS in_range FROM users;",
-            &SqlDialect::MySQL,
-        )
-        .unwrap();
-        let result = analyze(&catalog, &query).unwrap();
-        assert_eq!(
-            result.params.len(),
-            2,
-            "two distinct `?` occurrences in a BETWEEN projection must report exactly two parameters, \
-             not four"
-        );
-        assert_eq!(result.params[0].position, 1);
-        assert_eq!(result.params[1].position, 2);
-    }
-
-    /// Same double-traversal shape as above, but inside a derived subquery,
-    /// to prove the occurrence memo survives the sub-analyzer boundary the
-    /// same way `positional_param_counter` and `next_nested_id` already do
-    /// (see `TableFactor::Derived` in `scope.rs`).
-    #[test]
-    fn test_bare_placeholder_in_between_inside_derived_subquery_is_not_double_counted() {
-        let catalog = make_mysql_catalog();
-        let query = crate::parser::parse_query_with_dialect(
-            "-- @name UsersInRangeSub
--- @returns :many
-SELECT * FROM (SELECT (age BETWEEN ? AND ?) AS in_range FROM users) sub;",
-            &SqlDialect::MySQL,
-        )
-        .unwrap();
-        let result = analyze(&catalog, &query).unwrap();
-        assert_eq!(
-            result.params.len(),
-            2,
-            "two distinct `?` occurrences inside a derived subquery must report exactly two parameters"
-        );
-        assert_eq!(result.params[0].position, 1);
-        assert_eq!(result.params[1].position, 2);
-    }
-
-    /// A placeholder inside a derived subquery and one outside it must number
-    /// sequentially across the boundary, exercising the same
-    /// into-and-back-out threading `positional_param_counter` already relies
-    /// on -- `resolved_placeholders` has to make the same round trip.
-    #[test]
-    fn test_bare_placeholder_numbers_sequentially_across_derived_subquery_boundary() {
-        let catalog = make_mysql_catalog();
-        let query = crate::parser::parse_query_with_dialect(
-            "-- @name UsersInRangeOuter
--- @returns :many
-SELECT * FROM (SELECT id, age FROM users WHERE age > ?) sub WHERE sub.id > ?;",
-            &SqlDialect::MySQL,
-        )
-        .unwrap();
-        let result = analyze(&catalog, &query).unwrap();
-        assert_eq!(result.params.len(), 2);
-        assert_eq!(
-            result.params[0].position, 1,
-            "the placeholder inside the subquery must resolve first"
-        );
-        assert_eq!(
-            result.params[1].position, 2,
-            "the outer placeholder must continue numbering after it"
-        );
-    }
-
-    /// A bare `?` used as a plain arithmetic operand (not a comparison, `BETWEEN`,
-    /// `CAST`, or function argument) only ever reached `infer_expr_type`'s
-    /// `Expr::Value` arm, which resolved `$N` via `parse_placeholder` but never
-    /// called `resolve_placeholder_position` for `?` at all -- so the occurrence
-    /// was silently dropped instead of merely double-counted (#170).
-    #[test]
-    fn test_bare_placeholder_as_arithmetic_operand_in_projection_is_counted() {
-        let catalog = make_mysql_catalog();
-        let query = crate::parser::parse_query_with_dialect(
-            "-- @name AgePlus
--- @returns :many
-SELECT age + ? AS x FROM users;",
-            &SqlDialect::MySQL,
-        )
-        .unwrap();
-        let result = analyze(&catalog, &query).unwrap();
-        assert_eq!(
-            result.params.len(),
-            1,
-            "the `?` added to `age` must be counted even though it sits in a plain \
-             arithmetic expression, not a comparison"
-        );
-        assert_eq!(result.params[0].position, 1);
-    }
-
-    /// `analyze_select` visited `WHERE`/`HAVING` before the projection, so a `?`
-    /// textually first (in the SELECT list) was numbered *after* a `?` textually
-    /// later (in WHERE) -- the reverse of source order. `$N` placeholders are
-    /// unaffected (they carry an explicit number), so this only shows up for the
-    /// occurrence-numbered `?` marker. Uses the issue's own "Ord" example.
-    #[test]
-    fn test_projection_placeholder_binds_before_where_placeholder() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);"],
-            &SqlDialect::MySQL,
-        )
-        .unwrap();
-        let query = crate::parser::parse_query_with_dialect(
-            "-- @name Ord
--- @returns :many
-SELECT CAST(? AS CHAR) AS tag, name FROM users WHERE age = ?;",
-            &SqlDialect::MySQL,
-        )
-        .unwrap();
-        let result = analyze(&catalog, &query).unwrap();
-        assert_eq!(result.params.len(), 2);
-        assert_eq!(
-            result.params[0].position, 1,
-            "the CAST placeholder in the SELECT list is textually first and must bind first"
-        );
-        assert_eq!(result.params[0].neutral_type, "string");
-        assert_eq!(
-            result.params[1].position, 2,
-            "the WHERE placeholder is textually second and must bind second, even though WHERE is analyzed first"
-        );
-        assert_eq!(result.params[1].name, "age");
-        assert_eq!(result.params[1].neutral_type, "int32");
-    }
-
-    /// A `?` used bare in the SELECT list, with nothing to widen or cast against,
-    /// has no type-bearing context at all -- `infer_expr_type` returns
-    /// `TypeInfo::untyped_literal()` for it and there is no fallback. Letting
-    /// `analyze()` return `Ok` here is what used to surface two layers down as
-    /// the backend's `INTERNAL_ERROR: unknown neutral type: unknown` -- this is
-    /// the remainder of GH #170 the counting/ordering fix (c288fce1) left open,
-    /// closed by rejecting the shape here instead of leaving it for codegen.
-    #[test]
-    fn test_bare_placeholder_alone_in_projection_is_rejected() {
-        let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);"],
-            &SqlDialect::MySQL,
-        )
-        .unwrap();
-        let query = crate::parser::parse_query_with_dialect(
-            "-- @name BareTag
--- @returns :many
-SELECT ? AS tag, name FROM users;",
-            &SqlDialect::MySQL,
-        )
-        .unwrap();
-        let err = analyze(&catalog, &query).expect_err(
-            "a bare placeholder with no comparison/cast context has no type to infer and must be rejected \
-             before it reaches codegen as neutral_type \"unknown\"",
-        );
-        assert_eq!(err.code, crate::errors::ErrorCode::TypeMismatch);
-        assert!(
-            err.message.contains("BareTag") && err.message.contains("tag"),
-            "the error must name both the query and the offending column, got: {}",
-            err.message
-        );
-    }
-
-    /// Same shape as the bare-placeholder case above, for a literal `NULL` --
-    /// the issue's other trigger for the same `neutral_type: "unknown"` sentinel.
+    /// A literal `NULL` alone in the projection has nothing to infer a type from.
     #[test]
     fn test_literal_null_alone_in_projection_is_rejected() {
         let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);"]).unwrap();
@@ -2772,7 +2503,7 @@ SELECT id, moods FROM t WHERE id = $1;",
             FunctionDefinition, FunctionReturnDefinition, RelationDefinition,
         };
 
-        let catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
+        let catalog = CatalogBuilder::new(crate::dialect::SqlDialect::PostgreSQL)
             .domain(DomainDefinition::new(
                 CatalogObjectName::new("user_id"),
                 "integer",

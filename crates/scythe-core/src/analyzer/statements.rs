@@ -173,10 +173,9 @@ impl<'a> Analyzer<'a> {
                     .map(|(i, lc)| {
                         if i < right_cols.len() {
                             let widened_type = self.widen_union_arm_type(&lc.neutral_type, &right_cols[i].neutral_type);
-                            // Preserve the source `sql_type` (e.g. "clob") when both sides
-                            // of the UNION agree on it — backends like rust-sibyl match on
-                            // `sql_type`, not `neutral_type`, to detect DB-specific column
-                            // kinds (CLOB/NCLOB/BLOB/BFILE) that need non-default handling.
+                            // Preserve the source `sql_type` when both sides of the UNION
+                            // agree on it; backends may match on `sql_type`, not
+                            // `neutral_type`.
                             // Only fall back to the widened neutral type when the sides
                             // genuinely disagree on the source type.
                             let sql_type = if lc.sql_type == right_cols[i].sql_type {
@@ -922,18 +921,14 @@ mod union_sql_type_tests {
         (**query).clone()
     }
 
-    /// Regression test for the bug where `SELECT clob_col FROM a UNION SELECT clob_col FROM
-    /// b` lost the source `sql_type` ("clob") on the UNION result column, overwriting it
-    /// with the *neutral* type ("string"). Backends like rust-sibyl match on `sql_type` to
-    /// detect DB-specific column kinds (CLOB) that need non-default handling; losing it
-    /// silently reverts a UNION-projected CLOB column to the broken `row.get::<String>`
-    /// path. Both sides of the UNION here have identical `sql_type`s, so it must be
-    /// preserved verbatim on the result column.
+    /// A UNION over columns of the same source `sql_type` keeps that `sql_type` on the result
+    /// column instead of overwriting it with the neutral type, so backends that match on
+    /// `sql_type` still see it.
     #[test]
-    fn test_union_over_matching_clob_columns_preserves_sql_type() {
+    fn test_union_over_matching_xml_columns_preserves_sql_type() {
         let catalog = make_catalog(&[
-            "CREATE TABLE a (id INTEGER, notes CLOB);",
-            "CREATE TABLE b (id INTEGER, notes CLOB);",
+            "CREATE TABLE a (id INTEGER, notes XML);",
+            "CREATE TABLE b (id INTEGER, notes XML);",
         ]);
         let mut analyzer = make_analyzer(&catalog);
         let query = parse_query("SELECT id, notes FROM a UNION SELECT id, notes FROM b");
@@ -945,8 +940,8 @@ mod union_sql_type_tests {
             .expect("notes column present");
 
         assert_eq!(
-            notes.sql_type, "clob",
-            "UNION over a CLOB column on both sides must preserve sql_type == \"clob\" \
+            notes.sql_type, "xml",
+            "UNION over an XML column on both sides must preserve sql_type == \"xml\" \
              (not fall back to the neutral type \"string\"); got sql_type = {:?}",
             notes.sql_type
         );
@@ -956,13 +951,13 @@ mod union_sql_type_tests {
         );
     }
 
-    /// When the two sides of a UNION genuinely disagree on source `sql_type` (e.g. `CLOB`
+    /// When the two sides of a UNION genuinely disagree on source `sql_type` (e.g. `XML`
     /// vs `VARCHAR`), there's no single source type to preserve, so the result must fall
     /// back to the widened neutral type rather than picking one side arbitrarily.
     #[test]
     fn test_union_over_mismatched_types_falls_back_to_widened_neutral_type() {
         let catalog = make_catalog(&[
-            "CREATE TABLE a (id INTEGER, notes CLOB);",
+            "CREATE TABLE a (id INTEGER, notes XML);",
             "CREATE TABLE b (id INTEGER, notes VARCHAR(255));",
         ]);
         let mut analyzer = make_analyzer(&catalog);

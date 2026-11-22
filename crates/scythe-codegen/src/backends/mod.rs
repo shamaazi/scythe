@@ -13,7 +13,6 @@ pub(crate) mod typescript_common;
 pub(crate) mod typescript_postgres;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_core::SqlDialect;
 use scythe_core::analyzer::AnalyzedParam;
 use scythe_core::errors::{ErrorCode, ScytheError};
 
@@ -35,20 +34,6 @@ pub(crate) fn parse_manifest(manifest_toml: &str) -> Result<BackendManifest, Scy
     toml::from_str(manifest_toml).map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
 }
 
-/// Whether a backend built for `engine` may emit nested-aggregate structs.
-///
-/// The four opted-in backends (`rust-sqlx`, `rust-tokio-postgres`, `go-pgx`,
-/// `python-psycopg3`) all also serve `redshift`, and `rust-sqlx` serves
-/// MySQL/MariaDB/SQLite besides. `json_agg` and `row_to_json` are PostgreSQL
-/// functions; Redshift has neither. The analyzer already declines to infer a
-/// nested type for a Redshift catalog, but the backend cannot rely on that
-/// alone — it also selects a *different manifest* per engine, and the
-/// Redshift manifests deliberately do not declare the `json_nested`
-/// container. Opting in there would resolve the column against a container
-/// the manifest never defines.
-///
-/// Kept as one predicate so all four backends answer the question the same
-/// way instead of each spelling out its own engine list.
 /// Parse a boolean backend option strictly.
 ///
 /// Accepts (case-insensitively) `true`/`false`, `1`/`0`, and `yes`/`no`. Any
@@ -64,10 +49,6 @@ pub(crate) fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, 
             format!("invalid {option_name} '{value}': expected 'true'/'false', '1'/'0', or 'yes'/'no'"),
         )),
     }
-}
-
-pub(crate) fn engine_supports_nested_aggregates(engine: &str) -> bool {
-    matches!(engine, "postgresql" | "postgres" | "pg")
 }
 
 /// A classified span of SQL text produced by [`tokenize_sql`].
@@ -89,15 +70,6 @@ enum SqlSpanKind {
     DoubleQuoted,
     /// A PostgreSQL `$$...$$` or `$tag$...$tag$` dollar-quoted string.
     DollarQuoted,
-    /// A MySQL/MariaDB `` `...` `` quoted identifier, with `` `` `` as the
-    /// escape for an embedded backtick. Only ever produced when the caller's
-    /// dialect is [`SqlDialect::MySQL`] (board #148 item 2).
-    Backtick,
-    /// An MSSQL `[...]` delimited identifier, with `]]` as the escape for an
-    /// embedded `]`. Only ever produced when the caller's dialect is
-    /// [`SqlDialect::MsSql`] (board #148 item 4) -- gating on dialect is what keeps
-    /// this from misreading PostgreSQL array-subscript syntax (`arr[1]`).
-    Bracketed,
     /// A `-- ...` comment, running to end of line (the newline itself is not
     /// part of the span).
     LineComment,
@@ -110,15 +82,8 @@ enum SqlSpanKind {
 /// concatenates back to exactly `sql`.
 ///
 /// This is the single source of truth for "is this character part of a
-/// string/identifier/comment, or is it live SQL". `dialect` gates the lexical
-/// forms that cannot be told apart from the text alone without knowing the
-/// target engine: MySQL/MariaDB backtick identifiers and `#` line comments
-/// (only under [`SqlDialect::MySQL`]), and MSSQL `[bracketed]` identifiers
-/// (only under [`SqlDialect::MsSql`]) -- `#` in particular collides with
-/// PostgreSQL's `#>`/`#>>` JSON operators, and `[`/`]` collide with
-/// PostgreSQL array-subscript syntax, so neither can be recognized
-/// dialect-blind (board #148).
-fn tokenize_sql(sql: &str, dialect: SqlDialect) -> Vec<(SqlSpanKind, String)> {
+/// string/identifier/comment, or is it live SQL".
+fn tokenize_sql(sql: &str) -> Vec<(SqlSpanKind, String)> {
     let chars: Vec<char> = sql.chars().collect();
     let len = chars.len();
     let mut spans: Vec<(SqlSpanKind, String)> = Vec::new();
@@ -197,54 +162,6 @@ fn tokenize_sql(sql: &str, dialect: SqlDialect) -> Vec<(SqlSpanKind, String)> {
             continue;
         }
 
-        if c == '`' && dialect == SqlDialect::MySQL {
-            flush_code_buf(&mut code_buf, &mut spans);
-            let start = i;
-            i += 1;
-            while i < len {
-                if chars[i] == '`' {
-                    if i + 1 < len && chars[i + 1] == '`' {
-                        i += 2;
-                        continue;
-                    }
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
-            spans.push((SqlSpanKind::Backtick, chars[start..i].iter().collect()));
-            continue;
-        }
-
-        if c == '#' && dialect == SqlDialect::MySQL {
-            flush_code_buf(&mut code_buf, &mut spans);
-            let start = i;
-            while i < len && chars[i] != '\n' {
-                i += 1;
-            }
-            spans.push((SqlSpanKind::LineComment, chars[start..i].iter().collect()));
-            continue;
-        }
-
-        if c == '[' && dialect == SqlDialect::MsSql {
-            flush_code_buf(&mut code_buf, &mut spans);
-            let start = i;
-            i += 1;
-            while i < len {
-                if chars[i] == ']' {
-                    if i + 1 < len && chars[i + 1] == ']' {
-                        i += 2;
-                        continue;
-                    }
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
-            spans.push((SqlSpanKind::Bracketed, chars[start..i].iter().collect()));
-            continue;
-        }
-
         if c == '$'
             && let Some(open_end) = match_dollar_quote_open(&chars, i)
         {
@@ -304,38 +221,8 @@ fn match_dollar_quote_open(chars: &[char], i: usize) -> Option<usize> {
 
 /// Strip SQL comments, trailing semicolons, and excess whitespace.
 /// Preserves newlines between lines.
-///
-/// Dialect-blind: kept for the call sites this multi-agent change did not
-/// reach (see [`clean_sql_dialect`] for the dialect-aware replacement, which
-/// every owned call site now uses). Passing `SqlDialect::PostgreSQL` into
-/// [`tokenize_sql`] here gates off the MySQL backtick/`#` and MSSQL bracket
-/// handling, reproducing this function's pre-board #148 behaviour exactly.
 pub(crate) fn clean_sql(sql: &str) -> String {
-    clean_sql_lines(sql, SqlDialect::PostgreSQL)
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
-/// Dialect-aware [`clean_sql`]: recognizes MySQL backtick identifiers/`#`
-/// comments and MSSQL `[bracketed]` identifiers per `dialect` (board #148).
-///
-/// ~keep No production caller yet: the four backends migrated to the
-/// dialect-aware pipeline all embed SQL as a single line and so reach for
-/// [`clean_sql_oneline_dialect`]. The multiline form is what the ~44
-/// still-unmigrated backends will need, and its tests below pin the MySQL
-/// backtick / `#`-comment and MSSQL bracket behaviour that only this
-/// signature exercises. `expect`, not `allow`, deliberately: it becomes a
-/// hard error the moment a caller appears, so the attribute cannot outlive
-/// the reason for it.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "staged board #148 migration; see doc comment")
-)]
-pub(crate) fn clean_sql_dialect(sql: &str, dialect: SqlDialect) -> String {
-    clean_sql_lines(sql, dialect)
+    clean_sql_lines(sql)
         .join("\n")
         .trim()
         .trim_end_matches(';')
@@ -354,9 +241,9 @@ pub(crate) fn clean_sql_dialect(sql: &str, dialect: SqlDialect) -> String {
 /// trailing comment (board #148) be stripped without deleting the rest of the
 /// query, while a `-- @name Foo` header line still disappears instead of
 /// leaving a blank line behind (every generated fixture depends on that).
-fn clean_sql_lines(sql: &str, dialect: SqlDialect) -> Vec<String> {
+fn clean_sql_lines(sql: &str) -> Vec<String> {
     let normalized = sql.replace("\r\n", "\n");
-    let spans = tokenize_sql(&normalized, dialect);
+    let spans = tokenize_sql(&normalized);
 
     let mut lines: Vec<String> = vec![String::new()];
     let mut touched_by_comment: Vec<bool> = vec![false];
@@ -630,7 +517,7 @@ fn is_ident_char(c: char) -> bool {
 /// -- independent of the `$N` heuristic above, and correct even for a
 /// zero-placeholder query that has no `$N` to anchor that heuristic on.
 pub(crate) fn rewrite_pg_placeholders(sql: &str, formatter: impl Fn(u32) -> String) -> String {
-    let spans = tokenize_sql(sql, SqlDialect::PostgreSQL);
+    let spans = tokenize_sql(sql);
     let uses_dollar_placeholders = spans
         .iter()
         .any(|(kind, text)| *kind == SqlSpanKind::Code && code_span_has_dollar_number(text));
@@ -738,7 +625,7 @@ fn rewrite_code_span_placeholders(
 
 /// Get a backend by name and database engine.
 ///
-/// The `engine` parameter (e.g., "postgresql", "mysql", "sqlite") determines
+/// The `engine` parameter (e.g. "postgresql") determines
 /// which manifest is loaded for type mappings. PG-only backends reject non-PG engines.
 ///
 /// A backend or engine whose Cargo feature this build was compiled without is
@@ -813,10 +700,7 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
 
 /// Each engine Cargo feature, the canonical engines it enables, and whether
 /// this build was compiled with it.
-const ENGINE_FEATURES: &[(&str, &[&str], bool)] = &[
-    ("postgres", &["postgresql"], cfg!(feature = "postgres")),
-    ("sqlite", &["sqlite"], cfg!(feature = "sqlite")),
-];
+const ENGINE_FEATURES: &[(&str, &[&str], bool)] = &[("postgres", &["postgresql"], cfg!(feature = "postgres"))];
 
 /// The Cargo feature that enables `engine`, in any of its alias spellings, or
 /// `None` for an engine this crate does not know.
@@ -857,8 +741,7 @@ fn disabled_feature(subject: &str, feature: &str) -> ScytheError {
 /// before attempting live-database verification.
 pub fn normalize_engine(engine: &str) -> &str {
     match engine {
-        "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb" => "postgresql",
-        "sqlite" | "sqlite3" => "sqlite",
+        "postgresql" | "postgres" | "pg" => "postgresql",
         other => other,
     }
 }
@@ -936,36 +819,8 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_engine_cockroachdb() {
-        assert_eq!(normalize_engine("cockroachdb"), "postgresql");
-        assert_eq!(normalize_engine("crdb"), "postgresql");
-    }
-
-    #[cfg(all(feature = "lang-rust", feature = "lang-typescript"))]
-    #[test]
-    fn test_get_backend_cockroachdb_with_pg_backends() {
-        let pg_backends = [
-            "rust-sqlx",
-            "rust-tokio-postgres",
-            "typescript-postgres",
-            "typescript-bun",
-        ];
-        for backend_name in &pg_backends {
-            let result = get_backend(backend_name, "cockroachdb");
-            assert!(
-                result.is_ok(),
-                "backend '{}' should accept cockroachdb engine, got: {:?}",
-                backend_name,
-                result.err()
-            );
-        }
-    }
-
-    #[test]
     fn engine_feature_covers_every_alias_of_an_engine() {
-        assert_eq!(engine_feature("cockroachdb"), Some("postgres"));
         assert_eq!(engine_feature("pg"), Some("postgres"));
-        assert_eq!(engine_feature("sqlite3"), Some("sqlite"));
         assert_eq!(engine_feature("klingon"), None);
     }
 
@@ -982,28 +837,6 @@ mod tests {
             ),
             "{error}"
         );
-    }
-
-    #[cfg(not(feature = "sqlite"))]
-    #[test]
-    fn get_backend_names_the_engine_feature_a_disabled_engine_needs() {
-        let error = get_backend("rust-sqlx", "sqlite")
-            .err()
-            .expect("sqlite is not compiled in");
-        assert!(
-            error
-                .to_string()
-                .contains("engine 'sqlite' is not available in this build")
-                && error.to_string().contains("`--features sqlite`"),
-            "{error}"
-        );
-    }
-
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
-    #[test]
-    fn test_get_backend_crdb_alias() {
-        let result = get_backend("rust-sqlx", "crdb");
-        assert!(result.is_ok(), "rust-sqlx should accept 'crdb' engine alias");
     }
 
     #[test]
@@ -1109,11 +942,6 @@ mod tests {
         let params = vec![param("status", 1)];
         let result = rewrite_optional_params(sql, &["status".to_string()], &params);
         assert_eq!(result, sql);
-    }
-
-    #[test]
-    fn test_normalize_engine_mariadb() {
-        assert_eq!(normalize_engine("mariadb"), "mariadb");
     }
 
     // -----------------------------------------------------------------
@@ -1240,72 +1068,10 @@ mod tests {
         assert_eq!(result, "SELECT id FROM t WHERE ($1 IS NULL OR name NOT LIKE $1)");
     }
 
-    // -----------------------------------------------------------------
-    // Dialect-aware tokenizer / placeholder tests (board #148, GH #149).
-    //
-    // These exercise `rewrite_placeholders_indexed` and `clean_sql_dialect`/
-    // `clean_sql_oneline_dialect` directly -- the dialect-driven replacements
-    // every owned backend (java-jdbc, kotlin-jdbc, kotlin-exposed, php-amphp)
-    // now calls instead of the heuristic-based `rewrite_pg_placeholders`/
-    // `clean_sql`/`clean_sql_oneline`. Each test states, in its doc comment or
-    // inline, what the OLD (heuristic-based, dialect-blind) code produced for
-    // the same input.
-    // -----------------------------------------------------------------
-
-    /// board #148 item 2: a MySQL backtick identifier containing `-- ` must not be
-    /// read as opening a line comment. Matches the `clean_sql_dialect`
-    /// counterpart of the `WRONG:`-documented
-    /// `clean_sql_treats_a_double_dash_inside_a_mysql_backtick_identifier_as_a_comment`
-    /// characterization test (which pins the OLD, dialect-blind `clean_sql`'s
-    /// corruption of the same input to `"SELECT \`a"`).
+    /// PostgreSQL's `#>`/`#>>` JSON operators are not comments.
     #[test]
-    fn test_clean_sql_dialect_mysql_backtick_preserves_double_dash_inside() {
-        let sql = "SELECT `a -- b` FROM t";
-        assert_eq!(
-            clean_sql(sql),
-            "SELECT `a",
-            "pins the OLD dialect-blind clean_sql's corruption"
-        );
-        assert_eq!(clean_sql_dialect(sql, SqlDialect::MySQL), sql);
-    }
-
-    /// board #148 item 4: same as above for an MSSQL `[bracketed]` identifier.
-    #[test]
-    fn test_clean_sql_dialect_mssql_bracket_preserves_double_dash_inside() {
-        let sql = "SELECT [a -- b] FROM t";
-        assert_eq!(
-            clean_sql(sql),
-            "SELECT [a",
-            "pins the OLD dialect-blind clean_sql's corruption"
-        );
-        assert_eq!(clean_sql_dialect(sql, SqlDialect::MsSql), sql);
-    }
-
-    /// board #148 item 3: MySQL `#` line comments were deliberately unrecognized
-    /// dialect-blind (`#` collides with PostgreSQL's `#>`/`#>>` JSON
-    /// operators), so the OLD `clean_sql` leaves the whole comment in the
-    /// output. Under `SqlDialect::MySQL` it must be stripped like `--`.
-    #[test]
-    fn test_clean_sql_dialect_mysql_hash_comment_is_stripped() {
-        let sql = "SELECT 1 # note\nFROM t";
-        assert_eq!(
-            clean_sql(sql),
-            "SELECT 1 # note\nFROM t",
-            "pins the OLD dialect-blind clean_sql leaving the # comment in place"
-        );
-        // WRONG-adjacent (matches the pre-existing `--` wart pinned by
-        // `clean_sql_strips_a_trailing_line_comment_but_leaves_the_space_before_it`
-        // in sql_text_characterization_tests.rs): stripping a trailing
-        // comment does not also strip the space that preceded it.
-        assert_eq!(clean_sql_dialect(sql, SqlDialect::MySQL), "SELECT 1 \nFROM t");
-    }
-
-    /// PostgreSQL's `#>`/`#>>` JSON operators are exactly why `#` cannot be
-    /// treated as a comment dialect-blind -- confirm they still survive
-    /// untouched under `SqlDialect::PostgreSQL`.
-    #[test]
-    fn test_clean_sql_dialect_postgresql_hash_is_not_a_comment() {
+    fn test_clean_sql_hash_is_not_a_comment() {
         let sql = "SELECT data #> '{a,b}' AS x FROM t";
-        assert_eq!(clean_sql_dialect(sql, SqlDialect::PostgreSQL), sql);
+        assert_eq!(clean_sql(sql), sql);
     }
 }

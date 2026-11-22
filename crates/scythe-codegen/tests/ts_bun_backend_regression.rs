@@ -82,8 +82,7 @@ fn registry_names_and_engines() {
     let js = get_backend("javascript-bun", "postgresql").unwrap();
     assert_eq!(js.name(), "javascript-bun");
     assert_eq!(js.output_extension(), "js");
-    assert!(get_backend("typescript-bun", "cockroachdb").is_ok());
-    for engine in ["redshift", "mysql", "sqlite"] {
+    for engine in ["nosuchdb", "other"] {
         assert!(
             get_backend("typescript-bun", engine).is_err(),
             "{engine} must be rejected"

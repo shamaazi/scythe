@@ -168,10 +168,6 @@ pub struct TokioPostgresBackend {
     manifest: BackendManifest,
     serde: bool,
     extra_derives: Vec<String>,
-    /// Whether this engine's manifest declares the `json_nested` container
-    /// and its server actually has `json_agg`. See
-    /// [`crate::backends::engine_supports_nested_aggregates`].
-    nested_aggregates: bool,
 }
 
 impl TokioPostgresBackend {
@@ -190,7 +186,6 @@ impl TokioPostgresBackend {
             manifest,
             serde: false,
             extra_derives: Vec::new(),
-            nested_aggregates: super::engine_supports_nested_aggregates(engine),
         })
     }
 
@@ -674,10 +669,6 @@ impl CodegenBackend for TokioPostgresBackend {
         &self,
         nested: &scythe_core::analyzer::NestedStructInfo,
     ) -> Result<Option<String>, ScytheError> {
-        if !self.nested_aggregates {
-            return Ok(None);
-        }
-
         // ~keep Deliberately not self.struct_derives(): the `serde` option decides
         // whether the *row* struct (built by from_row/row.get, never
         // JSON-decoded) opts into serde, which is a separate question from

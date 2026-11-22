@@ -748,10 +748,8 @@ dependencies = [
  "postgres-types",
  "rust_decimal",
  "serde",
- "serde_json",
  "tokio",
  "tokio-postgres",
- "uuid",
 ]
 
 [[package]]
