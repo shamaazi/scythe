@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use sqlkit_backend::manifest::BackendManifest;
 use sqlkit_backend::naming::{
-    NamingConfig, apply_case, composite_type_name, enum_type_name, field_name, to_camel_case, to_pascal_case,
+    NamingConfig, apply_case, composite_type_name, enum_type_name, field_name, to_pascal_case,
 };
 use sqlkit_core::analyzer::{CompositeInfo, NestedStructInfo};
 use sqlkit_core::constraints::{AllowedValue, Rules, ValueConstraints};
@@ -10,6 +10,7 @@ use sqlkit_core::errors::{ErrorCode, SqlkitError};
 use sqlkit_core::parser::QueryCommand;
 
 use crate::backend_trait::{ResolvedColumn, ResolvedParam};
+use crate::constraints::ConstraintPolicy;
 use crate::overrides::{is_ts_identifier, is_ts_module_specifier};
 
 pub(crate) use super::parse_bool_option;
@@ -37,33 +38,73 @@ impl TsRowType {
 }
 
 /// Case convention for row/interface field names, as selected by the
-/// `field_case` backend option.
+/// `field_case` backend option, with `row_keys` for camelCase fields.
 ///
 /// Naming the field (`NamingConfig.field_case`, read centrally in
 /// `resolve.rs`) and remapping the *runtime* row to match it are two
 /// separate concerns: renaming alone would type-check but return `undefined`
 /// for every field once `Camel` disagrees with what the driver actually
-/// returns. This enum drives the latter -- see
-/// [`generate_ts_one_row_remap`] and [`generate_ts_many_row_remap`], which a
-/// backend's `apply_options` selects between based on the same
-/// `field_case` option string that also sets `NamingConfig.field_case`, so
-/// the two never drift apart.
+/// returns. This enum drives both: a backend writes
+/// [`Self::naming_case`] into `NamingConfig.field_case` from it, and selects
+/// [`generate_ts_one_row_remap`] / [`generate_ts_many_row_remap`] by its
+/// [`RowKeys`] -- which only camelCase fields have, since snake_case rows
+/// already use the driver's keys.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum TsFieldCase {
+pub(crate) enum TsFieldCase {
     #[default]
     Snake,
-    Camel,
+    Camel {
+        keys: RowKeys,
+    },
 }
 
 impl TsFieldCase {
-    /// Parse a field_case option string into a `TsFieldCase`.
-    pub fn from_option(value: &str) -> Result<Self, SqlkitError> {
+    /// Parse a field_case option string into a `TsFieldCase`, with the
+    /// default [`RowKeys`] for camelCase.
+    pub(crate) fn from_option(value: &str) -> Result<Self, SqlkitError> {
         match value {
             "snake_case" => Ok(Self::Snake),
-            "camelCase" => Ok(Self::Camel),
+            "camelCase" => Ok(Self::Camel {
+                keys: RowKeys::default(),
+            }),
             _ => Err(SqlkitError::new(
                 ErrorCode::InvalidConfig,
                 format!("invalid field_case '{}': expected 'snake_case' or 'camelCase'", value),
+            )),
+        }
+    }
+
+    /// The `field_case` option value, which `NamingConfig::field_case` names
+    /// fields by.
+    pub(crate) fn naming_case(self) -> &'static str {
+        match self {
+            Self::Snake => "snake_case",
+            Self::Camel { .. } => "camelCase",
+        }
+    }
+}
+
+/// `row_keys` backend option: where a camelCase row's keys come from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum RowKeys {
+    /// `"remap"`: the driver returns the SQL (snake_case) names, so rows are
+    /// rebuilt field by field.
+    #[default]
+    Remap,
+    /// `"driver"`: the client already returns camelCase keys (Bun with
+    /// `transform: SQL.camel`), so rows keep the `sql<StructName[]>` generic.
+    Driver,
+}
+
+impl RowKeys {
+    /// Parse a row_keys option string.
+    pub(crate) fn from_option(value: &str) -> Result<Self, SqlkitError> {
+        match value {
+            "remap" => Ok(Self::Remap),
+            "driver" => Ok(Self::Driver),
+            other => Err(SqlkitError::new(
+                ErrorCode::InvalidConfig,
+                format!("row_keys must be \"remap\" or \"driver\", got \"{other}\""),
             )),
         }
     }
@@ -404,17 +445,11 @@ pub fn resolve_ts_json_runtime_type(neutral_type: &str, manifest: &BackendManife
     Ok(runtime_type.to_string())
 }
 
-pub fn generate_ts_nested_interface(
+/// The interface of a nested aggregate's JSON object, whose keys are the SQL
+/// names PostgreSQL's JSON functions write, whatever `field_case` is.
+pub(crate) fn generate_ts_nested_interface(
     nested: &NestedStructInfo,
     manifest: &BackendManifest,
-) -> Result<String, SqlkitError> {
-    generate_ts_nested_interface_with_field_case(nested, manifest, TsFieldCase::Snake)
-}
-
-pub fn generate_ts_nested_interface_with_field_case(
-    nested: &NestedStructInfo,
-    manifest: &BackendManifest,
-    field_case: TsFieldCase,
 ) -> Result<String, SqlkitError> {
     let name = to_pascal_case(&nested.name);
     let mut out = String::new();
@@ -425,27 +460,16 @@ pub fn generate_ts_nested_interface_with_field_case(
         if field.nullable {
             field_type.push_str(" | null");
         }
-        let field_name = match field_case {
-            TsFieldCase::Snake => field.name.clone(),
-            TsFieldCase::Camel => to_camel_case(&field.name).into_owned(),
-        };
-        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field_name));
+        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field.name));
     }
     let _ = write!(out, "}}");
     Ok(out)
 }
 
-pub fn generate_ts_json_composite_interface(
+/// The interface of a composite value as JSON, keyed by its SQL field names.
+pub(crate) fn generate_ts_json_composite_interface(
     composite: &CompositeInfo,
     manifest: &BackendManifest,
-) -> Result<String, SqlkitError> {
-    generate_ts_json_composite_interface_with_field_case(composite, manifest, TsFieldCase::Snake)
-}
-
-pub fn generate_ts_json_composite_interface_with_field_case(
-    composite: &CompositeInfo,
-    manifest: &BackendManifest,
-    field_case: TsFieldCase,
 ) -> Result<String, SqlkitError> {
     let name = format!("{}Json", composite_type_name(&composite.sql_name, &manifest.naming));
     let mut out = String::new();
@@ -460,11 +484,7 @@ pub fn generate_ts_json_composite_interface_with_field_case(
         if field.nullable {
             field_type.push_str(" | null");
         }
-        let field_name = match field_case {
-            TsFieldCase::Snake => field.name.clone(),
-            TsFieldCase::Camel => to_camel_case(&field.name).into_owned(),
-        };
-        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field_name));
+        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field.name));
     }
     let _ = write!(out, "}}");
     Ok(out)
@@ -1090,24 +1110,27 @@ pub fn generate_zod_enum(type_name: &str, values: &[String], naming: &sqlkit_bac
 }
 
 /// How generated TypeScript carries the schema's constraints, as selected by
-/// the `validation` backend option. See `sqlkit_core::constraints`.
+/// the `validation` backend option, and -- only when it carries them -- how
+/// one it cannot carry is reported (the `constraints` option). See
+/// `sqlkit_core::constraints`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum TsValidation {
+pub(crate) enum TsValidation {
     /// Types only.
     #[default]
     None,
     /// JSON Schema keywords as JSDoc tags on row and params properties
     /// (`@minLength`, `@pattern`, `@minimum`, ...), the column comment as the
     /// property's description, and `IN (...)` lists as literal union types.
-    JsDoc,
+    JsDoc(ConstraintPolicy),
 }
 
 impl TsValidation {
-    /// Parse a validation option string into a `TsValidation`.
-    pub fn from_option(value: &str) -> Result<Self, SqlkitError> {
+    /// Parse a validation option string into a `TsValidation`, with the
+    /// default [`ConstraintPolicy`] for JSDoc.
+    pub(crate) fn from_option(value: &str) -> Result<Self, SqlkitError> {
         match value {
             "none" => Ok(Self::None),
-            "jsdoc" => Ok(Self::JsDoc),
+            "jsdoc" => Ok(Self::JsDoc(ConstraintPolicy::default())),
             _ => Err(SqlkitError::new(
                 ErrorCode::InvalidConfig,
                 format!("invalid validation '{value}': expected 'none' or 'jsdoc'"),
@@ -1828,7 +1851,10 @@ mod tests {
     #[test]
     fn test_ts_field_case_from_option_accepts_known_values() {
         assert_eq!(TsFieldCase::from_option("snake_case").unwrap(), TsFieldCase::Snake);
-        assert_eq!(TsFieldCase::from_option("camelCase").unwrap(), TsFieldCase::Camel);
+        assert_eq!(
+            TsFieldCase::from_option("camelCase").unwrap(),
+            TsFieldCase::Camel { keys: RowKeys::Remap }
+        );
     }
 
     #[test]

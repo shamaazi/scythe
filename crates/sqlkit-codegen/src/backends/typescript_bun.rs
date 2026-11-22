@@ -11,7 +11,7 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsFieldCase, TsParamStyle, TsQueryParams, TsRowShape, TsRowType, TsValidation, escape_ts_template_literal,
+    RowKeys, TsFieldCase, TsParamStyle, TsQueryParams, TsRowShape, TsRowType, TsValidation, escape_ts_template_literal,
     generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
     generate_ts_json_composite_interface, generate_ts_many_row_remap, generate_ts_nested_interface,
     generate_ts_one_row_remap, generate_ts_schema_types, generate_ts_union_row_struct, generate_zod_enum,
@@ -419,10 +419,10 @@ pub struct TypescriptBunBackend {
     /// composites) — no query functions, and no `postgres` driver import
     /// (which would otherwise be unused).
     structs_only: bool,
-    /// Under `Camel`, `:one`/`:opt`/`:many` reconstruct the row field by
-    /// field from the driver's raw (snake_case) keys instead of trusting the
-    /// `sql<StructName[]>` tag's generic. `Snake` (the default) keeps that
-    /// generic, which is sound there.
+    /// Under `Camel { keys: Remap }`, `:one`/`:opt`/`:many` reconstruct the
+    /// row field by field from the driver's raw (snake_case) keys instead of
+    /// trusting the `sql<StructName[]>` tag's generic. `Snake` (the default)
+    /// and `Camel { keys: Driver }` keep that generic, which is sound there.
     field_case: TsFieldCase,
     /// Whether query functions take one argument per parameter or one
     /// `params` object -- see [`TsParamStyle`].
@@ -430,12 +430,6 @@ pub struct TypescriptBunBackend {
     /// Whether row and params types carry the schema's constraints -- see
     /// [`TsValidation`] -- and how one they cannot carry is reported.
     validation: TsValidation,
-    constraint_policy: ConstraintPolicy,
-    /// `row_keys = "driver"`: the client already returns keys in `field_case`, as Bun with
-    /// `transform: SQL.camel` does, so rows keep
-    /// the `sql<StructName[]>` generic instead of being rebuilt field by field. `false`
-    /// (`"remap"`, the default) rebuilds camelCase rows from raw snake_case keys.
-    driver_keys: bool,
     /// `schema_types_import`: the module declaring the schema's enums and domains
     /// (see [`crate::schema_types`]), which query modules import instead of
     /// declaring enums themselves and inlining a domain's base type.
@@ -454,15 +448,13 @@ impl TypescriptBunBackend {
             field_case: TsFieldCase::default(),
             params_style: TsParamStyle::default(),
             validation: TsValidation::default(),
-            constraint_policy: ConstraintPolicy::default(),
-            driver_keys: false,
             schema_types_import: None,
         })
     }
 
     /// Whether camelCase rows are rebuilt from the driver's raw snake_case keys.
     fn remaps_rows(&self) -> bool {
-        self.field_case == TsFieldCase::Camel && !self.driver_keys
+        self.field_case == TsFieldCase::Camel { keys: RowKeys::Remap }
     }
 
     /// The TypeScript header for Bun: the handle import, plus the JSON alias
@@ -546,7 +538,10 @@ impl CodegenBackend for TypescriptBunBackend {
     }
 
     fn constraint_policy(&self) -> Option<ConstraintPolicy> {
-        (self.validation == TsValidation::JsDoc).then_some(self.constraint_policy)
+        match self.validation {
+            TsValidation::JsDoc(policy) => Some(policy),
+            TsValidation::None => None,
+        }
     }
 
     fn inexpressible_rules(&self, rules: &Rules, lang_type: &str) -> Vec<String> {
@@ -1161,34 +1156,47 @@ impl CodegenBackend for TypescriptBunBackend {
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
         }
+        let invalid = |message: &str| SqlkitError::new(ErrorCode::InvalidConfig, message.to_string());
+        let mut field_case = match options.get("field_case") {
+            Some(value) => TsFieldCase::from_option(value)?,
+            None => self.field_case,
+        };
         if let Some(value) = options.get("row_keys") {
-            self.driver_keys = match value.as_str() {
-                "remap" => false,
-                "driver" => true,
-                other => {
-                    return Err(SqlkitError::new(
-                        ErrorCode::InvalidConfig,
-                        format!("row_keys must be \"remap\" or \"driver\", got \"{other}\""),
+            match (&mut field_case, RowKeys::from_option(value)?) {
+                (TsFieldCase::Camel { keys }, row_keys) => *keys = row_keys,
+                (TsFieldCase::Snake, RowKeys::Remap) => {}
+                (TsFieldCase::Snake, RowKeys::Driver) => {
+                    return Err(invalid(
+                        "row_keys = \"driver\" needs field_case = \"camelCase\": snake_case rows already use \
+                         the driver's keys",
                     ));
                 }
-            };
+            }
         }
-        if let Some(value) = options.get("field_case") {
-            self.field_case = TsFieldCase::from_option(value)?;
-            // Keeps the central rename in `resolve.rs` (which reads this
-            // string, not `TsFieldCase`) in sync with the runtime remap
-            // decision above -- one option, one source of truth for both.
-            self.manifest.naming.field_case = value.clone();
-        }
+        self.field_case = field_case;
+        // The central rename in `resolve.rs` reads this string, not
+        // `TsFieldCase`; it is only ever written from `field_case`.
+        self.manifest.naming.field_case = field_case.naming_case().to_string();
         if let Some(value) = options.get("params") {
             self.params_style = TsParamStyle::from_option(value)?;
         }
-        if let Some(value) = options.get("validation") {
-            self.validation = TsValidation::from_option(value)?;
-        }
+        let mut validation = match options.get("validation") {
+            Some(value) => TsValidation::from_option(value)?,
+            None => self.validation,
+        };
         if let Some(value) = options.get("constraints") {
-            self.constraint_policy = ConstraintPolicy::from_option(value)?;
+            match (&mut validation, ConstraintPolicy::from_option(value)?) {
+                (TsValidation::JsDoc(policy), constraints) => *policy = constraints,
+                (TsValidation::None, ConstraintPolicy::Ignore) => {}
+                (TsValidation::None, _) => {
+                    return Err(invalid(
+                        "constraints = \"warn\" or \"error\" needs validation = \"jsdoc\": without validation no \
+                         constraint is rendered, so none can be reported missing",
+                    ));
+                }
+            }
         }
+        self.validation = validation;
         if let Some(module) = options.get("schema_types_import") {
             self.schema_types_import = Some(ts_schema_types_import_specifier(module, self.row_type)?);
         }
@@ -1201,24 +1209,12 @@ impl TypescriptBunBackend {
     /// Reject options that only mean something together with another one, so a
     /// combination that would silently do nothing (or lose a check) fails instead.
     fn reject_option_combinations(&self) -> Result<(), SqlkitError> {
-        let invalid = |message: &str| Err(SqlkitError::new(ErrorCode::InvalidConfig, message.to_string()));
-        if self.constraint_policy != ConstraintPolicy::Ignore && self.validation != TsValidation::JsDoc {
-            return invalid(
-                "constraints = \"warn\" or \"error\" needs validation = \"jsdoc\": without validation no \
-                 constraint is rendered, so none can be reported missing",
-            );
-        }
-        if self.driver_keys && self.field_case != TsFieldCase::Camel {
-            return invalid(
-                "row_keys = \"driver\" needs field_case = \"camelCase\": snake_case rows already use the \
-                 driver's keys",
-            );
-        }
-        if self.validation == TsValidation::JsDoc && self.row_type == TsRowType::Zod {
-            return invalid(
+        if matches!(self.validation, TsValidation::JsDoc(_)) && self.row_type == TsRowType::Zod {
+            return Err(SqlkitError::new(
+                ErrorCode::InvalidConfig,
                 "validation = \"jsdoc\" needs row_type = \"interface\": a Zod schema drops the JSDoc tags and \
                  turns narrowed literal unions into z.custom<...>(), which checks nothing at runtime",
-            );
+            ));
         }
         Ok(())
     }
@@ -1959,6 +1955,36 @@ mod tests {
             )]))
             .unwrap_err();
         assert!(error.to_string().contains("row_keys"), "got: {error}");
+    }
+
+    /// The options fold into `TsFieldCase::Camel { keys }` and
+    /// `TsValidation::JsDoc(policy)`, and the manifest's field case is
+    /// written from the former.
+    #[test]
+    fn test_options_fold_into_their_enums() {
+        use crate::backends::typescript_common::{RowKeys, TsFieldCase, TsValidation};
+        use crate::constraints::ConstraintPolicy;
+
+        let mut backend = TypescriptBunBackend::new().unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from(
+                [
+                    ("row_keys", "driver"),
+                    ("field_case", "camelCase"),
+                    ("constraints", "warn"),
+                    ("validation", "jsdoc"),
+                ]
+                .map(|(key, value)| (key.to_string(), value.to_string())),
+            ))
+            .unwrap();
+        assert_eq!(backend.field_case, TsFieldCase::Camel { keys: RowKeys::Driver });
+        assert_eq!(backend.manifest.naming.field_case, "camelCase");
+        assert_eq!(backend.validation, TsValidation::JsDoc(ConstraintPolicy::Warn));
+        assert_eq!(backend.constraint_policy(), Some(ConstraintPolicy::Warn));
+
+        let defaults = TypescriptBunBackend::new().unwrap();
+        assert_eq!(defaults.manifest.naming.field_case, "snake_case");
+        assert_eq!(defaults.constraint_policy(), None);
     }
 
     #[test]
