@@ -145,13 +145,8 @@ pub struct NestedFieldInfo {
 /// `__nested__{id}` placeholder embedded in the owning column's
 /// `neutral_type` with the resolved name.
 ///
-/// `id` is producer-assigned and must be unique within one `analyze()` call.
-/// `build_scope_from_from`'s derived-subquery path bubbles a sub-analyzer's
-/// `pending_nested` up to its parent (mirroring how it already bubbles
-/// `params`/`type_errors`/`positional_param_counter`); a future producer
-/// that assigns ids from a plain per-`Analyzer` counter must thread that
-/// counter through the sub-analyzer the same way `positional_param_counter`
-/// already is, or ids can collide across a subquery boundary.
+/// `id` is producer-assigned and unique within one `analyze()` call: one
+/// analyzer analyzes every nested query level, so one counter assigns it.
 #[derive(Debug, Clone)]
 pub(super) struct PendingNestedStruct {
     pub(super) id: u32,
@@ -582,15 +577,15 @@ pub(super) struct Analyzer<'a> {
     /// Nested-struct definitions awaiting phase-2 naming. See
     /// [`PendingNestedStruct`].
     pub(super) pending_nested: Vec<PendingNestedStruct>,
-    /// Auto-incrementing counter assigning `PendingNestedStruct::id`.
-    /// Threaded into a derived-subquery sub-analyzer and back so ids stay unique across a subquery
-    /// boundary once `pending_nested` is bubbled up.
+    /// Auto-incrementing counter assigning `PendingNestedStruct::id`, unique
+    /// across every query level, which one analyzer analyzes.
     pub(super) next_nested_id: u32,
-    /// Sources a correlated reference can name: the FROM items of every
-    /// enclosing query level and, inside a `LATERAL` derived table, the FROM
-    /// items before it. Innermost last. A column the current scope does not
-    /// hold resolves against these, as PostgreSQL resolves outer references.
-    pub(super) outer_sources: Vec<ScopeSource>,
+    /// Sources a correlated reference can name, one list per level: the FROM
+    /// items of every enclosing query level and, inside a `LATERAL` derived
+    /// table, the FROM items before it. Innermost last. A column the current
+    /// scope does not hold resolves against these, level by level, as
+    /// PostgreSQL resolves outer references.
+    pub(super) outer_scopes: Vec<Vec<ScopeSource>>,
     /// Whether the next query analyzed returns its table's row type
     /// unnarrowed: set for the statement's own query when it is a whole-table
     /// `SELECT *` ([`AnalyzedQuery::source_table`]), and taken by the first
@@ -607,7 +602,7 @@ impl<'a> Analyzer<'a> {
             type_errors: Vec::new(),
             pending_nested: Vec::new(),
             next_nested_id: 0,
-            outer_sources: Vec::new(),
+            outer_scopes: Vec::new(),
             keep_table_row_type: false,
         }
     }

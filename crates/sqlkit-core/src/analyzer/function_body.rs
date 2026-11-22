@@ -43,12 +43,12 @@ pub(crate) fn analyze_function_body(
         })
         .collect();
     let mut analyzer = Analyzer::new(catalog);
-    analyzer.outer_sources = vec![ScopeSource {
+    analyzer.outer_scopes = vec![vec![ScopeSource {
         alias: function_name.to_string(),
         table_name: function_name.to_string(),
         columns,
         nullable_from_join: false,
-    }];
+    }]];
     let columns = analyzer.analyze_query(body)?;
     if let Some(error) = analyzer.type_errors.first() {
         return Err(SqlkitError::type_mismatch(error.clone()));

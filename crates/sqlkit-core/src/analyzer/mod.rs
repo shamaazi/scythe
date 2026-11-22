@@ -757,6 +757,29 @@ SELECT u.id, u.name, p.title, p.body FROM users u LEFT JOIN posts p ON u.id = p.
         );
     }
 
+    /// An unqualified outer reference two sources of the same enclosing level
+    /// hold is ambiguous, as PostgreSQL reports it, not the last one's.
+    #[test]
+    fn should_report_an_outer_reference_two_enclosing_sources_hold_as_ambiguous() {
+        let error = analyze_sql(
+            "-- @name Q\n-- @returns :many\n\
+             SELECT x.at FROM users u JOIN posts p ON p.user_id = u.id, LATERAL (SELECT created_at AS at) x",
+        )
+        .expect_err("created_at is ambiguous");
+        assert_eq!(
+            error.code,
+            crate::errors::ErrorCode::AmbiguousColumn,
+            "{}",
+            error.message
+        );
+        let result = analyze_sql(
+            "-- @name Q\n-- @returns :many\n\
+             SELECT x.at FROM users u JOIN posts p ON p.user_id = u.id, LATERAL (SELECT u.created_at AS at) x",
+        )
+        .expect("a qualified outer reference resolves");
+        assert_eq!(result.columns[0].neutral_type, "datetime_tz");
+    }
+
     /// A filter on any column of an outer-joined source proves its row is
     /// there, so every column of it returns to its own nullability and leaves
     /// the join's group.

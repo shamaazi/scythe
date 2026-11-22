@@ -390,10 +390,24 @@ impl<'a> Analyzer<'a> {
         query: &ast::Query,
         scope: &Scope,
     ) -> Result<Vec<AnalyzedColumn>, crate::errors::SqlkitError> {
-        let enclosing = self.outer_sources.len();
-        self.outer_sources.extend(scope.sources.iter().cloned());
+        self.analyze_nested_query(query, Some(scope.sources.clone()))
+    }
+
+    /// Analyze a query nested in the current one -- a subquery, or a derived
+    /// table -- with `level` as the innermost enclosing level its correlated
+    /// references see, if any. The CTEs the nested query defines are its
+    /// own: they go out of scope with it.
+    pub(super) fn analyze_nested_query(
+        &mut self,
+        query: &ast::Query,
+        level: Option<Vec<ScopeSource>>,
+    ) -> Result<Vec<AnalyzedColumn>, crate::errors::SqlkitError> {
+        let enclosing = self.outer_scopes.len();
+        self.outer_scopes.extend(level);
+        let ctes = self.ctes.clone();
         let result = self.analyze_query(query);
-        self.outer_sources.truncate(enclosing);
+        self.ctes = ctes;
+        self.outer_scopes.truncate(enclosing);
         result
     }
 
@@ -426,16 +440,24 @@ impl<'a> Analyzer<'a> {
         // matching PostgreSQL, which reports the missing column instead.
         let qualifier_is_local =
             qualifier.is_some_and(|qual| scope.sources.iter().any(|s| s.alias == qual || s.table_name == qual));
-        if !qualifier_is_local
-            && let Some((source, col)) = self.outer_sources.iter().rev().find_map(|source| {
-                let names_source = qualifier.is_none_or(|qual| source.alias == qual || source.table_name == qual);
-                names_source
-                    .then(|| source.columns.iter().find(|c| c.name == col_name))
-                    .flatten()
-                    .map(|col| (source, col))
-            })
-        {
-            return TypeInfo::from_scope_column(col, source);
+        if !qualifier_is_local {
+            // The innermost enclosing level holding the name decides, and an
+            // unqualified name two of its sources hold is ambiguous there.
+            for level in self.outer_scopes.iter().rev() {
+                let mut found = level.iter().filter_map(|source| {
+                    let names_source = qualifier.is_none_or(|qual| source.alias == qual || source.table_name == qual);
+                    names_source
+                        .then(|| source.columns.iter().find(|c| c.name == col_name))
+                        .flatten()
+                        .map(|col| (source, col))
+                });
+                if let Some((source, col)) = found.next() {
+                    if qualifier.is_none() && found.next().is_some() {
+                        return TypeInfo::new(format!("{AMBIGUOUS_COLUMN_MARKER}{col_name}"), false);
+                    }
+                    return TypeInfo::from_scope_column(col, source);
+                }
+            }
         }
 
         let has_sources = scope.sources.iter().any(|s| !s.columns.is_empty());

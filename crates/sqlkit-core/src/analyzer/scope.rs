@@ -212,26 +212,8 @@ impl<'a> Analyzer<'a> {
             } => {
                 // Every derived table sees the enclosing query levels; only a
                 // `LATERAL` one also sees the FROM items before it.
-                let mut outer_sources = self.outer_sources.clone();
-                if *lateral {
-                    outer_sources.extend(scope.sources.iter().cloned());
-                }
-                let mut sub_analyzer = Analyzer {
-                    catalog: self.catalog,
-                    params: Vec::new(),
-                    ctes: self.ctes.clone(),
-                    type_errors: Vec::new(),
-                    pending_nested: Vec::new(),
-                    next_nested_id: self.next_nested_id,
-                    outer_sources,
-                    keep_table_row_type: false,
-                };
-                let sub_cols = sub_analyzer.analyze_query(subquery)?;
-
-                self.params.extend(sub_analyzer.params);
-                self.type_errors.extend(sub_analyzer.type_errors);
-                self.next_nested_id = sub_analyzer.next_nested_id;
-                self.pending_nested.extend(sub_analyzer.pending_nested);
+                let preceding = lateral.then(|| scope.sources.clone());
+                let sub_cols = self.analyze_nested_query(subquery, preceding)?;
 
                 let alias_name = alias
                     .as_ref()
