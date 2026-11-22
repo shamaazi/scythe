@@ -130,10 +130,7 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
         schema: Vec<String>,
     }
 
-    let config_str =
-        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: MinConfig =
-        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let config: MinConfig = super::shared::read_config(config_path)?;
 
     let sqruff_config = config.lint.and_then(|lc| lc.sqruff);
 
@@ -182,15 +179,7 @@ fn sqruff_config_from_config(config_path: &str) -> Result<Option<SqruffConfig>, 
         lint: Option<sqlkit_lint::types::LintConfig>,
     }
 
-    let config_str = match std::fs::read_to_string(config_path) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("failed to read config '{config_path}': {e}")),
-    };
-    let config: MinConfig =
-        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{config_path}': {e}"))?;
-
-    Ok(config.lint.and_then(|lc| lc.sqruff))
+    Ok(super::shared::read_optional_config::<MinConfig>(config_path)?.and_then(|config| config.lint?.sqruff))
 }
 
 /// Print a simple unified diff between original and formatted content.

@@ -340,9 +340,93 @@ impl ParseSeverities {
     }
 }
 
+/// Read `sqlkit.toml` at `config_path` and deserialize the part of it `T`
+/// describes -- each command reads only what it uses.
+pub(crate) fn read_config<T: serde::de::DeserializeOwned>(config_path: &str) -> Result<T, String> {
+    parse_config(config_path, &read_config_text(config_path)?)
+}
+
+/// [`read_config`], or `None` when `config_path` does not exist: commands
+/// given explicit files run without a config.
+pub(crate) fn read_optional_config<T: serde::de::DeserializeOwned>(config_path: &str) -> Result<Option<T>, String> {
+    match std::fs::read_to_string(config_path) {
+        Ok(text) => parse_config(config_path, &text).map(Some),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("failed to read config '{config_path}': {e}")),
+    }
+}
+
+/// The text of `sqlkit.toml` at `config_path`, for a command that parses it
+/// more than one way (see [`parse_config`]).
+pub(crate) fn read_config_text(config_path: &str) -> Result<String, String> {
+    std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{config_path}': {e}"))
+}
+
+/// Deserialize `config_text`, read from `config_path`, as `T`.
+pub(crate) fn parse_config<T: serde::de::DeserializeOwned>(config_path: &str, config_text: &str) -> Result<T, String> {
+    toml::from_str(config_text).map_err(|e| format!("failed to parse config '{config_path}': {e}"))
+}
+
+/// `registry` with `sqlkit.toml`'s `[lint]` table, if any, applied -- the
+/// one table that governs every registry, so `[lint.rules]` reaches SQL,
+/// parse, provenance and drift rules alike.
+pub(crate) fn configured(
+    mut registry: sqlkit_lint::RuleRegistry,
+    lint: Option<&sqlkit_lint::LintConfig>,
+) -> sqlkit_lint::RuleRegistry {
+    if let Some(lint) = lint {
+        registry.apply_config(lint);
+    }
+    registry
+}
+
+/// The registries `lint`, `audit` and `check` all configure from `[lint]`:
+/// the SQL rules, and the parse-failure rules' severities (see
+/// [`ParseSeverities`]).
+pub(crate) struct LintRegistries {
+    pub(crate) rules: sqlkit_lint::RuleRegistry,
+    pub(crate) parse_severities: ParseSeverities,
+}
+
+impl LintRegistries {
+    pub(crate) fn from_config(lint: Option<&sqlkit_lint::LintConfig>) -> Self {
+        Self {
+            rules: configured(sqlkit_lint::default_registry(), lint),
+            parse_severities: ParseSeverities::from_registry(&configured(sqlkit_lint::parse_registry(), lint)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_readers_name_the_file_and_tolerate_a_missing_optional_one() {
+        #[derive(Debug, serde::Deserialize)]
+        struct Partial {
+            lint: Option<sqlkit_lint::LintConfig>,
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing.toml").display().to_string();
+        assert!(read_optional_config::<Partial>(&missing).unwrap().is_none());
+        assert!(
+            read_config::<Partial>(&missing)
+                .unwrap_err()
+                .contains("failed to read config")
+        );
+
+        let path = directory.path().join("sqlkit.toml");
+        std::fs::write(&path, "[lint.rules]\n\"SC-PARSE01\" = \"warn\"\n").unwrap();
+        let path = path.display().to_string();
+        let config: Partial = read_config(&path).unwrap();
+        let registries = LintRegistries::from_config(config.lint.as_ref());
+        assert_eq!(registries.parse_severities.unparseable, sqlkit_lint::Severity::Warn);
+
+        std::fs::write(&path, "[lint\n").unwrap();
+        let err = read_optional_config::<Partial>(&path).err().unwrap();
+        assert!(err.starts_with(&format!("failed to parse config '{path}'")), "{err}");
+    }
 
     #[test]
     fn load_catalog_parses_the_configured_schema() {

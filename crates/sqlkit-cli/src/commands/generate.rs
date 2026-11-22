@@ -17,8 +17,8 @@ use sqlkit_core::parser::parse_query;
 use sqlkit_lint::{QueryViolation, RuleRegistry, Severity};
 
 use super::shared::{
-    CatalogLoadRequest, ParseSeverities, PostgresEngine, config_dir, has_unannotated_sql, load_catalog,
-    redact_url_password, resolve_contained_output, resolve_globs, split_query_file,
+    CatalogLoadRequest, LintRegistries, PostgresEngine, config_dir, configured, has_unannotated_sql, load_catalog,
+    read_config, redact_url_password, resolve_contained_output, resolve_globs, split_query_file,
 };
 
 #[derive(Debug, Deserialize)]
@@ -550,10 +550,7 @@ fn run_generate_inner(
     written: &mut Vec<String>,
     validation_failed: &mut bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config_str =
-        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: SqlkitConfig =
-        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let config: SqlkitConfig = read_config(config_path)?;
 
     let base_dir = config_dir(config_path);
 
@@ -1900,17 +1897,14 @@ pub struct RunCheckOpts {
 
 pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     use sqlkit_lint::reporters::{Finding, Format};
-    use sqlkit_lint::{LintContext, LintEngine, default_registry, emit_findings, provenance_registry};
+    use sqlkit_lint::{LintContext, LintEngine, emit_findings, provenance_registry};
 
     let config_path = opts.config_path.as_str();
 
     let format = Format::parse(&opts.format)
         .ok_or_else(|| format!("unknown --format '{}' (expected human|sarif|json)", opts.format))?;
 
-    let config_str =
-        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: SqlkitConfig =
-        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let config: SqlkitConfig = read_config(config_path)?;
 
     // Live verification needs the database client the `postgres` feature brings.
     if cfg!(not(feature = "postgres"))
@@ -1923,11 +1917,15 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         .into());
     }
 
-    let mut registry = default_registry();
-    if let Some(ref lint_config) = config.lint {
-        registry.apply_config(lint_config);
-    }
-    let engine = LintEngine::new(registry);
+    // `SC-PARSE01`/`SC-PARSE02` come with their own registry: a query that
+    // fails to parse or analyze never becomes a `LintContext`, so they
+    // cannot pick up severity through the SQL rules' `active_rules`.
+    // `sqlkit lint` and `sqlkit audit` build both the same way.
+    let LintRegistries {
+        rules,
+        parse_severities,
+    } = LintRegistries::from_config(config.lint.as_ref());
+    let engine = LintEngine::new(rules);
 
     // The `SC-PRV*` rules are kept out of `default_registry` (they implement
     // neither `check_query` nor `check_catalog`, so `sqlkit lint` and
@@ -1936,23 +1934,8 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     // it must be the *same* table, so that one `[lint.rules]` /
     // `[lint.categories]` block governs SQL rules and provenance rules
     // alike.
-    let mut provenance_rules = provenance_registry();
-    if let Some(ref lint_config) = config.lint {
-        provenance_rules.apply_config(lint_config);
-    }
-    let provenance_severities = ProvenanceSeverities::from_registry(&provenance_rules);
-
-    // Same reasoning as `provenance_rules` just above, for `SC-PARSE01`/
-    // `SC-PARSE02`: a query that fails to parse or analyze never becomes a
-    // `LintContext`, so these two also cannot pick up severity through
-    // `default_registry`'s `active_rules`. `sqlkit lint` and `sqlkit audit`
-    // each build this same registry from their own parsed `[lint]` table, so
-    // all three commands agree on severity.
-    let mut parse_rules = sqlkit_lint::parse_registry();
-    if let Some(ref lint_config) = config.lint {
-        parse_rules.apply_config(lint_config);
-    }
-    let parse_severities = ParseSeverities::from_registry(&parse_rules);
+    let provenance_severities =
+        ProvenanceSeverities::from_registry(&configured(provenance_registry(), config.lint.as_ref()));
 
     let mut all_violations: Vec<QueryViolation> = Vec::new();
     // Queries are grouped per `[[sql]]` block so verification connects once and
@@ -2228,11 +2211,10 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         // `rules."SC-DRF02" = "error"` tunes drift like any other rule.
         // Built here rather than alongside the lint registry so that a run
         // without `--database-url` does no drift work at all.
-        let mut drift_registry = sqlkit_lint::drift_registry();
-        if let Some(ref lint_config) = config.lint {
-            drift_registry.apply_config(lint_config);
-        }
-        let drift_severities = sqlkit_inspect::DriftSeverities::from_registry(&drift_registry);
+        let drift_severities = sqlkit_inspect::DriftSeverities::from_registry(&configured(
+            sqlkit_lint::drift_registry(),
+            config.lint.as_ref(),
+        ));
 
         let mut findings = findings;
         findings.extend(verify_against_database(url, &verifiable, &drift_severities)?);

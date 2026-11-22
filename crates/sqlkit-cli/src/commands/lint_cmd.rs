@@ -9,7 +9,8 @@ use sqlkit_lint::{SuppressionSet, emit_findings, first_token_offset};
 
 use super::inspect::{build_registry, live_findings};
 use super::shared::{
-    CatalogLoadRequest, ParseSeverities, PostgresEngine, config_dir, load_catalog, resolve_globs, split_query_file,
+    CatalogLoadRequest, LintRegistries, ParseSeverities, PostgresEngine, config_dir, load_catalog, parse_config,
+    read_config_text, read_optional_config, resolve_globs, split_query_file,
 };
 
 /// The `-- sqlkit-audit: ignore[ID]` annotations of one `-- name:` block,
@@ -146,7 +147,7 @@ struct NativeLintContext {
 /// run against the same project.
 fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContext>, Box<dyn std::error::Error>> {
     use serde::Deserialize;
-    use sqlkit_lint::{LintEngine, default_registry};
+    use sqlkit_lint::LintEngine;
 
     #[derive(Deserialize)]
     struct MinConfig {
@@ -165,14 +166,9 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
         schema: Vec<String>,
     }
 
-    let config_str = match std::fs::read_to_string(config_path) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("failed to read config '{}': {}", config_path, e).into()),
+    let Some(config) = read_optional_config::<MinConfig>(config_path)? else {
+        return Ok(None);
     };
-    let config: MinConfig =
-        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
-
     let Some(first) = config.sql.first() else {
         return Ok(None);
     };
@@ -190,23 +186,13 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
     })?
     .catalog;
 
-    let mut registry = default_registry();
-    if let Some(ref lint_config) = config.lint {
-        registry.apply_config(lint_config);
-    }
-    let engine = LintEngine::new(registry);
-
-    // Same `[lint]` table, applied to `SC-PARSE01`/`SC-PARSE02`'s own
-    // registry -- see `ParseSeverities` for why a query that fails to parse
-    // or analyze cannot pick up severity through `registry` above.
-    let mut parse_rules = sqlkit_lint::parse_registry();
-    if let Some(ref lint_config) = config.lint {
-        parse_rules.apply_config(lint_config);
-    }
-    let parse_severities = ParseSeverities::from_registry(&parse_rules);
+    let LintRegistries {
+        rules,
+        parse_severities,
+    } = LintRegistries::from_config(config.lint.as_ref());
 
     Ok(Some(NativeLintContext {
-        engine,
+        engine: LintEngine::new(rules),
         catalog,
         parse_severities,
     }))
@@ -230,15 +216,7 @@ fn sqruff_config_from_config(config_path: &str) -> Result<Option<sqlkit_lint::ty
         lint: Option<sqlkit_lint::types::LintConfig>,
     }
 
-    let config_str = match std::fs::read_to_string(config_path) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("failed to read config '{config_path}': {e}")),
-    };
-    let config: MinConfig =
-        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{config_path}': {e}"))?;
-
-    Ok(config.lint.and_then(|lc| lc.sqruff))
+    Ok(read_optional_config::<MinConfig>(config_path)?.and_then(|config| config.lint?.sqruff))
 }
 
 /// Lint specific files using sqruff, plus sqlkit-native rules when
@@ -485,7 +463,7 @@ fn lint_from_config(
 
     use sqlkit_core::analyzer::analyze;
     use sqlkit_core::parser::parse_query;
-    use sqlkit_lint::{LintContext, LintEngine, default_registry};
+    use sqlkit_lint::{LintContext, LintEngine};
 
     /// One query that parsed and analyzed, kept alive for the whole
     /// `[[sql]]` block so [`LintEngine::build_report`] can borrow every
@@ -518,25 +496,17 @@ fn lint_from_config(
         _engine: PostgresEngine,
     }
 
-    let config_str =
-        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: SqlkitConfig =
-        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
-    let per_file_name_blocks = super::generate::blocks_with_names_scoped_per_file(&config_str);
+    let config_text = read_config_text(config_path)?;
+    let config: SqlkitConfig = parse_config(config_path, &config_text)?;
+    let per_file_name_blocks = super::generate::blocks_with_names_scoped_per_file(&config_text);
 
-    // Same `[lint]` table applied to `SC-PARSE01`/`SC-PARSE02`'s own
-    // registry below -- see `ParseSeverities` for why these two cannot pick
-    // up severity through `registry` the way a SQL rule does.
-    let mut parse_rules = sqlkit_lint::parse_registry();
-    if let Some(ref lint_config) = config.lint {
-        parse_rules.apply_config(lint_config);
-    }
-    let parse_severities = ParseSeverities::from_registry(&parse_rules);
-
-    let mut registry = default_registry();
-    if let Some(ref lint_config) = config.lint {
-        registry.apply_config(lint_config);
-    }
+    // `SC-PARSE01`/`SC-PARSE02` have their own registry -- see
+    // `ParseSeverities` for why they cannot pick up severity through
+    // `registry` the way a SQL rule does.
+    let LintRegistries {
+        rules: registry,
+        parse_severities,
+    } = LintRegistries::from_config(config.lint.as_ref());
 
     // Both snapshots are taken before the registry moves into the engine,
     // which consumes it.

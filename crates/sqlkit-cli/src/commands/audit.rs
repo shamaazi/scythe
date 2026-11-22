@@ -24,7 +24,8 @@ use sqlkit_lint::{
 };
 
 use super::shared::{
-    CatalogLoadRequest, LoadedCatalog, ParseSeverities, PostgresEngine, config_dir, load_catalog, resolve_globs,
+    CatalogLoadRequest, LintRegistries, LoadedCatalog, PostgresEngine, config_dir, load_catalog, read_config,
+    read_optional_config, resolve_globs,
 };
 
 const TOOL_NAME: &str = "sqlkit-audit";
@@ -68,7 +69,7 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if opts.list_rules || opts.explain.is_some() {
-        let registry = load_registry(&opts.config_path)?;
+        let registry = load_explicit_config(&opts.config_path)?.registry;
 
         // Validated before `open_output` opens (and, for a file path,
         // truncates) the sink: `--explain <typo'd-id> --output report.json`
@@ -211,9 +212,10 @@ fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error:
     }
 }
 
-/// Build the rule registry from `sqlkit.toml`'s `[lint]` and `[audit]`
-/// sections: canonical rules plus severity overrides, plus any user-defined
-/// rules from `[[audit.rule]]` and `extra_rules`.
+/// What `sqlkit.toml`'s `[lint]` and `[audit]` sections configure for audit
+/// without `[[sql]]` blocks: the rule registry -- canonical rules plus
+/// severity overrides, plus any user-defined rules from `[[audit.rule]]` and
+/// `extra_rules` -- and `SC-PARSE01`'s severity.
 ///
 /// Used two ways:
 /// - Discovery (`--list-rules` / `--explain`): the registry is never
@@ -224,18 +226,26 @@ fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error:
 ///   so a rule configured `"off"` still fired and `[[audit.rule]]` entries
 ///   never ran (issue #206, item 2).
 ///
-/// Returns the canonical registry, unmodified, when `config_path` does not
-/// exist -- explicit-file mode is meant to work without a config at all.
-fn load_registry(config_path: &str) -> Result<RuleRegistry, Box<dyn std::error::Error>> {
-    let mut registry = default_registry();
-    if !Path::new(config_path).exists() {
-        return Ok(registry);
-    }
-    let config_str = std::fs::read_to_string(config_path)?;
-    let parsed: toml::Value = toml::from_str(&config_str)?;
-    if let Some(lint_config) = parse_lint_section(&parsed, config_path)? {
-        registry.apply_config(&lint_config);
-    }
+/// Returns the canonical configuration, unmodified, when `config_path` does
+/// not exist -- explicit-file mode is meant to work without a config at all.
+/// The file is read once for both.
+struct ExplicitAuditConfig {
+    registry: RuleRegistry,
+    parse_severity: Severity,
+}
+
+fn load_explicit_config(config_path: &str) -> Result<ExplicitAuditConfig, Box<dyn std::error::Error>> {
+    let Some(parsed) = read_optional_config::<toml::Value>(config_path)? else {
+        return Ok(ExplicitAuditConfig {
+            registry: default_registry(),
+            parse_severity: LintRegistries::from_config(None).parse_severities.unparseable,
+        });
+    };
+    let lint_config = parse_lint_section(&parsed, config_path)?;
+    let LintRegistries {
+        rules: mut registry,
+        parse_severities,
+    } = LintRegistries::from_config(lint_config.as_ref());
     if let Some(audit_section) = parsed.get("audit") {
         let base_dir = config_dir(config_path);
         let matcher_registry = MatcherRegistry::canonical();
@@ -264,7 +274,10 @@ fn load_registry(config_path: &str) -> Result<RuleRegistry, Box<dyn std::error::
                 .map_err(|e: AuditConfigError| e.to_string())?;
         }
     }
-    Ok(registry)
+    Ok(ExplicitAuditConfig {
+        registry,
+        parse_severity: parse_severities.unparseable,
+    })
 }
 
 /// The `[lint]` table of a parsed `sqlkit.toml`, if it has one. A malformed
@@ -282,27 +295,6 @@ fn parse_lint_section(
         .try_into()
         .map_err(|e| format!("invalid [lint] table in '{}': {}", config_path, e))?;
     Ok(Some(lint_config))
-}
-
-/// Resolve `SC-PARSE01`'s effective severity from
-/// [`sqlkit_lint::parse_registry`] after applying `config_path`'s `[lint]`
-/// table -- the same table [`load_registry`] applies to the audit rule
-/// registry, so `[lint.rules] "SC-PARSE01" = "warn"` reaches an unparseable
-/// statement exactly like any other rule. Falls back to `parse_registry`'s
-/// own default (unmodified) when `config_path` does not exist, mirroring
-/// `load_registry`'s tolerance for explicit-file mode running with no
-/// config at all.
-fn load_parse_severity(config_path: &str) -> Result<Severity, Box<dyn std::error::Error>> {
-    let mut registry = sqlkit_lint::parse_registry();
-    if !Path::new(config_path).exists() {
-        return Ok(ParseSeverities::from_registry(&registry).unparseable);
-    }
-    let config_str = std::fs::read_to_string(config_path)?;
-    let parsed: toml::Value = toml::from_str(&config_str)?;
-    if let Some(lint_config) = parse_lint_section(&parsed, config_path)? {
-        registry.apply_config(&lint_config);
-    }
-    Ok(ParseSeverities::from_registry(&registry).unparseable)
 }
 
 /// Print the rule catalog, grouped by category, in a fixed-width table.
@@ -467,24 +459,15 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         return Err(format!("no files specified and config '{}' not found", config_path).into());
     }
 
-    let config_str =
-        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: SqlkitConfig =
-        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let config: SqlkitConfig = read_config(config_path)?;
 
-    let mut registry = default_registry();
-    if let Some(ref lint_config) = config.lint {
-        registry.apply_config(lint_config);
-    }
-
-    // Same `[lint]` table applied to `SC-PARSE01`'s own registry -- see
-    // `load_parse_severity` for why an unparseable statement cannot pick up
-    // its severity through `registry` above.
-    let mut parse_rules = sqlkit_lint::parse_registry();
-    if let Some(ref lint_config) = config.lint {
-        parse_rules.apply_config(lint_config);
-    }
-    let parse_severity = ParseSeverities::from_registry(&parse_rules).unparseable;
+    // `SC-PARSE01` has its own registry: an unparseable statement cannot
+    // pick up its severity through `registry` -- see `ParseSeverities`.
+    let LintRegistries {
+        rules: mut registry,
+        parse_severities,
+    } = LintRegistries::from_config(config.lint.as_ref());
+    let parse_severity = parse_severities.unparseable;
 
     let base_dir = config_dir(config_path);
     let matcher_registry = MatcherRegistry::canonical();
@@ -577,10 +560,12 @@ pub(crate) fn audit_explicit_files(
     // this, explicit-file mode always used a bare `default_registry()`, so
     // a rule turned `"off"` in `sqlkit.toml` still fired and `[[audit.rule]]`
     // user rules never ran (#206, item 2).
-    let registry = load_registry(config_path)?;
+    let ExplicitAuditConfig {
+        registry,
+        parse_severity,
+    } = load_explicit_config(config_path)?;
     let all_active = registry.active_rules();
     let (rules, no_rules_finding) = prepare_audit_rules(&all_active);
-    let parse_severity = load_parse_severity(config_path)?;
 
     let mut findings = Vec::new();
     if let Some(finding) = no_rules_finding {
@@ -610,7 +595,7 @@ pub(crate) fn audit_explicit_files(
 /// `parse_severity`, naming the line and the parser's message) rather than
 /// discarding every statement already parsed. See #208. `parse_severity` is
 /// resolved by the caller from [`sqlkit_lint::parse_registry`] (see
-/// [`load_parse_severity`]) rather than hardcoded here, so `[lint.rules]
+/// [`load_explicit_config`]) rather than hardcoded here, so `[lint.rules]
 /// "SC-PARSE01" = "warn"` reaches this finding too.
 ///
 /// # Rule set
