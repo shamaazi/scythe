@@ -1227,7 +1227,16 @@ pub fn ts_property_doc(constraints: Option<&ValueConstraints>, lang_type: &str, 
     let rules = &constraints.rules;
     let mut lines: Vec<String> = Vec::new();
     if let Some(description) = &constraints.description {
-        lines.extend(description.trim().lines().map(|line| line.trim_end().to_string()));
+        // A line starting with `@` would read as a JSDoc tag (`@pattern` as a
+        // validation rule): escape it, the description is prose. Smart tags
+        // are already split off into `constraints.tags`.
+        lines.extend(description.trim().lines().map(|line| {
+            let line = line.trim_end();
+            match line.trim_start().strip_prefix('@') {
+                Some(rest) => format!("{}\\@{rest}", &line[..line.len() - line.trim_start().len()]),
+                None => line.to_string(),
+            }
+        }));
     }
     let is_number = lang_type == "number" || ts_allowed_union_is_numeric(rules);
     let is_string = lang_type == "string" || ts_allowed_union_is_textual(rules);
@@ -1488,6 +1497,19 @@ pub fn generate_ts_schema_types(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ts_property_doc_escapes_description_lines_that_read_as_tags() {
+        let constraints = ValueConstraints {
+            description: Some("A slug.\n  @pattern ^x$\nmail@example.com".to_string()),
+            tags: vec![("omit".to_string(), String::new())],
+            ..ValueConstraints::default()
+        };
+        assert_eq!(
+            ts_property_doc(Some(&constraints), "string", ""),
+            "/**\n * A slug.\n *   \\@pattern ^x$\n * mail@example.com\n */\n"
+        );
+    }
 
     /// Regression coverage for #215: a column name that is not a valid TS
     /// identifier must be quoted, not spliced bare into a property-key
