@@ -29,9 +29,10 @@ sqlkit = pkgs.rustPlatform.buildRustPackage (final: {
 });
 ```
 
-Cargo features: `postgres` enables the live PostgreSQL driver (for `inspect` and
+Cargo features: `postgres` enables the live PostgreSQL client (for `inspect` and
 `check --database-url`); `lang-typescript` and `lang-rust` select the backends. The default build
-has all three.
+has all three. PostgreSQL is the only engine, so `[[sql]] engine` is optional; when set it must be
+`postgresql`, `postgres` or `pg`.
 
 ## Annotations
 
@@ -41,17 +42,13 @@ become the generated function's doc comment.
 
 ## Backends
 
-| Backend | Language | Engines | Driver |
-|---------|----------|---------|--------|
-| `typescript-bun` | TypeScript | PostgreSQL | Bun's built-in `SQL` |
-| `rust-sqlx` | Rust | PostgreSQL | sqlx |
-| `rust-tokio-postgres` | Rust | PostgreSQL | tokio-postgres |
+| Backend | Language | Driver |
+|---------|----------|--------|
+| `typescript-bun` (alias `typescript`, `ts`) | TypeScript | Bun's built-in `SQL` |
+| `rust-sqlx` | Rust | sqlx |
+| `rust-tokio-postgres` | Rust | tokio-postgres |
 
-`typescript-bun` is a driver mode of upstream's postgres.js generator, so `typescript-postgres`
-(postgres.js) and the JSDoc variants `javascript-bun` and `javascript-postgres` are also available,
-though only `typescript-bun` has an integration project here.
-
-`typescript-bun` and `typescript-postgres` options, set as keys of a `[[sql.gen]]` table:
+`typescript-bun` options, set as keys of a `[[sql.gen]]` table:
 
 | Option | Values | Effect |
 |--------|--------|--------|
@@ -77,7 +74,7 @@ sqlkit generate                       # compile SQL to code
 sqlkit check                          # is the committed code still in sync?
 sqlkit lint sql/                      # lint rules
 sqlkit audit sql/ --format sarif      # security and migration-safety rules
-sqlkit fmt sql/                       # format via sqruff
+sqlkit fmt sql/                       # format via sqruff (PostgreSQL dialect)
 sqlkit inspect $DATABASE_URL          # live PostgreSQL health checks
 ```
 
@@ -97,12 +94,14 @@ then `devenv tasks run <task>`. Build in debug only; nothing here needs `--relea
 | `sqlkit:generate` | Regenerate the fixture tests and the integration projects' generated code |
 | `sqlkit:generated-fresh` | Fail if regeneration changes anything |
 | `sqlkit:integration` | The integration projects against devenv's PostgreSQL (port 5433, database `sqlkit_test`, user and password `sqlkit`) |
+| `sqlkit:conformance` | The live nullability conformance suite against the same PostgreSQL |
 | `sqlkit:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` controls |
 
 There is no CI. `devenv shell` installs git hooks: `sqlkit:lint` runs before each commit that
 touches Rust or Cargo files, `sqlkit:test` and `sqlkit:generated-fresh` before each push.
-`sqlkit:integration` needs PostgreSQL and stays manual: run it after changing a backend's runtime
-code. If linking every test binary at once exhausts memory, use `cargo test --workspace -j2`.
+`sqlkit:integration` and `sqlkit:conformance` need PostgreSQL and stay manual: run them after
+changing a backend's runtime code or nullability inference. If linking every test binary at once
+exhausts memory, use `cargo test --workspace -j2`.
 
 Commits go straight to `main` as [Conventional Commits](https://www.conventionalcommits.org/) with a
 body that says why.
@@ -121,7 +120,7 @@ sqlkit-cli
 | Directory | Purpose |
 |---|---|
 | `crates/sqlkit-codegen/manifests/` | Backend manifests: type mappings per backend |
-| `crates/sqlkit-codegen/src/backends/` | `sqlx.rs`, `tokio_postgres.rs`, and `typescript_postgres.rs` (postgres.js and Bun) on `typescript_common.rs` |
+| `crates/sqlkit-codegen/src/backends/` | `sqlx.rs`, `tokio_postgres.rs`, and `typescript_bun.rs` on `typescript_common.rs` |
 | `crates/sqlkit-lint/src/rules/` | Lint and audit rules; register new ones in `crates/sqlkit-lint/src/registry.rs` |
 | `crates/sqlkit-conformance/` | Live nullability conformance suite against PostgreSQL |
 | `testing_data/` | JSON fixtures the test generator turns into tests |
