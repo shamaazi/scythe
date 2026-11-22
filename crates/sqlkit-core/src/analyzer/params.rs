@@ -181,7 +181,7 @@ impl<'a> Analyzer<'a> {
             // NULL`) registered nothing and silently dropped a parameter
             // from the signature while `$1` stayed in the emitted SQL
             // (#171). `IS NULL`/`IS NOT NULL` themselves are never
-            // placeholders -- there is nothing dialect-specific to bind at
+            // placeholders -- there is nothing to bind at
             // this node -- so this only needs to keep walking.
             //
             // Testing a parameter itself for NULL (`$1 IS NULL OR col = $1`,

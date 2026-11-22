@@ -827,8 +827,7 @@ mod option_tests {
 
     /// Regression test for a release-blocking bug: `[sql.gen.rust] serde =
     /// true` / `derive = [...]` are documented as target-independent options
-    /// under the legacy `[sql.gen.rust]` table (see
-    /// `website/src/content/docs/guide/configuration.md`), and
+    /// under the legacy `[sql.gen.rust]` table, and
     /// `resolve_gen_targets` in the CLI inserts them into the options map
     /// regardless of which `target` the user picked. rust-tokio-postgres
     /// handled both, but rust-sqlx only ever declared `structs_only`, so any

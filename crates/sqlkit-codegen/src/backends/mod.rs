@@ -18,11 +18,6 @@ use sqlkit_core::errors::{ErrorCode, SqlkitError};
 
 use crate::backend_trait::CodegenBackend;
 
-/// Parse a backend's compiled-in manifest.
-///
-/// Manifest selection is a pure function of the backend. There is
-/// deliberately no filesystem lookup here: generated output must not depend
-/// on the process working directory (#82).
 /// The summary a generator writes above a query's function: the free-text
 /// description from the query header when there is one, otherwise the
 /// generator's own `fallback` wording. May span several lines.
@@ -30,6 +25,11 @@ pub(crate) fn query_doc_text<'a>(analyzed: &'a sqlkit_core::analyzer::AnalyzedQu
     analyzed.description.as_deref().unwrap_or(fallback)
 }
 
+/// Parse a backend's compiled-in manifest.
+///
+/// Manifest selection is a pure function of the backend. There is
+/// deliberately no filesystem lookup here: generated output must not depend
+/// on the process working directory (#82).
 pub(crate) fn parse_manifest(manifest_toml: &str) -> Result<BackendManifest, SqlkitError> {
     toml::from_str(manifest_toml).map_err(|e| SqlkitError::new(ErrorCode::InternalError, format!("manifest: {e}")))
 }
@@ -53,8 +53,8 @@ pub(crate) fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, 
 
 /// A classified span of SQL text produced by [`tokenize_sql`].
 ///
-/// One lexer pass drives both comment-stripping (`clean_sql`,
-/// `clean_sql_oneline`) and placeholder-rewriting (`rewrite_pg_placeholders`)
+/// One lexer pass drives both comment-stripping (`clean_sql`) and
+/// placeholder-rewriting (`rewrite_pg_placeholders`)
 /// -- see #186 and board #148, where two independent character scanners each got
 /// string/comment handling wrong in a different way. `Code` spans are the
 /// only spans either consumer may rewrite; every other span is opaque SQL
@@ -487,7 +487,6 @@ fn try_match_ph_op_col(chars: &[char], i: usize, op: &str, placeholder: &str) ->
 }
 
 /// Clean SQL and apply optional parameter rewriting.
-/// Dialect-blind; see [`clean_sql`]'s doc comment.
 pub(crate) fn clean_sql_with_optional(sql: &str, optional_params: &[String], params: &[AnalyzedParam]) -> String {
     let cleaned = clean_sql(sql);
     rewrite_optional_params(&cleaned, optional_params, params)
@@ -497,127 +496,41 @@ fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '.'
 }
 
-/// Rewrite SQL placeholders (`$N` or `?`) to a target format.
+/// Rewrite the `$N` placeholders in `sql` through `formatter`, which receives
+/// the parameter number (1-based) and returns the replacement.
 ///
 /// Skips placeholders inside single-/double-quoted and dollar-quoted spans,
-/// and inside comments (see [`tokenize_sql`]). The `formatter` closure
-/// receives the parameter number (1-based) and returns the replacement.
-///
-/// Dialect-blind, kept for the call sites this multi-agent change did not
-/// reach: whether a bare `?` is a placeholder is decided by scanning the code
-/// spans for a `$`-followed-by-digit occurrence, and treating a bare `?` as a
-/// placeholder only when none exists. That heuristic has a known gap --
-/// [`rewrite_placeholders_indexed`]'s doc comment explains why, and is what
-/// every owned call site now uses instead.
-///
-/// `?|`, `?&`, `?-`, `?-|`, `?||`, and `@?` are multi-character PostgreSQL
-/// operators (JSONB key/path existence, geometric comparisons) that are
-/// **never** valid placeholder syntax in any dialect this crate targets, so
-/// [`rewrite_code_span_placeholders`] recognizes and skips them unconditionally
-/// -- independent of the `$N` heuristic above, and correct even for a
-/// zero-placeholder query that has no `$N` to anchor that heuristic on.
+/// and inside comments (see [`tokenize_sql`]).
 pub(crate) fn rewrite_pg_placeholders(sql: &str, formatter: impl Fn(u32) -> String) -> String {
-    let spans = tokenize_sql(sql);
-    let uses_dollar_placeholders = spans
-        .iter()
-        .any(|(kind, text)| *kind == SqlSpanKind::Code && code_span_has_dollar_number(text));
-
     let mut result = String::with_capacity(sql.len());
-    let mut positional_counter: u32 = 0;
-    let mut occurrences: Vec<u32> = Vec::new();
-    for (kind, text) in &spans {
-        if *kind == SqlSpanKind::Code {
-            rewrite_code_span_placeholders(
-                text,
-                !uses_dollar_placeholders,
-                &formatter,
-                &mut positional_counter,
-                &mut result,
-                &mut occurrences,
-            );
+    for (kind, text) in tokenize_sql(sql) {
+        if kind == SqlSpanKind::Code {
+            rewrite_code_span_placeholders(&text, &formatter, &mut result);
         } else {
-            result.push_str(text);
+            result.push_str(&text);
         }
     }
     result
 }
 
-/// Whether `text` (a `Code`-span substring, guaranteed free of strings and
-/// comments) contains a `$` immediately followed by an ASCII digit.
-fn code_span_has_dollar_number(text: &str) -> bool {
-    let chars: Vec<char> = text.chars().collect();
-    (0..chars.len()).any(|i| chars[i] == '$' && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()))
-}
-
-/// Multi-character PostgreSQL operators built on `?` or `@?` that are never
-/// placeholder syntax in any dialect this crate targets -- JSONB key-array
-/// existence (`?|`, `?&`) and jsonpath existence (`@?`), plus the geometric
-/// comparison operators (`?-`, `?-|`, `?||`). Longer operators are listed
-/// before the shorter operators they prefix (`?-|` before `?-`, `?||` before
-/// `?|`) so the greedy match in [`match_unambiguous_operator`] picks the
-/// longest one, not "the first two characters".
-const UNAMBIGUOUS_OPERATORS: [&str; 6] = ["?-|", "?||", "?|", "?&", "?-", "@?"];
-
-/// If `chars[i..]` starts with one of [`UNAMBIGUOUS_OPERATORS`], return its
-/// length so the caller can copy it through untouched.
-fn match_unambiguous_operator(chars: &[char], i: usize) -> Option<usize> {
-    UNAMBIGUOUS_OPERATORS.iter().find_map(|op| {
-        let op_chars: Vec<char> = op.chars().collect();
-        let end = i + op_chars.len();
-        (end <= chars.len() && chars[i..end] == op_chars[..]).then_some(op_chars.len())
-    })
-}
-
-/// Rewrite `$N` and (when `bare_question_is_placeholder` is true) bare `?`
-/// placeholders within a single `Code` span, appending the result to `out`,
-/// advancing `counter` for each `?` consumed, and recording each rewritten
-/// occurrence's resolved position (in output order) into `occurrences`.
-///
-/// Shared by [`rewrite_pg_placeholders`] (which computes
-/// `bare_question_is_placeholder` from the `$N`-occurrence heuristic and
-/// discards `occurrences`) and [`rewrite_placeholders_indexed`] (which
-/// computes it from the dialect and returns `occurrences`) -- the actual
-/// rewriting is one implementation; only how the two callers decide whether a
-/// bare `?` counts differs. The multi-character operators in
-/// [`UNAMBIGUOUS_OPERATORS`] have no such ambiguity and are always passed
-/// through, regardless of `bare_question_is_placeholder`.
-fn rewrite_code_span_placeholders(
-    text: &str,
-    bare_question_is_placeholder: bool,
-    formatter: &impl Fn(u32) -> String,
-    counter: &mut u32,
-    out: &mut String,
-    occurrences: &mut Vec<u32>,
-) {
+/// Rewrite the `$N` placeholders within a single `Code` span, appending the
+/// result to `out`.
+fn rewrite_code_span_placeholders(text: &str, formatter: &impl Fn(u32) -> String, out: &mut String) {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
     let mut i = 0;
     while i < len {
-        if let Some(op_len) = match_unambiguous_operator(&chars, i) {
-            out.extend(&chars[i..i + op_len]);
-            i += op_len;
-            continue;
-        }
-
-        let ch = chars[i];
-        if ch == '$' && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
+        if chars[i] == '$' && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
             let mut j = i + 1;
             let mut num_str = String::new();
             while j < len && chars[j].is_ascii_digit() {
                 num_str.push(chars[j]);
                 j += 1;
             }
-            let num: u32 = num_str.parse().unwrap_or(0);
-            out.push_str(&formatter(num));
-            occurrences.push(num);
+            out.push_str(&formatter(num_str.parse().unwrap_or(0)));
             i = j;
-        } else if ch == '?' && bare_question_is_placeholder && !chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
-            *counter += 1;
-            out.push_str(&formatter(*counter));
-            occurrences.push(*counter);
-            i += 1;
         } else {
-            out.push(ch);
+            out.push(chars[i]);
             i += 1;
         }
     }
@@ -673,10 +586,9 @@ fn disabled_feature(subject: &str, feature: &str) -> SqlkitError {
     )
 }
 
-/// Exact-value characterization tests for `clean_sql`, `clean_sql_oneline`,
-/// and `rewrite_pg_placeholders`, kept in their own file so the pinned
-/// behaviour is readable as a specification for the planned dialect-aware
-/// tokenizer.
+/// Exact-value characterization tests for `clean_sql` and
+/// `rewrite_pg_placeholders`, kept in their own file so the pinned behaviour
+/// is readable as a specification.
 #[cfg(test)]
 mod sql_text_characterization_tests;
 
@@ -857,7 +769,7 @@ mod tests {
     // -----------------------------------------------------------------
     // SQL lexer / rewriting tests (board #148, #186, #149-adjacent).
     //
-    // These pin down the behaviour of `clean_sql`, `clean_sql_oneline`, and
+    // These pin down the behaviour of `clean_sql` and
     // `rewrite_pg_placeholders` against a real SQL lexer instead of the
     // character-scanning implementation these functions previously had.
     // Written before the lexer existed, to prove each defect is real.
@@ -911,20 +823,13 @@ mod tests {
         assert!(result.contains("id = @p1"), "got: {result:?}");
     }
 
-    /// Coordinator repro: a JSONB query with *zero* `$N` placeholders, so the
-    /// `uses_dollar_placeholders` heuristic has nothing to anchor on. `?|`
-    /// and `?&` are unambiguous -- never placeholder syntax in any dialect
-    /// this crate targets -- so they must survive regardless of that
-    /// heuristic. The bare `?` (`data ? 'active'`) is genuinely ambiguous
-    /// without dialect information and is intentionally still rewritten
-    /// here; see the residual-limitation comment on
-    /// `rewrite_code_span_placeholders`.
+    /// A JSONB query with no `$N` placeholder: `?` is PostgreSQL's key-existence
+    /// operator, never a placeholder, so every operator survives.
     #[test]
-    fn test_rewrite_pg_placeholders_preserves_jsonb_multi_char_operators_with_zero_dollar_placeholders() {
+    fn test_rewrite_pg_placeholders_preserves_jsonb_operators_with_zero_dollar_placeholders() {
         let sql = "SELECT * FROM docs WHERE data ? 'active' AND tags ?| ARRAY['a'] AND meta ?& ARRAY['b']";
         let result = rewrite_pg_placeholders(sql, |n| format!("${n}"));
-        assert!(result.contains("tags ?| ARRAY['a']"), "got: {result:?}");
-        assert!(result.contains("meta ?& ARRAY['b']"), "got: {result:?}");
+        assert_eq!(result, sql);
     }
 
     #[test]
@@ -951,14 +856,6 @@ mod tests {
         let sql = "SELECT $1, $10, $1x";
         let result = rewrite_pg_placeholders(sql, |n| format!("P{n}"));
         assert_eq!(result, "SELECT P1, P10, P1x");
-    }
-
-    #[test]
-    fn test_rewrite_pg_placeholders_ignores_question_mark_inside_string_literal() {
-        let sql = "SELECT id FROM t WHERE note = 'is this a question?' AND age > ?;";
-        let result = rewrite_pg_placeholders(sql, |n| format!("${n}"));
-        assert!(result.contains("'is this a question?'"), "got: {result:?}");
-        assert!(result.contains("age > $1"), "got: {result:?}");
     }
 
     #[test]

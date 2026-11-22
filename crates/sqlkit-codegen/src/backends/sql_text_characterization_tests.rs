@@ -1,6 +1,5 @@
-//! Characterization tests for the three pure SQL-text rewriters in
-//! [`super`]: [`clean_sql`], [`clean_sql_oneline`], and
-//! [`rewrite_pg_placeholders`].
+//! Characterization tests for the two pure SQL-text rewriters in
+//! [`super`]: [`clean_sql`] and [`rewrite_pg_placeholders`].
 //!
 //! These tests pin the behaviour these functions have TODAY, exactly, so that
 //! a rewrite either preserves that behaviour or
@@ -18,7 +17,7 @@
 use super::{clean_sql, rewrite_pg_placeholders};
 
 /// Placeholder formatter used by every `rewrite_pg_placeholders` test. The
-/// `[P{n}]` shape is deliberately unlike any real dialect's placeholder
+/// `[P{n}]` shape is deliberately unlike any real placeholder
 /// syntax so an expected string shows at a glance which characters the
 /// function replaced and which it copied through.
 fn mark(n: u32) -> String {
@@ -26,7 +25,7 @@ fn mark(n: u32) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// clean_sql / clean_sql_oneline: degenerate input
+// clean_sql: degenerate input
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -70,7 +69,7 @@ fn clean_sql_of_unterminated_block_comment_drops_everything_after_the_open() {
 }
 
 // ---------------------------------------------------------------------------
-// clean_sql / clean_sql_oneline: whitespace, newlines, semicolons
+// clean_sql: whitespace, newlines, semicolons
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -116,7 +115,7 @@ fn clean_sql_does_not_strip_a_semicolon_inside_a_dollar_quoted_body() {
 }
 
 #[test]
-fn clean_sql_preserves_interior_newlines_but_oneline_joins_them_with_a_space() {
+fn clean_sql_preserves_interior_newlines() {
     let sql = "SELECT id\nFROM users\nWHERE id = $1";
     assert_eq!(clean_sql(sql), "SELECT id\nFROM users\nWHERE id = $1");
 }
@@ -126,7 +125,7 @@ fn clean_sql_preserves_per_line_indentation_verbatim() {
     // WRONG(ish): the doc comment on `clean_sql` claims it strips "excess
     // whitespace", but leading indentation is copied through untouched. Only
     // the whole-string ends are trimmed. Harmless for `clean_sql` (the
-    // newline layout is kept anyway) but see the oneline case below.
+    // newline layout is kept anyway).
     let sql = "SELECT *\n  FROM t\n WHERE a = $1";
     assert_eq!(clean_sql(sql), "SELECT *\n  FROM t\n WHERE a = $1");
 }
@@ -138,12 +137,6 @@ fn clean_sql_keeps_source_blank_lines_that_no_comment_touched() {
 }
 
 #[test]
-fn clean_sql_oneline_turns_a_source_blank_line_into_a_double_space() {
-    // WRONG: a blank source line should not survive into a one-line SQL
-    // literal at all; the expected output is `SELECT 1 FROM t`.
-}
-
-#[test]
 fn clean_sql_normalizes_crlf_to_lf() {
     let sql = "SELECT id\r\nFROM users\r\nWHERE id = $1;";
     assert_eq!(clean_sql(sql), "SELECT id\nFROM users\nWHERE id = $1");
@@ -152,14 +145,14 @@ fn clean_sql_normalizes_crlf_to_lf() {
 #[test]
 fn clean_sql_leaves_a_bare_carriage_return_in_place() {
     // WRONG: only the `\r\n` pair is normalized, so a classic-Mac lone `\r`
-    // survives into the emitted SQL literal and is neither a line break for
-    // `clean_sql` nor a separator for `clean_sql_oneline`. Expected: treated
+    // survives into the emitted SQL literal and is not a line break for
+    // `clean_sql`. Expected: treated
     // as a line break like `\n`.
     assert_eq!(clean_sql("SELECT 1\rFROM t"), "SELECT 1\rFROM t");
 }
 
 // ---------------------------------------------------------------------------
-// clean_sql / clean_sql_oneline: comments
+// clean_sql: comments
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -181,8 +174,7 @@ fn clean_sql_drops_a_line_a_block_comment_emptied_of_everything_but_spaces() {
 #[test]
 fn clean_sql_strips_a_trailing_line_comment_but_leaves_the_space_before_it() {
     // WRONG: stripping a trailing comment should not leave the whitespace
-    // that preceded it. Expected `SELECT 1\nFROM t`; the stray trailing
-    // space is then doubled by the oneline join below.
+    // that preceded it. Expected `SELECT 1\nFROM t`.
     assert_eq!(clean_sql("SELECT 1 -- hi\nFROM t"), "SELECT 1 \nFROM t");
 }
 
@@ -234,7 +226,7 @@ fn clean_sql_does_not_let_an_apostrophe_inside_a_line_comment_open_a_string() {
 
 #[test]
 fn clean_sql_does_not_treat_a_minus_minus_that_is_two_operators_as_a_comment() {
-    // `1--2` is a comment in every SQL dialect (the lexer is greedy), so
+    // `1--2` is a comment in PostgreSQL (the lexer is greedy), so
     // this is correct, not a wart: it is pinned because a tokenizer rewrite
     // could plausibly get it wrong in the other direction.
     assert_eq!(clean_sql("SELECT 1--2"), "SELECT 1");
@@ -380,11 +372,6 @@ fn doubled_single_quote_escape_does_not_end_the_literal_early() {
 }
 
 #[test]
-fn question_mark_inside_a_single_quoted_literal_is_not_a_placeholder() {
-    assert_eq!(rewrite_pg_placeholders("SELECT '?' , ?", mark), "SELECT '?' , [P1]");
-}
-
-#[test]
 fn a_named_colon_parameter_is_never_rewritten_inside_or_outside_a_literal() {
     // `:name` is not a placeholder, so it is copied through verbatim.
     assert_eq!(
@@ -488,14 +475,6 @@ fn an_unterminated_dollar_quote_swallows_every_later_placeholder() {
     assert_eq!(rewrite_pg_placeholders("SELECT $$ x , $1", mark), "SELECT $$ x , $1");
 }
 
-#[test]
-fn a_question_mark_inside_a_dollar_quoted_body_is_not_a_placeholder() {
-    assert_eq!(
-        rewrite_pg_placeholders("SELECT $$ ? $$ , ?", mark),
-        "SELECT $$ ? $$ , [P1]"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // rewrite_pg_placeholders: comments
 // ---------------------------------------------------------------------------
@@ -532,14 +511,6 @@ fn an_apostrophe_inside_a_line_comment_does_not_open_a_string_literal() {
     );
 }
 
-#[test]
-fn a_question_mark_inside_a_comment_does_not_advance_the_positional_counter() {
-    assert_eq!(
-        rewrite_pg_placeholders("SELECT ? -- ?\n, ?", mark),
-        "SELECT [P1] -- ?\n, [P2]"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // rewrite_pg_placeholders: quoted identifiers
 // ---------------------------------------------------------------------------
@@ -560,100 +531,13 @@ fn a_doubled_double_quote_does_not_end_a_quoted_identifier_early() {
     );
 }
 
-#[test]
-fn question_mark_inside_a_double_quoted_identifier_is_not_a_placeholder() {
-    assert_eq!(
-        rewrite_pg_placeholders("SELECT \"a?b\" FROM t WHERE c = ?", mark),
-        "SELECT \"a?b\" FROM t WHERE c = [P1]"
-    );
-}
-
 // ---------------------------------------------------------------------------
-// rewrite_pg_placeholders: bare `?` and the dialect heuristic
+// rewrite_pg_placeholders: `?` is an operator, never a placeholder
 // ---------------------------------------------------------------------------
 
 #[test]
-fn bare_question_marks_are_numbered_sequentially_when_no_dollar_placeholder_exists() {
-    assert_eq!(
-        rewrite_pg_placeholders("SELECT * FROM t WHERE a = ? AND b = ?", mark),
-        "SELECT * FROM t WHERE a = [P1] AND b = [P2]"
-    );
-}
-
-#[test]
-fn a_bare_question_mark_is_left_alone_when_the_query_also_uses_dollar_placeholders() {
-    assert_eq!(
-        rewrite_pg_placeholders("WHERE a = $1 AND data ? 'k'", mark),
-        "WHERE a = [P1] AND data ? 'k'"
-    );
-}
-
-#[test]
-fn the_dollar_heuristic_is_global_so_a_late_dollar_placeholder_protects_an_earlier_question_mark() {
-    assert_eq!(
-        rewrite_pg_placeholders("WHERE data ? 'k' AND a = $1", mark),
-        "WHERE data ? 'k' AND a = [P1]"
-    );
-}
-
-#[test]
-fn a_jsonb_key_existence_operator_is_rewritten_when_the_query_has_no_dollar_placeholder() {
-    // WRONG: `data ? 'active'` is PostgreSQL's JSONB key-existence operator,
-    // not a placeholder, and the expected output is the input unchanged.
-    // With zero `$N` in the query the heuristic has nothing to anchor on and
-    // guesses "this is a `?`-style dialect". This is the single case that
-    // most needs the dialect threaded through, and it is already documented
-    // as a residual limitation in the source.
-    assert_eq!(
-        rewrite_pg_placeholders("SELECT * FROM docs WHERE data ? 'active'", mark),
-        "SELECT * FROM docs WHERE data [P1] 'active'"
-    );
-}
-
-#[test]
-fn multi_char_jsonb_operators_survive_even_with_no_dollar_placeholder_to_anchor_on() {
-    assert_eq!(
-        rewrite_pg_placeholders(
-            "SELECT * FROM docs WHERE tags ?| ARRAY['a'] AND meta ?& ARRAY['b']",
-            mark
-        ),
-        "SELECT * FROM docs WHERE tags ?| ARRAY['a'] AND meta ?& ARRAY['b']"
-    );
-}
-
-#[test]
-fn geometry_operators_survive_and_the_longest_match_wins() {
-    assert_eq!(
-        rewrite_pg_placeholders("WHERE a ?-| b AND c ?- d AND e ?|| f", mark),
-        "WHERE a ?-| b AND c ?- d AND e ?|| f"
-    );
-}
-
-#[test]
-fn the_jsonpath_exists_operator_survives() {
-    assert_eq!(
-        rewrite_pg_placeholders("WHERE doc @? '$.a'", mark),
-        "WHERE doc @? '$.a'"
-    );
-}
-
-#[test]
-fn a_skipped_operator_does_not_advance_the_positional_counter() {
-    assert_eq!(
-        rewrite_pg_placeholders("WHERE tags ?| ARRAY['a'] AND b = ?", mark),
-        "WHERE tags ?| ARRAY['a'] AND b = [P1]"
-    );
-}
-
-#[test]
-fn the_positional_counter_runs_across_string_and_comment_spans_in_order() {
-    assert_eq!(
-        rewrite_pg_placeholders("SELECT ?, '?' , ? /* ? */, ?", mark),
-        "SELECT [P1], '?' , [P2] /* ? */, [P3]"
-    );
-}
-
-#[test]
-fn a_question_mark_at_the_very_end_of_the_input_is_rewritten() {
-    assert_eq!(rewrite_pg_placeholders("SELECT ?", mark), "SELECT [P1]");
+fn question_mark_operators_are_never_rewritten() {
+    let sql = "SELECT * FROM docs WHERE data ? 'k' AND tags ?| ARRAY['a'] AND meta ?& ARRAY['b'] \
+               AND a ?-| b AND doc @? '$.a' AND c = ?";
+    assert_eq!(rewrite_pg_placeholders(sql, mark), sql);
 }

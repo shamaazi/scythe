@@ -208,8 +208,7 @@ where
 /// index, and the parameter's name and resolved type.
 ///
 /// The name participates because backends emit it as the generated
-/// function's argument name (`sqlx.rs:205`, `python_psycopg3.rs:210`, and
-/// every other backend via `resolve.rs:96`). Two parameters can share a
+/// function's argument name (every backend, via `resolve.rs`). Two parameters can share a
 /// type and differ only in name: swapping `WHERE name = $1` for
 /// `WHERE email = $1` leaves both `string` but rewrites the signature from
 /// `name: &str` to `email: &str`, which breaks every caller. Fingerprinting

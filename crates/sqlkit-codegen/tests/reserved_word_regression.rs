@@ -12,9 +12,7 @@
 //!
 //! TypeScript declares `[naming] reserved_bindings` instead, consulted by
 //! `param_name`, because it is the one target where a keyword is illegal in
-//! a parameter binding and legal as a property key -- see
-//! `typescript_pg_mangles_class_in_a_binding_but_leaves_the_row_key_alone`
-//! at the bottom of this file for why the row key must not be mangled.
+//! a parameter binding and legal as a property key.
 
 #![cfg_attr(
     not(feature = "all-languages"),

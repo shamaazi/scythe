@@ -55,5 +55,4 @@ those — sqlkit-inspect carries forward the highest-impact subset.
 
 The remaining splinter lints that need live catalog state — auth/RLS deep
 dives, `pg_stat_*`-based unused-index and slow-query detection — are tracked
-for later sqlkit-inspect phases (see the phased roadmap in
-`website/src/content/docs/guide/inspect.md`).
+for later sqlkit-inspect phases.

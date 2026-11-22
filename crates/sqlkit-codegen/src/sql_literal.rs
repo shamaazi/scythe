@@ -8,7 +8,7 @@
 //!
 //! One function per **host literal form** lives here, not one per backend, because the
 //! literal form -- not the driver -- determines what needs escaping. Every function takes
-//! the already-cleaned SQL text (post `clean_sql`/`clean_sql_oneline`/placeholder rewriting)
+//! the already-cleaned SQL text (post `clean_sql`/placeholder rewriting)
 //! and returns text safe to splice verbatim between that host form's delimiters. None of
 //! them touch delimiters themselves except [`rust_raw_string_literal`], which must choose
 //! its own delimiter width. The TypeScript backends escape through

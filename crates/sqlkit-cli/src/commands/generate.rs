@@ -47,9 +47,7 @@ struct SqlConfig {
     /// Legacy: output directory, used as the default when no `[[sql.gen]]`
     /// array targets are configured (i.e. `gen` is absent, or is the legacy
     /// `[sql.gen.<lang>]` table form). Ignored for `[[sql.gen]]` array
-    /// entries -- each of those needs its own `output` key. See
-    /// `website/src/content/docs/guide/configuration.md`, where this is
-    /// documented as legacy.
+    /// entries -- each of those needs its own `output` key.
     output: Option<String>,
     /// Generation targets via [[sql.gen]] or [sql.gen.rust]
     gen_config: Option<GenTargets>,

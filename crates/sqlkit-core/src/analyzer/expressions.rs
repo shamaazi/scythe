@@ -759,9 +759,9 @@ impl<'a> Analyzer<'a> {
             // to the `EXTRACT(field FROM source)` syntax) always returns
             // `double precision`, on every PostgreSQL version -- the
             // PG14+ `numeric` change applies only to `EXTRACT`. A bare
-            // `extract(...)` function call (some dialects parse it that way
-            // instead of the dedicated `Expr::Extract` node) gets the same
-            // dialect-aware answer as the `EXTRACT` syntax (#123).
+            // `extract(...)` function call (the parser can produce one instead of
+            // the dedicated `Expr::Extract` node) gets the same answer as the
+            // `EXTRACT` syntax (#123).
             "date_part" => TypeInfo::new("float64", first_arg_nullable),
             "extract" => TypeInfo::new(extract_result_type(), first_arg_nullable),
             "age" => {
@@ -2205,7 +2205,7 @@ mod tests {
     #[test]
     fn test_extract_function_name_form_postgresql_returns_decimal() {
         // PostgreSQL 14+ types `EXTRACT` as `numeric` -- see #123. The
-        // function-call spelling gets the same dialect-aware answer as the
+        // function-call spelling gets the same answer as the
         // `Expr::Extract` AST node.
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);

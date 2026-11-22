@@ -230,14 +230,10 @@ pub fn escape_ts_template_literal(sql: &str) -> String {
     sql.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${")
 }
 
-/// Escape a SQL string for safe splicing into a double-quoted JS string
-/// literal.
-///
-/// Used by the oracledb backend, which binds SQL text as a plain
-/// double-quoted string rather than a template literal, so `` ` `` and `${`
-/// are inert there but a literal `"` would terminate the string early.
-/// Backslash is escaped first for the same reason as
-/// [`escape_ts_template_literal`].
+/// Escape a string for safe splicing into a double-quoted TypeScript string
+/// literal (a quoted property key, an enum value, an error message): a
+/// literal `"` would terminate the string early. Backslash is escaped first
+/// for the same reason as [`escape_ts_template_literal`].
 pub fn escape_ts_double_quoted_literal(sql: &str) -> String {
     sql.replace('\\', "\\\\").replace('"', "\\\"")
 }
@@ -881,7 +877,7 @@ pub fn generate_ts_row_object_literal(
 /// surrounding `if` block sits at.
 ///
 /// A plain `Error`, not a sqlkit-defined error class (#192): no TypeScript
-/// or JavaScript backend emits a custom error type into generated output
+/// backend emits a custom error type into generated output
 /// today -- every backend's try/catch already re-throws a driver failure
 /// as-is (`throw error;`), so a caller of a generated query function
 /// already has to handle a bare `Error` from it, and a `:one` miss joins

@@ -638,9 +638,8 @@ SELECT COUNT(*) as total FROM users;",
         assert_eq!(result.columns[0].source_relation, None);
     }
 
-    /// A qualified override is documented as `"table.column"` using the real
-    /// schema table name (see `website/src/content/docs/guide/custom-types.md`),
-    /// not the query's local alias. `source_relation` must resolve to `users`/
+    /// A qualified override is `"table.column"` using the real schema table
+    /// name, not the query's local alias. `source_relation` must resolve to `users`/
     /// `posts` here, not the join aliases `u`/`p` -- otherwise a correctly wired
     /// matcher would still silently fail on any aliased join.
     #[test]
