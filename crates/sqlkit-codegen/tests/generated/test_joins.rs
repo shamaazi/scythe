@@ -80,7 +80,6 @@ fn test_basic_full_join() {
                         backend_name, "basic_full_join", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -110,7 +109,6 @@ fn test_basic_full_join() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -235,7 +233,6 @@ fn test_basic_inner_join() {
                         backend_name, "basic_inner_join", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -265,7 +262,6 @@ fn test_basic_inner_join() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -401,7 +397,6 @@ fn test_inner_join_three_tables() {
                         backend_name, "inner_join_three_tables", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -431,7 +426,6 @@ fn test_inner_join_three_tables() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -561,7 +555,6 @@ fn test_inner_join_with_where() {
                         backend_name, "inner_join_with_where", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -591,7 +584,6 @@ fn test_inner_join_with_where() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -714,7 +706,6 @@ fn test_join_using() {
                         backend_name, "join_using", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -744,7 +735,6 @@ fn test_join_using() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -869,7 +859,6 @@ fn test_lateral_left_join_nullable() {
                         backend_name, "lateral_left_join_nullable", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -899,7 +888,6 @@ fn test_lateral_left_join_nullable() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1024,7 +1012,6 @@ fn test_lateral_subquery_basic() {
                         backend_name, "lateral_subquery_basic", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1054,7 +1041,6 @@ fn test_lateral_subquery_basic() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1179,7 +1165,6 @@ fn test_basic_left_join() {
                         backend_name, "basic_left_join", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1209,7 +1194,6 @@ fn test_basic_left_join() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1352,7 +1336,6 @@ fn test_left_join_multiple_cols() {
                         backend_name, "left_join_multiple_cols", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1382,7 +1365,6 @@ fn test_left_join_multiple_cols() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1515,7 +1497,6 @@ fn test_left_join_with_where() {
                         backend_name, "left_join_with_where", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1545,7 +1526,6 @@ fn test_left_join_with_where() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1670,7 +1650,6 @@ fn test_basic_right_join() {
                         backend_name, "basic_right_join", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1700,7 +1679,6 @@ fn test_basic_right_join() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1840,7 +1818,6 @@ fn test_right_join_left_cols_nullable() {
                         backend_name, "right_join_left_cols_nullable", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1870,7 +1847,6 @@ fn test_right_join_left_cols_nullable() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1994,7 +1970,6 @@ fn test_self_join() {
                         backend_name, "self_join", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -2024,7 +1999,6 @@ fn test_self_join() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),

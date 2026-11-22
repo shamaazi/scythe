@@ -63,7 +63,6 @@ fn test_live_avg_over_no_matching_rows_is_null() {
                         backend_name, "live_avg_over_no_matching_rows_is_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -93,7 +92,6 @@ fn test_live_avg_over_no_matching_rows_is_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -210,7 +208,6 @@ fn test_live_max_over_no_matching_rows_is_null() {
                         backend_name, "live_max_over_no_matching_rows_is_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -240,7 +237,6 @@ fn test_live_max_over_no_matching_rows_is_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -357,7 +353,6 @@ fn test_live_sum_over_no_matching_rows_is_null() {
                         backend_name, "live_sum_over_no_matching_rows_is_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -387,7 +382,6 @@ fn test_live_sum_over_no_matching_rows_is_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -505,7 +499,6 @@ fn test_live_case_without_else_is_null() {
                         backend_name, "live_case_without_else_is_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -535,7 +528,6 @@ fn test_live_case_without_else_is_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -653,7 +645,6 @@ fn test_live_coalesce_with_literal_default_is_never_null() {
                         backend_name, "live_coalesce_with_literal_default_is_never_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -683,7 +674,6 @@ fn test_live_coalesce_with_literal_default_is_never_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -800,7 +790,6 @@ fn test_live_age_on_nullable_operand_is_null() {
                         backend_name, "live_age_on_nullable_operand_is_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -830,7 +819,6 @@ fn test_live_age_on_nullable_operand_is_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -952,7 +940,6 @@ fn test_live_full_join_makes_both_sides_nullable() {
                         backend_name, "live_full_join_makes_both_sides_nullable", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -982,7 +969,6 @@ fn test_live_full_join_makes_both_sides_nullable() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1107,7 +1093,6 @@ fn test_live_right_side_not_null_becomes_nullable() {
                         backend_name, "live_right_side_not_null_becomes_nullable", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1137,7 +1122,6 @@ fn test_live_right_side_not_null_becomes_nullable() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1259,7 +1243,6 @@ fn test_live_power_sqrt_on_nullable_operand_is_null() {
                         backend_name, "live_power_sqrt_on_nullable_operand_is_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1289,7 +1272,6 @@ fn test_live_power_sqrt_on_nullable_operand_is_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1407,7 +1389,6 @@ fn test_live_nullable_column_observes_null_and_non_null() {
                         backend_name, "live_nullable_column_observes_null_and_non_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1437,7 +1418,6 @@ fn test_live_nullable_column_observes_null_and_non_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1555,7 +1535,6 @@ fn test_live_nullif_with_equal_operands_is_null() {
                         backend_name, "live_nullif_with_equal_operands_is_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1585,7 +1564,6 @@ fn test_live_nullif_with_equal_operands_is_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1703,7 +1681,6 @@ fn test_live_like_on_nullable_operand_is_null() {
                         backend_name, "live_like_on_nullable_operand_is_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1733,7 +1710,6 @@ fn test_live_like_on_nullable_operand_is_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1858,7 +1834,6 @@ fn test_live_right_join_left_side_not_null_becomes_nullable() {
                         backend_name, "live_right_join_left_side_not_null_becomes_nullable", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1888,7 +1863,6 @@ fn test_live_right_join_left_side_not_null_becomes_nullable() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -2007,7 +1981,6 @@ fn test_live_scalar_subquery_with_no_match_is_null() {
                         backend_name, "live_scalar_subquery_with_no_match_is_null", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -2037,7 +2010,6 @@ fn test_live_scalar_subquery_with_no_match_is_null() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),

@@ -88,9 +88,9 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
         all_codes.push(code);
     }
 
-    // ~keep Only the *body* is accumulated here. The preamble and the provenance
-    // header line are added by `provenance::assemble_file` at the bottom of
-    // this function, in the one place that owns their ordering — the same
+    // ~keep Only the *body* is accumulated here. The provenance
+    // header line is added by `provenance::assemble_file` at the bottom of
+    // this function, the same
     // call `sqlkit-cli`'s `assemble_output` makes.
     let mut full = backend.file_header_for_results(&all_codes);
     full.push('\n');
@@ -122,7 +122,6 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
     // header's legality depends on its comment prefix and its position, not
     // on its field values.
     provenance::assemble_file(
-        &backend.file_preamble(),
         &provenance::header_line(
             backend,
             env!("CARGO_PKG_VERSION"),

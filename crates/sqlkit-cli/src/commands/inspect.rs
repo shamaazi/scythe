@@ -54,7 +54,7 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
             None
         });
 
-    let registry = build_registry(&inspect_config)?;
+    let registry = build_registry(inspect_config.as_ref())?;
 
     if opts.list_checks || opts.explain.is_some() {
         let mut out = open_output(opts.output.as_deref())?;
@@ -81,7 +81,7 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
     let config_db_url = inspect_config.as_ref().and_then(|c| c.database_url.as_deref());
     let url = resolve_url(opts.database_url.as_deref(), config_db_url)?;
 
-    let mut findings = live_findings(&url, registry, &inspect_config)?;
+    let mut findings = live_findings(&url, registry, inspect_config.as_ref())?;
     if let Some(floor) = severity_floor {
         findings.retain(|f| f.severity >= floor);
     }
@@ -107,7 +107,7 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
 ///    `parse_inspect_section`).
 /// 4. Severity overrides from `[inspect.severity_overrides]`.
 pub(crate) fn build_registry(
-    inspect_config: &Option<InspectConfig>,
+    inspect_config: Option<&InspectConfig>,
 ) -> Result<CheckRegistry, Box<dyn std::error::Error>> {
     let mut registry = CheckRegistry::canonical();
 
@@ -136,7 +136,7 @@ pub(crate) fn build_registry(
 pub(crate) fn live_findings(
     url: &str,
     registry: CheckRegistry,
-    inspect_config: &Option<InspectConfig>,
+    inspect_config: Option<&InspectConfig>,
 ) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
     let mut driver = PostgresDriver::with_registry(registry);
     if let Some(cfg) = inspect_config {
@@ -160,7 +160,7 @@ pub(crate) fn live_findings(
 pub(crate) fn live_findings(
     _url: &str,
     _registry: CheckRegistry,
-    _inspect_config: &Option<InspectConfig>,
+    _inspect_config: Option<&InspectConfig>,
 ) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
     Err(
         "live inspection needs the PostgreSQL client: this build was compiled without the `postgres` Cargo \

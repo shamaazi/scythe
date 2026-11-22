@@ -5,7 +5,7 @@ use sqlkit_inspect::parse_inspect_section;
 use sqlkit_lint::reporters::{Finding, Format};
 use sqlkit_lint::sqruff_adapter;
 use sqlkit_lint::types::Severity;
-use sqlkit_lint::{SuppressionSet, emit_findings, first_token_offset};
+use sqlkit_lint::{NameScope, SuppressionSet, emit_findings, first_token_offset};
 
 use super::inspect::{build_registry, live_findings};
 use super::shared::{
@@ -404,7 +404,9 @@ fn lint_files(
                 annotations: &p.query.annotations,
             })
             .collect();
-        let report = ctx.engine.build_report(contexts.into_iter(), &ctx.catalog);
+        let report = ctx
+            .engine
+            .build_report(contexts.into_iter().map(|c| (NameScope::default(), c)), &ctx.catalog);
 
         eprintln!(
             "[native] checked {} query(ies) against {} active rule(s)",
@@ -727,7 +729,7 @@ fn lint_from_config(
         // Names are scoped like `sqlkit check` scopes them: per query file
         // when every target writes one module per query file.
         let per_file_names = per_file_name_blocks.contains(&sql_config.name);
-        let contexts: Vec<(usize, LintContext<'_>)> = prepared
+        let contexts: Vec<(NameScope, LintContext<'_>)> = prepared
             .iter()
             .map(|p| {
                 let scope = if per_file_names {
@@ -742,10 +744,10 @@ fn lint_from_config(
                     catalog: &catalog,
                     annotations: &p.query.annotations,
                 };
-                (scope, ctx)
+                (NameScope(scope), ctx)
             })
             .collect();
-        let report = engine.build_report_scoped(contexts.into_iter(), &catalog);
+        let report = engine.build_report(contexts.into_iter(), &catalog);
 
         // Printed unconditionally so an empty rule set (every rule
         // configured `off`) or an empty query set cannot look like a clean
@@ -845,7 +847,7 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>) -> Vec<FileVio
         }
     };
 
-    let registry = match build_registry(&inspect_config) {
+    let registry = match build_registry(inspect_config.as_ref()) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("sqlkit lint: warning: failed to build inspect registry: {e}");
@@ -853,7 +855,7 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>) -> Vec<FileVio
         }
     };
 
-    let findings = match live_findings(&url, registry, &inspect_config) {
+    let findings = match live_findings(&url, registry, inspect_config.as_ref()) {
         Ok(findings) => findings,
         Err(e) => {
             // The host only, never the full URL, which may carry a password.

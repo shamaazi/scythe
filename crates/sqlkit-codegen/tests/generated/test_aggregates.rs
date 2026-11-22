@@ -64,7 +64,6 @@ fn test_group_by_count() {
                         backend_name, "group_by_count", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -94,7 +93,6 @@ fn test_group_by_count() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -220,7 +218,6 @@ fn test_group_by_having() {
                         backend_name, "group_by_having", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -250,7 +247,6 @@ fn test_group_by_having() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -380,7 +376,6 @@ fn test_group_by_multiple_aggregates() {
                         backend_name, "group_by_multiple_aggregates", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -410,7 +405,6 @@ fn test_group_by_multiple_aggregates() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -589,7 +583,6 @@ fn test_array_agg_stays_scalar() {
                         backend_name, "array_agg_stays_scalar", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -619,7 +612,6 @@ fn test_array_agg_stays_scalar() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -778,7 +770,6 @@ fn test_json_agg_left_join_nullable_elements() {
                         backend_name, "json_agg_left_join_nullable_elements", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -808,7 +799,6 @@ fn test_json_agg_left_join_nullable_elements() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1025,7 +1015,6 @@ fn test_json_agg_wildcard_nested_struct() {
                         backend_name, "json_agg_wildcard_nested_struct", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1055,7 +1044,6 @@ fn test_json_agg_wildcard_nested_struct() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1259,7 +1247,6 @@ fn test_jsonb_agg_wildcard_nested_struct() {
                         backend_name, "jsonb_agg_wildcard_nested_struct", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1289,7 +1276,6 @@ fn test_jsonb_agg_wildcard_nested_struct() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1454,7 +1440,6 @@ fn test_row_to_json_wildcard_nested_struct() {
                         backend_name, "row_to_json_wildcard_nested_struct", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1484,7 +1469,6 @@ fn test_row_to_json_wildcard_nested_struct() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1635,7 +1619,6 @@ fn test_string_agg_stays_scalar() {
                         backend_name, "string_agg_stays_scalar", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1665,7 +1648,6 @@ fn test_string_agg_stays_scalar() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1780,7 +1762,6 @@ fn test_avg_float64_stays_float64() {
                         backend_name, "avg_float64_stays_float64", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1810,7 +1791,6 @@ fn test_avg_float64_stays_float64() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -1925,7 +1905,6 @@ fn test_sum_float32_stays_float32() {
                         backend_name, "sum_float32_stays_float32", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -1955,7 +1934,6 @@ fn test_sum_float32_stays_float32() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -2070,7 +2048,6 @@ fn test_sum_float64_stays_float64() {
                         backend_name, "sum_float64_stays_float64", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -2100,7 +2077,6 @@ fn test_sum_float64_stays_float64() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -2215,7 +2191,6 @@ fn test_sum_int32_widens_to_int64() {
                         backend_name, "sum_int32_widens_to_int64", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -2245,7 +2220,6 @@ fn test_sum_int32_widens_to_int64() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -2360,7 +2334,6 @@ fn test_sum_int64_widens_to_decimal() {
                         backend_name, "sum_int64_widens_to_decimal", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -2390,7 +2363,6 @@ fn test_sum_int64_widens_to_decimal() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -2520,7 +2492,6 @@ fn test_window_lag_lead() {
                         backend_name, "window_lag_lead", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -2550,7 +2521,6 @@ fn test_window_lag_lead() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -2674,7 +2644,6 @@ fn test_window_ntile() {
                         backend_name, "window_ntile", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -2704,7 +2673,6 @@ fn test_window_ntile() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -2834,7 +2802,6 @@ fn test_window_partition_by() {
                         backend_name, "window_partition_by", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -2864,7 +2831,6 @@ fn test_window_partition_by() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -2991,7 +2957,6 @@ fn test_window_rank_dense_rank() {
                         backend_name, "window_rank_dense_rank", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -3021,7 +2986,6 @@ fn test_window_rank_dense_rank() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -3142,7 +3106,6 @@ fn test_window_row_number() {
                         backend_name, "window_row_number", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -3172,7 +3135,6 @@ fn test_window_row_number() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
@@ -3302,7 +3264,6 @@ fn test_window_sum_over_partition() {
                         backend_name, "window_sum_over_partition", expected_message
                     );
                 }
-                let preamble = backend.file_preamble();
                 let header = backend.file_header();
                 let mut body = String::new();
                 if header.is_empty() {
@@ -3332,7 +3293,6 @@ fn test_window_sum_over_partition() {
                     body.push('\n');
                 }
                 let code = sqlkit_codegen::provenance::assemble_file(
-                    &preamble,
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),

@@ -17,7 +17,7 @@ pub(crate) use super::parse_bool_option;
 
 /// Supported TypeScript row type styles for generated code.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum TsRowType {
+pub(crate) enum TsRowType {
     #[default]
     Interface,
     Zod,
@@ -113,7 +113,7 @@ impl RowKeys {
 /// How a generated query function takes its parameters, as selected by the
 /// `params` backend option.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum TsParamStyle {
+pub(crate) enum TsParamStyle {
     /// One function argument per parameter, in placeholder order.
     #[default]
     Positional,
@@ -139,7 +139,7 @@ impl TsParamStyle {
 
 /// A query function's parameters as its backend's [`TsParamStyle`] has it
 /// take them.
-pub struct TsQueryParams {
+pub(crate) struct TsQueryParams {
     /// The params, each `field_name` the property name under
     /// [`TsParamStyle::Object`]. A property is not a binding, so it takes the
     /// plain field spelling: a parameter named `from` is `params.from`, not
@@ -233,7 +233,7 @@ impl TsQueryParams {
 /// what that type declares for it. The two shapes disagree about exactly one
 /// class of column — see [`TsRowShape::cast_type`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum TsRowShape {
+pub(crate) enum TsRowShape {
     /// Plain interface (`outer_join_unions = false`, and every `:grouped`
     /// parent/child struct): every field is declared at `full_type`.
     #[default]
@@ -278,7 +278,7 @@ impl TsRowShape {
 /// backtick would terminate the template literal early; and a literal `${`
 /// would open a live JS interpolation (inside a Bun `sql` tag, a parameter
 /// binding).
-pub fn escape_ts_template_literal(sql: &str) -> String {
+pub(crate) fn escape_ts_template_literal(sql: &str) -> String {
     sql.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${")
 }
 
@@ -286,7 +286,7 @@ pub fn escape_ts_template_literal(sql: &str) -> String {
 /// literal (a quoted property key, an enum value, an error message): a
 /// literal `"` would terminate the string early. Backslash is escaped first
 /// for the same reason as [`escape_ts_template_literal`].
-pub fn escape_ts_double_quoted_literal(sql: &str) -> String {
+pub(crate) fn escape_ts_double_quoted_literal(sql: &str) -> String {
     sql.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
@@ -306,7 +306,7 @@ pub fn escape_ts_double_quoted_literal(sql: &str) -> String {
 /// of defining an own property. That is a separate bug from #215's
 /// "not a valid identifier" class and is not something this function's
 /// contract (produce a syntactically valid property key) can fix by itself.
-pub fn ts_property_key(name: &str) -> String {
+pub(crate) fn ts_property_key(name: &str) -> String {
     if is_ts_identifier(name) {
         name.to_string()
     } else {
@@ -326,7 +326,7 @@ pub fn ts_property_key(name: &str) -> String {
 /// A reserved word stays on the dot form deliberately: `row.class` is legal
 /// property access in ES5+ (only *bindings* may not be keywords), so #215's
 /// rule here is identifier shape, exactly as it is for the key position.
-pub fn ts_member_access(object: &str, name: &str) -> String {
+pub(crate) fn ts_member_access(object: &str, name: &str) -> String {
     if is_ts_identifier(name) {
         format!("{object}.{name}")
     } else {
@@ -347,7 +347,7 @@ pub fn ts_member_access(object: &str, name: &str) -> String {
 /// these call sites are reading a raw driver row, and switching the
 /// overwhelmingly common identifier case to dot access would rewrite every
 /// generated file in the repository to say the same thing a second way.
-pub fn ts_index_access(object: &str, name: &str) -> String {
+pub(crate) fn ts_index_access(object: &str, name: &str) -> String {
     format!("{object}['{}']", escape_ts_single_quoted_literal(name))
 }
 
@@ -379,7 +379,7 @@ fn escape_ts_single_quoted_literal(value: &str) -> String {
 /// performs no runtime check without a validator, which is the honest
 /// outcome -- sqlkit has no way to know how to validate a type it has never
 /// seen -- whereas `z.unknown()` would have silently widened the field.
-pub fn ts_type_to_zod(ts_type: &str) -> String {
+pub(crate) fn ts_type_to_zod(ts_type: &str) -> String {
     let ts_type = ts_type.trim();
     if let Some(base) = ts_type.strip_suffix(" | null") {
         return format!("{}.nullable()", ts_type_to_zod(base));
@@ -406,7 +406,10 @@ pub fn ts_type_to_zod(ts_type: &str) -> String {
     }
 }
 
-pub fn resolve_ts_json_runtime_type(neutral_type: &str, manifest: &BackendManifest) -> Result<String, SqlkitError> {
+pub(crate) fn resolve_ts_json_runtime_type(
+    neutral_type: &str,
+    manifest: &BackendManifest,
+) -> Result<String, SqlkitError> {
     let neutral_type = neutral_type.trim();
     if let Some(inner) = container_inner(neutral_type, "nullable") {
         return Ok(format!("{} | null", resolve_ts_json_runtime_type(inner, manifest)?));
@@ -501,7 +504,11 @@ fn container_inner<'a>(neutral_type: &'a str, container: &str) -> Option<&'a str
 /// Render the plain TypeScript interface for a row.
 ///
 /// Shared by every TypeScript backend so the shape cannot drift between them.
-pub fn generate_ts_interface_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
+pub(crate) fn generate_ts_interface_row_struct(
+    struct_name: &str,
+    query_name: &str,
+    columns: &[ResolvedColumn],
+) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
     let _ = writeln!(out, "export interface {} {{", struct_name);
@@ -561,7 +568,7 @@ fn discriminated_join_groups(columns: &[ResolvedColumn]) -> Vec<String> {
 ///
 /// Falls back to the plain interface when there is nothing to discriminate, so
 /// callers can use this unconditionally.
-pub fn generate_ts_union_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
+pub(crate) fn generate_ts_union_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
     let groups = discriminated_join_groups(columns);
     if groups.is_empty() {
         return generate_ts_interface_row_struct(struct_name, query_name, columns);
@@ -641,7 +648,7 @@ pub fn generate_ts_union_row_struct(struct_name: &str, query_name: &str, columns
 }
 
 /// Generate a Zod schema and inferred type for a row struct.
-pub fn generate_zod_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
+pub(crate) fn generate_zod_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
     let schema_name = format!("{struct_name}Schema");
     let mut out = String::new();
     let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
@@ -712,7 +719,7 @@ fn column_to_zod_with_nullable(col: &ResolvedColumn, nullable: bool) -> String {
 /// Falls back to [`generate_zod_row_struct`] when there is nothing to
 /// discriminate, so callers can use this unconditionally — matching the
 /// fallback behavior of `generate_ts_union_row_struct`.
-pub fn generate_zod_union_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
+pub(crate) fn generate_zod_union_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
     let groups = discriminated_join_groups(columns);
     if groups.is_empty() {
         return generate_zod_row_struct(struct_name, query_name, columns);
@@ -778,7 +785,7 @@ pub fn generate_zod_union_row_struct(struct_name: &str, query_name: &str, column
 ///
 /// Child interface is emitted first so the parent's `children: ChildType[]` field
 /// resolves without a forward reference.
-pub fn generate_grouped_interface_structs(
+pub(crate) fn generate_grouped_interface_structs(
     child_struct_name: &str,
     parent_struct_name: &str,
     parent_columns: &[ResolvedColumn],
@@ -818,7 +825,7 @@ pub fn generate_grouped_interface_structs(
 ///
 /// Child schema is emitted first so the parent's `children: z.array(ChildSchema)`
 /// reference resolves without a forward declaration.
-pub fn generate_zod_grouped_structs(
+pub(crate) fn generate_zod_grouped_structs(
     child_struct_name: &str,
     parent_struct_name: &str,
     parent_columns: &[ResolvedColumn],
@@ -871,7 +878,7 @@ pub fn generate_zod_grouped_structs(
 /// `field_case = "camelCase"`. Callers own the surrounding `{ ... }` and any
 /// additional properties (e.g. `children: []`), since those differ between
 /// call sites.
-pub fn generate_ts_row_object_literal(
+pub(crate) fn generate_ts_row_object_literal(
     columns: &[ResolvedColumn],
     indent: &str,
     shape: TsRowShape,
@@ -904,7 +911,7 @@ pub fn generate_ts_row_object_literal(
 /// the only such dedup machinery lives in the file assembler (`sqlkit-cli`,
 /// outside this crate), and it is keyed by SQL type name, not by "this file
 /// happens to contain a `:one` query".
-pub fn ts_row_not_found_throw(query_name: &str) -> String {
+pub(crate) fn ts_row_not_found_throw(query_name: &str) -> String {
     format!(
         "throw new Error(\"no row found for query: {}\");",
         escape_ts_double_quoted_literal(query_name)
@@ -935,7 +942,7 @@ pub fn ts_row_not_found_throw(query_name: &str) -> String {
 /// via [`ts_row_not_found_throw`], naming the query `query_name`; anything
 /// else (`QueryCommand::Opt`, the only other caller) keeps the pre-#192
 /// `return null;`.
-pub fn generate_ts_one_row_remap(
+pub(crate) fn generate_ts_one_row_remap(
     columns: &[ResolvedColumn],
     shape: TsRowShape,
     command: &QueryCommand,
@@ -963,7 +970,7 @@ pub fn generate_ts_one_row_remap(
 /// `rows` array. Maps each one (bound to `row` inside the callback) through
 /// [`generate_ts_row_object_literal`]. See [`generate_ts_one_row_remap`] for
 /// why this exists instead of a blind cast, and for what `shape` selects.
-pub fn generate_ts_many_row_remap(
+pub(crate) fn generate_ts_many_row_remap(
     columns: &[ResolvedColumn],
     shape: TsRowShape,
     row_access: impl Fn(&str, &str) -> String,
@@ -990,7 +997,7 @@ pub fn generate_ts_many_row_remap(
 /// plain object per struct at `full_type` regardless of the backend's
 /// `outer_join_unions` setting, so there is no union variant here to agree
 /// with.
-pub fn generate_ts_grouped_fold_body(
+pub(crate) fn generate_ts_grouped_fold_body(
     parent_struct_name: &str,
     _child_struct_name: &str,
     parent_columns: &[ResolvedColumn],
@@ -1055,7 +1062,7 @@ fn write_jsdoc_lines(out: &mut String, text: &str) {
 /// The JSDoc block above a generated query function: the query header's
 /// description when it has one, otherwise `fallback`. One line renders as
 /// `/** text */`, several as a multi-line block.
-pub fn ts_query_doc(analyzed: &sqlkit_core::analyzer::AnalyzedQuery, fallback: &str) -> String {
+pub(crate) fn ts_query_doc(analyzed: &sqlkit_core::analyzer::AnalyzedQuery, fallback: &str) -> String {
     let text = super::query_doc_text(analyzed, fallback);
     let mut out = String::new();
     if text.contains('\n') {
@@ -1083,7 +1090,11 @@ pub fn ts_query_doc(analyzed: &sqlkit_core::analyzer::AnalyzedQuery, fallback: &
 /// literals holding a value that came from user DDL, so both go through
 /// [`escape_ts_double_quoted_literal`]; an enum value containing a `"` or a
 /// `\` would otherwise terminate or corrupt the literal.
-pub fn generate_zod_enum(type_name: &str, values: &[String], naming: &sqlkit_backend::naming::NamingConfig) -> String {
+pub(crate) fn generate_zod_enum(
+    type_name: &str,
+    values: &[String],
+    naming: &sqlkit_backend::naming::NamingConfig,
+) -> String {
     let schema_name = format!("{type_name}Schema");
     let mut out = String::new();
     let variants: Vec<String> = values
@@ -1142,7 +1153,7 @@ impl TsValidation {
 /// The TypeScript backends' [`crate::backend_trait::CodegenBackend::inexpressible_rules`]:
 /// JSDoc's numeric keywords need a `number`, its string keywords a `string`,
 /// and allowed values a type a literal union can narrow.
-pub fn ts_inexpressible_rules(rules: &Rules, lang_type: &str) -> Vec<String> {
+pub(crate) fn ts_inexpressible_rules(rules: &Rules, lang_type: &str) -> Vec<String> {
     let mut missing = Vec::new();
     if lang_type != "number" {
         let numeric = [
@@ -1180,7 +1191,7 @@ pub fn ts_inexpressible_rules(rules: &Rules, lang_type: &str) -> Vec<String> {
 
 /// The TypeScript backends' [`crate::backend_trait::CodegenBackend::constrained_type`]:
 /// a string or number restricted to listed values becomes their literal union.
-pub fn ts_constrained_type(
+pub(crate) fn ts_constrained_type(
     constraints: &ValueConstraints,
     lang_type: &str,
     nullable: bool,
@@ -1238,7 +1249,7 @@ fn ts_string_literal(value: &str) -> String {
 /// then one tag per rule its type can carry -- indented by `indent`, or empty
 /// when there is nothing to say. Allowed values are expressed by the type
 /// ([`ts_constrained_type`]), not by a tag.
-pub fn ts_property_doc(constraints: Option<&ValueConstraints>, lang_type: &str, indent: &str) -> String {
+pub(crate) fn ts_property_doc(constraints: Option<&ValueConstraints>, lang_type: &str, indent: &str) -> String {
     let Some(constraints) = constraints else {
         return String::new();
     };
@@ -1325,7 +1336,7 @@ fn write_ts_property(
 /// The imports for the `ts_type` overrides the generated code names (see
 /// [`crate::GeneratedCode::type_imports`]): one `import type { A, B } from
 /// "<module>";` per module, sorted.
-pub fn ts_type_imports(generated: &[crate::GeneratedCode]) -> String {
+pub(crate) fn ts_type_imports(generated: &[crate::GeneratedCode]) -> String {
     let mut imports: Vec<&crate::TypeImport> = generated.iter().flat_map(|code| &code.type_imports).collect();
     imports.sort_unstable();
     imports.dedup();
@@ -1346,7 +1357,7 @@ pub fn ts_type_imports(generated: &[crate::GeneratedCode]) -> String {
 /// relative one the CLI computes for a `schema_types` output without it. The
 /// module declares types only, which a Zod row schema (a runtime value) cannot
 /// use.
-pub fn ts_schema_types_import_specifier(module: &str, row_type: TsRowType) -> Result<String, SqlkitError> {
+pub(crate) fn ts_schema_types_import_specifier(module: &str, row_type: TsRowType) -> Result<String, SqlkitError> {
     let invalid = |message: String| SqlkitError::new(ErrorCode::InvalidConfig, message);
     if !is_ts_module_specifier(module) {
         return Err(invalid(format!(
@@ -1363,7 +1374,7 @@ pub fn ts_schema_types_import_specifier(module: &str, row_type: TsRowType) -> Re
 
 /// The TypeScript backends' [`crate::backend_trait::CodegenBackend::schema_type`]:
 /// the domain's type name, with `| null` outside.
-pub fn ts_schema_type(sql_name: &str, naming: &NamingConfig, nullable: bool) -> (String, String) {
+pub(crate) fn ts_schema_type(sql_name: &str, naming: &NamingConfig, nullable: bool) -> (String, String) {
     let name = sqlkit_backend::naming::enum_type_name(sql_name, naming);
     let full = if nullable {
         format!("{name} | null")
@@ -1375,7 +1386,7 @@ pub fn ts_schema_type(sql_name: &str, naming: &NamingConfig, nullable: bool) -> 
 
 /// `import type { A, B } from "<module>";` for the schema types the generated
 /// code names, or empty when it names none.
-pub fn ts_schema_types_import(module: Option<&str>, generated: &[crate::GeneratedCode]) -> String {
+pub(crate) fn ts_schema_types_import(module: Option<&str>, generated: &[crate::GeneratedCode]) -> String {
     let Some(module) = module else {
         return String::new();
     };
@@ -1395,7 +1406,7 @@ pub fn ts_schema_types_import(module: Option<&str>, generated: &[crate::Generate
 /// query module, then each domain as a type alias of its base type (or of the
 /// literal union its `IN` check allows), documented with its comment and the
 /// rules its checks translate to. The caller adds the file's header.
-pub fn generate_ts_schema_types(
+pub(crate) fn generate_ts_schema_types(
     types: &crate::schema_types::SchemaTypes,
     naming: &NamingConfig,
     render_enum: impl Fn(&sqlkit_core::analyzer::EnumInfo) -> Result<String, SqlkitError>,

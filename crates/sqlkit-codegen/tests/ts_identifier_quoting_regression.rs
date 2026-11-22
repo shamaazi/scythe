@@ -102,7 +102,6 @@ fn assemble(backend: &dyn CodegenBackend, codes: &[GeneratedCode]) -> String {
         }
     }
     provenance::assemble_file(
-        &backend.file_preamble(),
         &provenance::header_line(
             backend,
             env!("CARGO_PKG_VERSION"),

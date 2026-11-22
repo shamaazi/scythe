@@ -12,7 +12,7 @@ pub use audit::{
     StatementParseFailure, SuppressionSet, canonical_specs, first_token_offset, load_rules_from_file, parse_rule_file,
     parse_statements_lenient, register_user_rules, validate_matcher_args,
 };
-pub use engine::{LintEngine, LintReport, QueryViolation};
+pub use engine::{LintEngine, LintReport, NameScope, QueryViolation};
 pub use registry::{RuleRegistry, default_registry, drift_registry, parse_registry, provenance_registry};
 pub use reporters::{Finding, Format, emit as emit_findings, extract_cwe};
 pub use rule::LintRule;

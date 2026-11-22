@@ -81,7 +81,6 @@ fn generated_file(backend_name: &str, sql: &str) -> String {
     }
 
     sqlkit_codegen::provenance::assemble_file(
-        &backend.file_preamble(),
         &sqlkit_codegen::provenance::header_line(
             &*backend,
             env!("CARGO_PKG_VERSION"),

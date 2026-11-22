@@ -287,8 +287,8 @@ pub trait CodegenBackend: Send + Sync {
     /// Names it through [`crate::model_struct_name`], the same function
     /// `determine_struct_name` uses to decide what the generated query
     /// functions *reference*, so declaration and reference cannot disagree
-    /// (#164). Backends whose model type is not a row type at all (Exposed
-    /// emits a table object) override this.
+    /// (#164). A backend whose model type is not a row type overrides
+    /// this.
     fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, SqlkitError> {
         let struct_name = crate::model_struct_name(table_name, &self.manifest().naming);
         self.generate_struct_decl(&struct_name, &struct_name, columns)
@@ -308,21 +308,6 @@ pub trait CodegenBackend: Send + Sync {
 
     /// Generate a composite type definition.
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, SqlkitError>;
-
-    /// Generate text that must be the literal first bytes of the generated
-    /// file — before any comment, including the provenance header that
-    /// assembly prepends ahead of [`file_header`](Self::file_header).
-    ///
-    /// For syntax that loses its meaning, or becomes a syntax error, if
-    /// anything precedes it (a magic first-line directive). Backends with such
-    /// a constraint override this method; everything else that may
-    /// legally follow a leading comment (imports, docstrings, `#!`-style
-    /// banners) stays in [`file_header`](Self::file_header).
-    ///
-    /// Returns an empty string by default; backends may override.
-    fn file_preamble(&self) -> String {
-        String::new()
-    }
 
     /// Generate a struct definition for a nested-aggregate result shape
     /// (`json_agg(o.*)`, `row_to_json(u.*)`, ...). PostgreSQL only; see
@@ -490,7 +475,7 @@ pub trait CodegenBackend: Send + Sync {
     /// free if its author forgets to override this. Before #103 the default
     /// was `Ok(())`, so any unrecognized key -- a typo, or a real key that
     /// TOML happily parsed but no override read -- was silently discarded
-    /// everywhere except the 11 TypeScript backends, which called
+    /// everywhere except the backends that called
     /// `reject_unknown_options` explicitly. The same typo behaving
     /// differently depending on target language was itself a trap; inverting
     /// the default closes it for every backend at once instead of requiring

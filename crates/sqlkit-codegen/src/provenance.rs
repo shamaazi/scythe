@@ -7,7 +7,7 @@
 //! `node --check`), and it can only substantiate the claim that the
 //! header sits in a position each language accepts if it assembles the same
 //! bytes the CLI writes. A second copy of the comment-prefix table, or of
-//! the preamble/header/body ordering, kept privately in the test harness,
+//! the header/body ordering, kept privately in the test harness,
 //! would drift from the real one silently — and it would drift precisely in
 //! the case the harness exists to catch.
 //!
@@ -190,7 +190,7 @@ pub fn parse_header_fields(line: &str) -> Option<Vec<(&str, String)>> {
 pub const ENGINE: &str = "postgresql";
 
 /// Build the provenance header line that [`assemble_file`] prepends to every
-/// generated file, right after [`CodegenBackend::file_preamble`] and before
+/// generated file, first, before
 /// [`CodegenBackend::file_header`]: the sentinel `sqlkit check` searches for,
 /// commented out using the target language's own line-comment syntax so it
 /// reads as an ordinary comment to every downstream compiler, formatter, and
@@ -390,21 +390,11 @@ where
     format!("{OPTIONS_FINGERPRINT_ALGORITHM_TAG}:{hash:016x}")
 }
 
-/// Join a backend's `preamble` (text that must be the literal first bytes of
-/// the file), the provenance `header` line, and the
-/// generated `body` into the one byte ordering every generated file uses.
-///
-/// The preamble is unconditionally first — even ahead of the provenance
-/// comment — because the constructs [`CodegenBackend::file_preamble`] carries
-/// lose their meaning if anything at all precedes them (see that method's
-/// doc comment).
-///
-/// A blank line separates the header from the body only when `preamble` is
-/// non-empty, so a file without a preamble starts with the header and then
-/// the body exactly as the backend wrote it.
-pub fn assemble_file(preamble: &str, header: &str, body: &str) -> String {
-    let separator = if preamble.is_empty() { "" } else { "\n" };
-    format!("{preamble}{header}{separator}{body}")
+/// Join the provenance `header` line and the generated `body` into the one
+/// byte ordering every generated file uses: the header first, then the body
+/// exactly as the backend wrote it.
+pub fn assemble_file(header: &str, body: &str) -> String {
+    format!("{header}{body}")
 }
 
 #[cfg(test)]
@@ -594,7 +584,6 @@ mod tests {
         let engine = "postgresql\nfn evil() {}";
 
         let file = assemble_file(
-            "",
             &header_line(
                 backend.as_ref(),
                 "0.15.0",
@@ -660,8 +649,8 @@ mod tests {
     }
 
     #[test]
-    fn assemble_file_omits_separator_when_preamble_is_empty() {
-        assert_eq!(assemble_file("", "// header\n", "body\n"), "// header\nbody\n");
+    fn assemble_file_puts_the_header_first() {
+        assert_eq!(assemble_file("// header\n", "body\n"), "// header\nbody\n");
     }
 
     // -----------------------------------------------------------------------

@@ -53,7 +53,6 @@ fn generate_full_file(backend_name: &str, query_sql: &str) -> String {
     push_bodies(&mut full, &codes);
 
     provenance::assemble_file(
-        &backend.file_preamble(),
         &provenance::header_line(
             &*backend,
             env!("CARGO_PKG_VERSION"),

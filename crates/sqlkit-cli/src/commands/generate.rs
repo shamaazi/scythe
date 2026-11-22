@@ -14,7 +14,7 @@ use sqlkit_codegen::{
 use sqlkit_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
 use sqlkit_core::catalog::Catalog;
 use sqlkit_core::parser::parse_query;
-use sqlkit_lint::{QueryViolation, RuleRegistry, Severity};
+use sqlkit_lint::{NameScope, QueryViolation, RuleRegistry, Severity};
 
 use super::shared::{
     CatalogLoadRequest, LintRegistries, PostgresEngine, config_dir, configured, has_unannotated_sql, load_catalog,
@@ -780,7 +780,6 @@ fn run_generate_inner(
                 eprintln!("[{}] warning: {warning}", sql_config.name);
             }
             let content = sqlkit_codegen::provenance::assemble_file(
-                &backend.file_preamble(),
                 &provenance_header_line(
                     backend.as_ref(),
                     &schema_fingerprint,
@@ -1073,17 +1072,10 @@ fn apply_manifest_override(
 /// overlay left the header byte-identical, so `sqlkit check` reported the
 /// stale artifact as fresh.
 ///
-/// Deliberately independent of [`apply_manifest_override`] mutating a real
-/// backend, even though both read the same file: this is called both when
-/// *writing* the header (`run_generate_inner`, alongside a full
-/// `apply_manifest_override` + `apply_options` on a constructed backend) and
-/// when *verifying* it (`verify_provenance`, which never constructs a
-/// fully-configured backend at all -- it only needs `backend.name()` for the
-/// finding's label). Reading the overlay file fresh here, rather than
-/// threading `apply_manifest_override`'s already-read content through to the
-/// verifier, is what keeps the write and verify paths from being able to
-/// silently disagree about what an overlay's content was after some future,
-/// partial refactor of either one.
+/// Called by [`prepare_target`], so writing the header (`generate`) and
+/// verifying it (`check`) compute it the same way. It hashes the overlay
+/// file's content as read here, independently of what
+/// [`apply_manifest_override`] merged.
 ///
 /// # Stability
 ///
@@ -1372,20 +1364,15 @@ fn record_type_declaration(
     Ok(())
 }
 
-/// Assemble a backend's complete generated file: preamble (text that must
-/// be the literal first bytes), the provenance header line, then the
-/// assembled body (file header, deduped enums, structs, query functions).
+/// Assemble a backend's complete generated file: the provenance header line,
+/// then the assembled body (file header, deduped enums, structs, query
+/// functions).
 ///
-/// Preamble and the provenance line are deliberately outside
-/// [`assemble_body`] and prepended here instead of inside it: `assemble_body`
-/// is exercised directly by tests that don't want a schema fingerprint or
-/// sqlkit version threaded through every call, and keeping the ordering
-/// invariant (preamble first, unconditionally, before anything else — even
-/// the provenance comment) in exactly one place is what makes it possible to
-/// state and test that invariant at all. That one place is
-/// [`sqlkit_codegen::provenance::assemble_file`], which also documents why
-/// the blank separator after the provenance line is conditional on the
-/// preamble being non-empty.
+/// The provenance line is deliberately outside [`assemble_body`] and
+/// prepended here instead: `assemble_body` is exercised directly by tests
+/// that don't want a schema fingerprint or sqlkit version threaded through
+/// every call, and the ordering lives in one place,
+/// [`sqlkit_codegen::provenance::assemble_file`].
 fn assemble_output(
     backend: &dyn CodegenBackend,
     results: &[QueryResult],
@@ -1395,7 +1382,6 @@ fn assemble_output(
     module: ModuleContext<'_>,
 ) -> String {
     sqlkit_codegen::provenance::assemble_file(
-        &backend.file_preamble(),
         &provenance_header_line(backend, schema, queries, options),
         &assemble_body(backend, results, module),
     )
@@ -1408,9 +1394,8 @@ fn assemble_output(
 /// fallback. Pure and I/O-free so it can be unit tested directly and so
 /// post-assembly steps (e.g. rustfmt) stay visibly separate in the caller.
 ///
-/// Excludes [`CodegenBackend::file_preamble`] and the provenance header
-/// line — both are [`assemble_output`]'s responsibility, not this
-/// function's. See its doc comment for why.
+/// Excludes the provenance header line -- [`assemble_output`]'s
+/// responsibility, not this function's. See its doc comment for why.
 fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult], module: ModuleContext<'_>) -> String {
     // Unioned across queries: an enum is emitted once for the whole file, so
     // any query reaching it through a nested aggregate decides the form for
@@ -1697,9 +1682,9 @@ fn generate_for_backend(
         // column to an opaque `json`/`json_array` scalar when the backend cannot build a
         // struct for it. That is a real narrowing of what the user asked for, and before
         // this loop nothing said so -- `generate` wrote the file and exited 0. Reported,
-        // not fatal: of the 19 PostgreSQL manifests only 4 build a real struct, so failing
-        // the rest would break working setups. The user needs to know which of their
-        // columns came back as a string, not to be stopped.
+        // not fatal: a backend may decline a nested struct it cannot build, and failing
+        // would break setups that work. The user needs to know which of their
+        // columns came back as opaque JSON, not to be stopped.
         for degraded in &code.degraded_nested_structs {
             eprintln!(
                 "[{config_name}] {}: column '{}' degraded to '{}' -- {} cannot build a nested struct \
@@ -2134,10 +2119,10 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
 
         let per_file_names = names_scoped_per_file(sql_config);
         all_violations.extend(
-            engine.check_duplicate_query_names_scoped(
+            engine.check_duplicate_query_names(
                 query_names
                     .iter()
-                    .map(|(file_index, name)| (if per_file_names { *file_index } else { 0 }, name.as_str())),
+                    .map(|(file_index, name)| (NameScope(if per_file_names { *file_index } else { 0 }), name.as_str())),
             ),
         );
 
@@ -4218,16 +4203,11 @@ backend = \"rust-sqlx\"
         assert_eq!(header.options.as_deref(), Some("opt1:0123456789abcdef"));
     }
 
-    /// A backend with no preamble (the overwhelming majority) must start
-    /// directly with the provenance line -- no leading blank line, no
-    /// leading anything else.
+    /// Generated output must start directly with the provenance line -- no
+    /// leading blank line, no leading anything else.
     #[test]
-    fn assemble_output_starts_with_provenance_line_when_backend_has_no_preamble() {
+    fn assemble_output_starts_with_provenance_line() {
         let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
-        assert!(
-            backend.file_preamble().is_empty(),
-            "test assumes rust-sqlx has no preamble"
-        );
 
         let output = assemble_output(
             backend.as_ref(),
@@ -4247,21 +4227,14 @@ backend = \"rust-sqlx\"
     /// Pins the blank-line regression found by generating real
     /// `integration_tests` projects and diffing the result (with just the
     /// provenance line stripped back out) against the committed artifacts:
-    /// for a backend with no `file_preamble()` override, the line
-    /// immediately after the provenance line must be `file_header()`'s
-    /// first line, never an empty line. An unconditional separator
-    /// (`format!("{prelude}\n{body}")` regardless of whether `preamble` was
-    /// empty) would insert a blank line here that the old, pre-provenance
-    /// output never had -- invisible in the assembled output itself, but
-    /// provable by stripping the provenance line and diffing against the
-    /// old bytes.
+    /// the line immediately after the provenance line must be
+    /// `file_header()`'s first line, never an empty line. A separator would
+    /// insert a blank line here that the old, pre-provenance output never
+    /// had -- invisible in the assembled output itself, but provable by
+    /// stripping the provenance line and diffing against the old bytes.
     #[test]
-    fn assemble_output_no_blank_line_after_provenance_when_preamble_is_empty() {
+    fn assemble_output_no_blank_line_after_provenance() {
         let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
-        assert!(
-            backend.file_preamble().is_empty(),
-            "test assumes rust-sqlx has no preamble"
-        );
 
         let header = backend.file_header();
         let expected_first_body_line = header
@@ -4285,10 +4258,7 @@ backend = \"rust-sqlx\"
         );
 
         let next_line = lines.next().expect("output must have a second line");
-        assert_ne!(
-            next_line, "",
-            "no blank line may follow the provenance line when preamble is empty"
-        );
+        assert_ne!(next_line, "", "no blank line may follow the provenance line");
         assert_eq!(
             next_line, expected_first_body_line,
             "the line after the provenance line must be file_header()'s first line, not a blank separator"
