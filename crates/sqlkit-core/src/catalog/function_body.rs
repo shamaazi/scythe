@@ -10,35 +10,9 @@ use sqlparser::ast::{self, CreateFunctionBody, Expr, GroupByExpr, Ident, SetExpr
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
-use crate::analyzer::{BodyArgument, analyze_function_body};
+use crate::analyzer::{BodyArgument, analyze_function_body, is_builtin_set_returning};
 
 use super::{Catalog, FunctionArgumentMode, FunctionReturn};
-
-/// Set-returning functions PostgreSQL provides, which make a `SELECT` without
-/// `FROM` return any number of rows when they appear in its select list.
-const BUILTIN_SET_RETURNING_FUNCTIONS: &[&str] = &[
-    "generate_series",
-    "generate_subscripts",
-    "unnest",
-    "json_array_elements",
-    "json_array_elements_text",
-    "jsonb_array_elements",
-    "jsonb_array_elements_text",
-    "json_each",
-    "json_each_text",
-    "jsonb_each",
-    "jsonb_each_text",
-    "json_object_keys",
-    "jsonb_object_keys",
-    "json_populate_recordset",
-    "jsonb_populate_recordset",
-    "json_to_recordset",
-    "jsonb_to_recordset",
-    "jsonb_path_query",
-    "regexp_matches",
-    "regexp_split_to_table",
-    "string_to_table",
-];
 
 /// The query a `LANGUAGE sql` function's body evaluates, when sqlkit can
 /// parse it: the last statement of an `AS '...'` body, or `SELECT expr` for a
@@ -125,7 +99,7 @@ fn returns_one_row(query: &ast::Query, catalog: &Catalog) -> bool {
                     )
                 })
             });
-            if catalog_set || BUILTIN_SET_RETURNING_FUNCTIONS.contains(&bare) {
+            if catalog_set || is_builtin_set_returning(bare) {
                 return ControlFlow::Break(());
             }
         }

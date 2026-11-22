@@ -5,6 +5,7 @@ use sqlparser::ast::{
 
 use crate::errors::{ErrorCode, SqlkitError};
 
+use super::builtins::is_value_preserving;
 use super::types::{AnalyzedColumn, AnalyzedParam, Scope, TypeInfo};
 
 // ---------------------------------------------------------------------------
@@ -336,41 +337,6 @@ pub(super) fn expr_to_name(expr: &Expr) -> String {
     }
 }
 
-/// Functions whose result means the same thing as their (first non-literal)
-/// argument, so a parameter compared with the call is named after that
-/// argument: `lower(email) = $1` takes `email`.
-const VALUE_PRESERVING_FUNCTIONS: &[&str] = &[
-    "lower",
-    "upper",
-    "initcap",
-    "trim",
-    "btrim",
-    "ltrim",
-    "rtrim",
-    "unaccent",
-    "normalize",
-    "coalesce",
-    "nullif",
-    "greatest",
-    "least",
-    "abs",
-    "round",
-    "trunc",
-    "floor",
-    "ceil",
-    "ceiling",
-    "date_trunc",
-    "left",
-    "right",
-    "substring",
-    "substr",
-    "lpad",
-    "rpad",
-    "replace",
-    "regexp_replace",
-    "translate",
-];
-
 /// The name a parameter compared with, or bound to, `expr` takes.
 ///
 /// Like [`expr_to_name`], except that it looks through functions that keep
@@ -391,11 +357,7 @@ pub(super) fn param_name(expr: &Expr) -> String {
         {
             key.clone()
         }
-        Expr::Function(func)
-            if VALUE_PRESERVING_FUNCTIONS
-                .iter()
-                .any(|name| object_name_to_string(&func.name).eq_ignore_ascii_case(name)) =>
-        {
+        Expr::Function(func) if is_value_preserving(&object_name_to_string(&func.name)) => {
             let args = match &func.args {
                 ast::FunctionArguments::List(list) => function_arg_exprs(&list.args),
                 _ => Vec::new(),

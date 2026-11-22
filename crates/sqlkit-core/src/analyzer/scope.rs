@@ -3,8 +3,8 @@ use sqlparser::ast::{self, JoinOperator, TableFactor};
 use crate::catalog::FunctionReturn;
 use crate::errors::SqlkitError;
 
-use super::builtins::builtin_relation;
-use super::expressions::{catalog_call_arguments_from_args, catalog_function_return_neutral, match_catalog_function};
+use super::builtins::{builtin_from_columns, builtin_relation};
+use super::expressions::{CallOutcome, CallResolution, catalog_function_return_neutral};
 use super::helpers::{
     UNRESOLVED_EXPR_MARKER, function_arg_exprs, ident_name, object_name_to_string, unresolved_type_error,
     widen_neutral_type,
@@ -151,7 +151,8 @@ impl<'a> Analyzer<'a> {
                     && let Some(columns) = builtin_relation(&table_name)
                 {
                     columns
-                        .map(|(name, sql_type)| {
+                        .iter()
+                        .map(|&(name, sql_type)| {
                             // `oid` and `xid` have no neutral type: such a column is
                             // reported when selected rather than mistyped.
                             let neutral = match sql_type {
@@ -170,64 +171,26 @@ impl<'a> Analyzer<'a> {
                     && self.catalog.get_functions(&table_name).is_some()
                 {
                     self.catalog_function_columns(&table_name, &function_args.args, scope, alias.as_ref())?
-                } else {
-                    let known_functions = [
-                        "generate_series",
-                        "unnest",
-                        "jsonb_array_elements",
-                        "json_array_elements",
-                        "jsonb_each",
-                        "json_each",
-                        "jsonb_each_text",
-                        "json_each_text",
-                        "jsonb_object_keys",
-                        "json_object_keys",
-                        "jsonb_populate_record",
-                        "json_populate_record",
-                        "jsonb_populate_recordset",
-                        "json_populate_recordset",
-                        "regexp_matches",
-                        "string_to_table",
-                    ];
-                    if known_functions.contains(&table_name.as_str()) {
-                        let arg_list: &[ast::FunctionArg] = args.as_ref().map(|a| a.args.as_slice()).unwrap_or(&[]);
-                        self.collect_set_function_arg_params(&table_name, arg_list, scope);
-                        let columns = match table_name.as_str() {
-                            // PostgreSQL table-valued function call
-                            // syntax (`FROM generate_series(1, 10)`, no
-                            // `LATERAL`) parses as `TableFactor::Table` with
-                            // `args: Some(...)`, not `TableFactor::Function`
-                            // -- this is the arm that actually runs for
-                            // ordinary `generate_series` calls (#123).
-                            "generate_series" => {
-                                let arg_exprs: &[ast::FunctionArg] =
-                                    args.as_ref().map(|a| a.args.as_slice()).unwrap_or(&[]);
-                                let result_type = self.generate_series_result_type(arg_exprs, &*scope);
-                                vec![ScopeColumn::new("generate_series", result_type, false)]
-                            }
-                            "jsonb_array_elements" | "json_array_elements" => {
-                                vec![ScopeColumn::new("value", "json", true)]
-                            }
-                            "jsonb_each" | "json_each" => vec![
-                                ScopeColumn::new("key", "string", false),
-                                ScopeColumn::new("value", "json", true),
-                            ],
-                            "jsonb_each_text" | "json_each_text" => vec![
-                                ScopeColumn::new("key", "string", false),
-                                ScopeColumn::new("value", "string", true),
-                            ],
-                            "jsonb_object_keys" | "json_object_keys" => {
-                                vec![ScopeColumn::new("jsonb_object_keys", "string", false)]
-                            }
-                            _ => Vec::new(),
-                        };
-                        with_function_alias_columns(columns, alias.as_ref(), *with_ordinality)
+                } else if let Some(fixed_columns) = builtin_from_columns(&table_name) {
+                    let arg_list: &[ast::FunctionArg] = args.as_ref().map(|a| a.args.as_slice()).unwrap_or(&[]);
+                    self.collect_set_function_arg_params(&table_name, arg_list, scope);
+                    // PostgreSQL table-valued function call syntax (`FROM
+                    // generate_series(1, 10)`, no `LATERAL`) parses as
+                    // `TableFactor::Table` with `args: Some(...)`, not
+                    // `TableFactor::Function` -- this is the arm that
+                    // actually runs for ordinary `generate_series` calls (#123).
+                    let columns = if table_name == "generate_series" {
+                        let result_type = self.generate_series_result_type(arg_list, &*scope);
+                        vec![ScopeColumn::new("generate_series", result_type, false)]
                     } else {
-                        return Err(SqlkitError::new(
-                            crate::errors::ErrorCode::UnknownTable,
-                            format!("relation \"{}\" does not exist", table_name),
-                        ));
-                    }
+                        builtin_scope_columns(fixed_columns)
+                    };
+                    with_function_alias_columns(columns, alias.as_ref(), *with_ordinality)
+                } else {
+                    return Err(SqlkitError::new(
+                        crate::errors::ErrorCode::UnknownTable,
+                        format!("relation \"{}\" does not exist", table_name),
+                    ));
                 };
 
                 scope.sources.push(ScopeSource {
@@ -363,19 +326,10 @@ impl<'a> Analyzer<'a> {
                         // it rather than leave a bare "unknown" that could reach
                         // codegen unexplained if it's ever selected (#223).
                         "unnest" => vec![ScopeColumn::new("unnest", UNRESOLVED_EXPR_MARKER, true)],
-                        "jsonb_array_elements" | "json_array_elements" => vec![ScopeColumn::new("value", "json", true)],
-                        "jsonb_each" | "json_each" => vec![
-                            ScopeColumn::new("key", "string", false),
-                            ScopeColumn::new("value", "json", true),
-                        ],
-                        "jsonb_each_text" | "json_each_text" => vec![
-                            ScopeColumn::new("key", "string", false),
-                            ScopeColumn::new("value", "string", true),
-                        ],
-                        "jsonb_object_keys" | "json_object_keys" => {
-                            vec![ScopeColumn::new("jsonb_object_keys", "string", false)]
-                        }
-                        _ => self.catalog_function_columns(&func_name, args, scope, alias.as_ref())?,
+                        _ => match builtin_from_columns(&func_name).filter(|columns| !columns.is_empty()) {
+                            Some(columns) => builtin_scope_columns(columns),
+                            None => self.catalog_function_columns(&func_name, args, scope, alias.as_ref())?,
+                        },
                     }
                 };
 
@@ -571,29 +525,20 @@ impl<'a> Analyzer<'a> {
         let Some(overloads) = self.catalog.get_functions(function_name) else {
             return Err(SqlkitError::unknown_function(function_name));
         };
-        let Some(call_arguments) = catalog_call_arguments_from_args(args) else {
+        let Some(CallResolution { inferred, outcome }) = self.resolve_call(overloads, args, scope) else {
             return Err(SqlkitError::type_mismatch(format!(
                 "function \"{function_name}\" has unsupported wildcard arguments"
             )));
         };
-        let inferred = call_arguments
-            .iter()
-            .map(|(_, expression)| self.infer_expr_type(expression, scope))
-            .collect::<Vec<_>>();
-        let mut matches = overloads
-            .iter()
-            .filter_map(|function| match_catalog_function(function, &call_arguments, &inferred, self.catalog))
-            .collect::<Vec<_>>();
-        matches.sort_by_key(|matched| matched.score);
-        let Some(best) = matches.first() else {
-            return Err(SqlkitError::type_mismatch(format!(
-                "no overload of function \"{function_name}\" accepts the supplied argument types"
-            )));
+        let best = match outcome {
+            CallOutcome::Resolved(best) => best,
+            CallOutcome::NoMatch => {
+                return Err(SqlkitError::type_mismatch(format!(
+                    "no overload of function \"{function_name}\" accepts the supplied argument types"
+                )));
+            }
+            CallOutcome::Ambiguous => return Err(SqlkitError::ambiguous_function(function_name)),
         };
-        if matches.get(1).is_some_and(|other| other.score == best.score) {
-            return Err(SqlkitError::ambiguous_function(function_name));
-        }
-        self.register_catalog_function_params(best, &call_arguments);
 
         let bare_name = function_name.rsplit('.').next().unwrap_or(function_name);
         let mut columns = match &best.function.return_type {
@@ -651,6 +596,14 @@ impl<'a> Analyzer<'a> {
         }
         Ok(columns)
     }
+}
+
+/// The scope columns of a built-in FROM item's fixed columns.
+fn builtin_scope_columns(columns: &[(&str, &str, bool)]) -> Vec<ScopeColumn> {
+    columns
+        .iter()
+        .map(|&(name, neutral_type, nullable)| ScopeColumn::new(name, neutral_type, nullable))
+        .collect()
 }
 
 /// A set-returning function's columns as its FROM item exposes them: `WITH

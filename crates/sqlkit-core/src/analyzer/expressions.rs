@@ -477,11 +477,22 @@ impl<'a> Analyzer<'a> {
             return self.infer_array_subquery_type(query, scope);
         }
 
-        if let Some(overloads) = self.builtin_overloads(&func_name) {
-            self.bind_builtin_arguments(func, overloads, scope);
-        }
+        // A function with declared overloads -- the schema's, else a
+        // built-in's -- has its arguments inferred once and its placeholders
+        // bound by the overload the call resolves to. An inference arm below
+        // still types the result where it has one.
+        let arguments = match &func.args {
+            ast::FunctionArguments::List(list) => list.args.as_slice(),
+            _ => &[],
+        };
+        let resolution = self
+            .function_overloads(&func_name)
+            .and_then(|overloads| self.resolve_call(overloads, arguments, scope));
 
-        let first_arg_ti = self.get_first_arg_type(func, scope);
+        let first_arg_ti = match resolution.as_ref().and_then(|resolution| resolution.inferred.first()) {
+            Some(first) => Some(first.clone()),
+            None => self.get_first_arg_type(func, scope),
+        };
         let first_arg_nullable = first_arg_ti.as_ref().map(|ti| ti.nullable).unwrap_or(true);
 
         match func_name.as_str() {
@@ -932,98 +943,79 @@ impl<'a> Analyzer<'a> {
             "nextval" | "currval" | "lastval" | "setval" => TypeInfo::new("int64", false),
             "pg_typeof" => TypeInfo::new("string", false),
 
-            _ => self.infer_catalog_function_type(func, scope).unwrap_or_else(|| {
-                let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
-                TypeInfo::new(format!("{UNKNOWN_FUNCTION_MARKER}{func_name}"), ti.nullable)
-            }),
+            _ => match &resolution {
+                Some(resolution) => self.resolved_call_type(&func_name, resolution),
+                None => {
+                    let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
+                    TypeInfo::new(format!("{UNKNOWN_FUNCTION_MARKER}{func_name}"), ti.nullable)
+                }
+            },
         }
     }
 
-    fn infer_catalog_function_type(&mut self, func: &ast::Function, scope: &Scope) -> Option<TypeInfo> {
-        let function_name = object_name_to_string(&func.name).to_lowercase();
-        let builtin = self.catalog.get_functions(&function_name).is_none();
-        let overloads = match self.catalog.get_functions(&function_name) {
-            Some(overloads) => overloads,
-            None => self.builtin_overloads(&function_name)?,
-        };
-        let call_arguments = catalog_call_arguments(func)?;
+    /// The overloads a call to `name` resolves among: the schema's functions
+    /// of that name, else PostgreSQL's built-in ones.
+    pub(super) fn function_overloads(&self, name: &str) -> Option<&'a [Function]> {
+        let catalog: &'a crate::catalog::Catalog = self.catalog;
+        catalog.get_functions(name).or_else(|| builtin_functions(name))
+    }
+
+    /// Resolve a call with `arguments` to one of `overloads` by PostgreSQL's
+    /// overload rules, inferring each argument once, and bind its
+    /// placeholders by the overload it resolves to. `None` when an argument
+    /// is a wildcard, which no overload takes.
+    pub(super) fn resolve_call<'f>(
+        &mut self,
+        overloads: &'f [Function],
+        arguments: &[FunctionArg],
+        scope: &Scope,
+    ) -> Option<CallResolution<'f>> {
+        let call_arguments = catalog_call_arguments_from_args(arguments)?;
         let inferred = call_arguments
             .iter()
             .map(|(_, expression)| self.infer_expr_type(expression, scope))
             .collect::<Vec<_>>();
-
         let mut matches = overloads
             .iter()
             .filter_map(|function| match_catalog_function(function, &call_arguments, &inferred, self.catalog))
             .collect::<Vec<_>>();
         matches.sort_by_key(|matched| matched.score);
-        let Some(best) = matches.first() else {
-            self.type_errors.push(format!(
-                "no overload of function \"{function_name}\" accepts the supplied argument types"
-            ));
-            return Some(TypeInfo::unknown());
+        let outcome = match matches.as_slice() {
+            [] => CallOutcome::NoMatch,
+            [best, other, ..] if other.score == best.score => CallOutcome::Ambiguous,
+            _ => {
+                let best = matches.swap_remove(0);
+                self.register_catalog_function_params(&best, &call_arguments);
+                CallOutcome::Resolved(best)
+            }
         };
-        if matches.get(1).is_some_and(|other| other.score == best.score) {
-            return Some(TypeInfo::new(
-                format!("{AMBIGUOUS_FUNCTION_MARKER}{function_name}"),
-                true,
-            ));
-        }
+        Some(CallResolution { inferred, outcome })
+    }
 
-        // A built-in's placeholders were bound by `bind_builtin_arguments`.
-        if !builtin {
-            self.register_catalog_function_params(best, &call_arguments);
-        }
-
-        let strict_null = best.strict_null_input(&inferred);
-        Some(match &best.function.return_type {
+    /// The type of a call `resolution` resolved, which a call to a function
+    /// without an inference arm takes.
+    fn resolved_call_type(&mut self, function_name: &str, resolution: &CallResolution<'_>) -> TypeInfo {
+        let best = match &resolution.outcome {
+            CallOutcome::Resolved(best) => best,
+            CallOutcome::NoMatch => {
+                self.type_errors.push(format!(
+                    "no overload of function \"{function_name}\" accepts the supplied argument types"
+                ));
+                return TypeInfo::unknown();
+            }
+            CallOutcome::Ambiguous => {
+                return TypeInfo::new(format!("{AMBIGUOUS_FUNCTION_MARKER}{function_name}"), true);
+            }
+        };
+        let strict_null = best.strict_null_input(&resolution.inferred);
+        match &best.function.return_type {
             FunctionReturn::Scalar { sql_type, nullable } | FunctionReturn::SetOf { sql_type, nullable } => {
                 TypeInfo::new(
-                    catalog_function_return_neutral(&function_name, sql_type, self.catalog),
+                    catalog_function_return_neutral(function_name, sql_type, self.catalog),
                     *nullable || strict_null,
                 )
             }
             FunctionReturn::Table { .. } => TypeInfo::new(UNRESOLVED_EXPR_MARKER, true),
-        })
-    }
-
-    /// The PostgreSQL built-in overloads of `name`, unless the schema defines
-    /// a function by that name.
-    pub(super) fn builtin_overloads(&self, name: &str) -> Option<&'static [Function]> {
-        if self.catalog.get_functions(name).is_some() {
-            return None;
-        }
-        builtin_functions(name)
-    }
-
-    /// Type the placeholders passed to a built-in function by the overload
-    /// the call resolves to. A call no overload accepts, or more than one
-    /// equally, binds nothing: inference arms type such calls themselves.
-    /// A placeholder argument is not nullable for being one.
-    fn bind_builtin_arguments(&mut self, func: &ast::Function, overloads: &[Function], scope: &Scope) {
-        let Some(call_arguments) = catalog_call_arguments(func) else {
-            return;
-        };
-        let inferred = call_arguments
-            .iter()
-            .map(|(_, expression)| self.infer_expr_type(expression, scope))
-            .collect::<Vec<_>>();
-        let mut matches = overloads
-            .iter()
-            .filter_map(|function| match_catalog_function(function, &call_arguments, &inferred, self.catalog))
-            .collect::<Vec<_>>();
-        matches.sort_by_key(|matched| matched.score);
-        let [best, rest @ ..] = matches.as_slice() else {
-            return;
-        };
-        if rest.first().is_some_and(|other| other.score == best.score) {
-            return;
-        }
-        for (call_index, declaration_index) in &best.bindings {
-            let declaration = &best.function.arguments[*declaration_index];
-            let neutral_type = sql_type_to_neutral(&declaration.sql_type, self.catalog);
-            let name = declaration.name.as_deref().unwrap_or("value");
-            self.collect_param_from_expr(call_arguments[*call_index].1, name, &neutral_type);
         }
     }
 
@@ -1383,6 +1375,21 @@ impl<'a> Analyzer<'a> {
     }
 }
 
+/// A call resolved by [`Analyzer::resolve_call`]: its arguments' types, by
+/// call position, and the overload it resolved to.
+pub(super) struct CallResolution<'f> {
+    pub(super) inferred: Vec<TypeInfo>,
+    pub(super) outcome: CallOutcome<'f>,
+}
+
+pub(super) enum CallOutcome<'f> {
+    Resolved(CatalogFunctionMatch<'f>),
+    /// No overload accepts the arguments.
+    NoMatch,
+    /// Several overloads accept them equally well.
+    Ambiguous,
+}
+
 pub(super) struct CatalogFunctionMatch<'a> {
     pub(super) function: &'a Function,
     pub(super) score: u32,
@@ -1405,13 +1412,6 @@ impl CatalogFunctionMatch<'_> {
                         && !self.bindings.iter().any(|(_, declared)| *declared == index)
                 }))
     }
-}
-
-fn catalog_call_arguments(func: &ast::Function) -> Option<Vec<(Option<String>, &Expr)>> {
-    let ast::FunctionArguments::List(arguments) = &func.args else {
-        return Some(Vec::new());
-    };
-    catalog_call_arguments_from_args(&arguments.args)
 }
 
 pub(super) fn catalog_call_arguments_from_args(arguments: &[FunctionArg]) -> Option<Vec<(Option<String>, &Expr)>> {

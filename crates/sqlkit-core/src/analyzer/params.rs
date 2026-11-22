@@ -368,11 +368,7 @@ impl<'a> Analyzer<'a> {
     /// NULL argument makes the call NULL.
     fn is_strict_function(&self, func: &ast::Function) -> bool {
         let name = object_name_to_string(&func.name).to_lowercase();
-        let overloads = self
-            .catalog
-            .get_functions(&name)
-            .or_else(|| self.builtin_overloads(&name))
-            .unwrap_or_default();
+        let overloads = self.function_overloads(&name).unwrap_or_default();
         !overloads.is_empty() && overloads.iter().all(|function| function.strict)
     }
 

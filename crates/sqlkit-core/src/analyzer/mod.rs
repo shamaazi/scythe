@@ -10,6 +10,7 @@ mod statements;
 mod type_conversion;
 mod types;
 
+pub(crate) use builtins::is_set_returning as is_builtin_set_returning;
 pub(crate) use function_body::{BodyArgument, analyze_function_body};
 pub use type_conversion::sql_type_to_neutral;
 pub use types::{
@@ -3073,7 +3074,12 @@ SELECT id, moods FROM t WHERE id = $1;",
             param_types(&result),
             [(1, "string"), (2, "int32"), (3, "int32"), (4, "string")]
         );
-        assert!(result.params.iter().all(|p| !p.nullable));
+        let nullable: Vec<_> = result.params.iter().map(|p| p.nullable).collect();
+        assert_eq!(
+            nullable,
+            [false, false, false, true],
+            "set_config is called on NULL input"
+        );
     }
 
     #[test]
