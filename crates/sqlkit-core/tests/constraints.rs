@@ -666,3 +666,32 @@ fn should_keep_quoted_text_literals_as_strings_and_cast_numbers_as_numbers() {
         assert_eq!(constraints.untranslated.len(), 1, "{column}");
     }
 }
+
+#[test]
+fn should_read_alter_domain_constraint_names_as_postgresql_does() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE DOMAIN code AS text
+            CONSTRAINT \"Has Letters\" CHECK (VALUE ~ '^[a-z]+$')
+            CONSTRAINT \"too long\" CHECK (length(VALUE) <= 8)
+            CONSTRAINT Short CHECK (length(VALUE) <= 20)
+            CONSTRAINT \"Long\" CHECK (length(VALUE) >= 1);",
+        "ALTER DOMAIN code ADD CONSTRAINT /* ä */ \"min\n2\" CHECK (length(VALUE) >= 2) NOT VALID;",
+        // Quoted names keep their spaces and case.
+        "ALTER DOMAIN code DROP CONSTRAINT \"too long\" CASCADE;",
+        // An unquoted name is lowercased, so this drops `short`, not `Long`.
+        "ALTER DOMAIN code DROP /* a comment */ CONSTRAINT\n\tIF EXISTS SHORT RESTRICT;",
+        "ALTER DOMAIN code DROP CONSTRAINT IF EXISTS long;",
+        "ALTER DOMAIN code VALIDATE -- a comment\n CONSTRAINT \"min\n2\";",
+        "ALTER DOMAIN code RENAME CONSTRAINT \"Has Letters\" TO \"Is Lower\";",
+    ])
+    .unwrap();
+    let facts = catalog.domain_constraint_facts("code").unwrap();
+    let names: Vec<_> = facts.checks.iter().map(|c| c.system_name.as_str()).collect();
+    assert_eq!(names, ["Is Lower", "Long", "min\n2"]);
+    let rules = catalog.domain_constraints("code").unwrap().rules;
+    assert_eq!(
+        (rules.pattern, rules.min_length, rules.max_length),
+        (s("^[a-z]+$"), Some(2), None),
+        "the NOT VALID check was validated by its quoted name"
+    );
+}

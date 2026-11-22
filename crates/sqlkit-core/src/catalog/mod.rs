@@ -684,66 +684,97 @@ impl Catalog {
     /// here; its other forms change nothing the catalog records about values
     /// and are skipped.
     fn process_alter_domain(&mut self, sql: &str) {
-        let trimmed = sql.trim().trim_end_matches(';').trim();
-        // ASCII uppercasing keeps byte offsets valid in `trimmed`; see
-        // `try_parse_create_domain`.
-        let upper = trimmed.to_ascii_uppercase();
-        let name_start = skip_ws(&upper, "ALTER DOMAIN".len());
-        let name_end = find_ws(&upper, name_start);
-        let Some(key) = self.domain_key(&trimmed[name_start..name_end].to_lowercase()) else {
+        use sqlparser::tokenizer::Token;
+        let sql = sql.trim().trim_end_matches(';').trim_end();
+        let Some(tokens) = sql_tokens(sql) else {
             return;
         };
-        let rest = &trimmed[name_end..];
-        let tokens: Vec<&str> = rest.split_whitespace().collect();
-        let keyword = |i: usize, keyword: &str| tokens.get(i).is_some_and(|t| t.eq_ignore_ascii_case(keyword));
-        let identifier = |i: usize| tokens.get(i).map(|t| constraints::unquote_identifier(t));
-        if keyword(0, "ADD") {
-            let rest_upper = &upper[name_end..];
-            let after_add = skip_ws(rest_upper, 0) + "ADD".len();
-            let not_valid = top_level_keywords(&rest[after_add..], &["NOT", "VALID"]);
-            let namespace = self.namespace_of(&key).to_string();
-            let mut taken = self.constraint_names(&namespace);
-            let mut checks = Vec::new();
-            let mut other_constraints = Vec::new();
-            for constraint in constraints::domain_constraints(&rest[after_add..]) {
-                match constraint {
-                    DomainConstraint::Check { name, body } => {
-                        let mut check = self.domain_check(&key, name, &body, &mut taken);
-                        check.validated = !not_valid;
-                        checks.push(check);
-                    }
-                    DomainConstraint::NamedNotNull(name) => other_constraints.push(name),
-                }
-            }
-            if let Some(domain) = self.domains.get_mut(&key) {
-                domain.constraints.checks.extend(checks);
-                domain.other_constraints.extend(other_constraints);
-            }
+        let [alter, domain, rest @ ..] = tokens.as_slice() else {
+            return;
+        };
+        if !alter.is_keyword("ALTER") || !domain.is_keyword("DOMAIN") {
             return;
         }
-        let Some(domain) = self.domains.get_mut(&key) else {
+        // The name, `name` or `schema.name`, keyed as `CREATE DOMAIN` keys it.
+        let mut name_end = 0;
+        while matches!(rest.get(name_end).map(|t| &t.token), Some(Token::Word(_))) {
+            name_end += 1;
+            if !matches!(rest.get(name_end).map(|t| &t.token), Some(Token::Period)) {
+                break;
+            }
+            name_end += 1;
+        }
+        let name: String = rest[..name_end].iter().map(|token| token.token.to_string()).collect();
+        let Some(key) = self.domain_key(&name.to_lowercase()) else {
             return;
         };
-        let checks = &mut domain.constraints.checks;
-        if keyword(0, "DROP") && keyword(1, "CONSTRAINT") {
-            let at = if keyword(2, "IF") && keyword(3, "EXISTS") { 4 } else { 2 };
-            if let Some(name) = identifier(at) {
-                checks.retain(|check| check.system_name != name);
-                domain.other_constraints.retain(|other| *other != name);
+        let identifier = |token: &SqlToken| token.identifier();
+        match &rest[name_end..] {
+            [add, after_add, ..] if add.is_keyword("ADD") => {
+                let tail = &sql[after_add.offset..];
+                let not_valid = top_level_keywords(tail, &["NOT", "VALID"]);
+                let namespace = self.namespace_of(&key).to_string();
+                let mut taken = self.constraint_names(&namespace);
+                let mut checks = Vec::new();
+                let mut other_constraints = Vec::new();
+                for constraint in constraints::domain_constraints(tail) {
+                    match constraint {
+                        DomainConstraint::Check { name, body } => {
+                            let mut check = self.domain_check(&key, name, &body, &mut taken);
+                            check.validated = !not_valid;
+                            checks.push(check);
+                        }
+                        DomainConstraint::NamedNotNull(name) => other_constraints.push(name),
+                    }
+                }
+                if let Some(domain) = self.domains.get_mut(&key) {
+                    domain.constraints.checks.extend(checks);
+                    domain.other_constraints.extend(other_constraints);
+                }
             }
-        } else if keyword(0, "VALIDATE") && keyword(1, "CONSTRAINT") {
-            if let Some(name) = identifier(2) {
-                validate_check(checks, &name);
+            [drop, constraint, if_, exists, name, ..]
+                if drop.is_keyword("DROP")
+                    && constraint.is_keyword("CONSTRAINT")
+                    && if_.is_keyword("IF")
+                    && exists.is_keyword("EXISTS") =>
+            {
+                if let Some(name) = identifier(name) {
+                    self.drop_domain_constraint(&key, &name);
+                }
             }
-        } else if keyword(0, "RENAME")
-            && keyword(1, "CONSTRAINT")
-            && keyword(3, "TO")
-            && let (Some(old), Some(new)) = (identifier(2), identifier(4))
-        {
-            rename_check(checks, &old, &new);
-            for other in domain.other_constraints.iter_mut().filter(|other| **other == old) {
-                other.clone_from(&new);
+            [drop, constraint, name, ..] if drop.is_keyword("DROP") && constraint.is_keyword("CONSTRAINT") => {
+                if let Some(name) = identifier(name) {
+                    self.drop_domain_constraint(&key, &name);
+                }
             }
+            [validate, constraint, name, ..]
+                if validate.is_keyword("VALIDATE") && constraint.is_keyword("CONSTRAINT") =>
+            {
+                if let (Some(name), Some(domain)) = (identifier(name), self.domains.get_mut(&key)) {
+                    validate_check(&mut domain.constraints.checks, &name);
+                }
+            }
+            [rename, constraint, old, to, new, ..]
+                if rename.is_keyword("RENAME") && constraint.is_keyword("CONSTRAINT") && to.is_keyword("TO") =>
+            {
+                if let (Some(old), Some(new), Some(domain)) =
+                    (identifier(old), identifier(new), self.domains.get_mut(&key))
+                {
+                    rename_check(&mut domain.constraints.checks, &old, &new);
+                    for other in domain.other_constraints.iter_mut().filter(|other| **other == old) {
+                        other.clone_from(&new);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Drop the constraint PostgreSQL knows as `name` from the domain `key`.
+    fn drop_domain_constraint(&mut self, key: &str, name: &str) {
+        if let Some(domain) = self.domains.get_mut(key) {
+            domain.constraints.checks.retain(|check| check.system_name != name);
+            domain.other_constraints.retain(|other| other != name);
         }
     }
 
@@ -1699,34 +1730,93 @@ fn dollar_quote_delimiter(value: &str) -> Option<usize> {
         .then_some(closing + 1)
 }
 
+/// A token of SQL other than whitespace or a comment, with the byte offset
+/// it starts at.
+pub(crate) struct SqlToken {
+    pub(crate) offset: usize,
+    pub(crate) token: sqlparser::tokenizer::Token,
+}
+
+impl SqlToken {
+    /// Whether the token is the unquoted keyword `keyword`, in any case.
+    pub(crate) fn is_keyword(&self, keyword: &str) -> bool {
+        matches!(&self.token, sqlparser::tokenizer::Token::Word(word)
+            if word.quote_style.is_none() && word.value.eq_ignore_ascii_case(keyword))
+    }
+
+    /// The identifier the token spells, as PostgreSQL stores it: a quoted
+    /// one verbatim, an unquoted one lowercased.
+    pub(crate) fn identifier(&self) -> Option<String> {
+        match &self.token {
+            sqlparser::tokenizer::Token::Word(word) if word.quote_style == Some('"') => Some(word.value.clone()),
+            sqlparser::tokenizer::Token::Word(word) if word.quote_style.is_none() => Some(word.value.to_lowercase()),
+            _ => None,
+        }
+    }
+}
+
+/// The tokens of `sql` as PostgreSQL's lexer reads them, without whitespace
+/// and comments, or `None` if `sql` does not tokenize (an unterminated
+/// string or quoted identifier).
+pub(crate) fn sql_tokens(sql: &str) -> Option<Vec<SqlToken>> {
+    use sqlparser::tokenizer::{Token, Tokenizer};
+    let tokens = Tokenizer::new(&PostgreSqlDialect {}, sql)
+        .tokenize_with_location()
+        .ok()?;
+    // The tokenizer locates a token by line (split at `\n`) and column (in
+    // characters), both from 1.
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(sql.match_indices('\n').map(|(at, _)| at + 1))
+        .collect();
+    let offset = |location: Location| {
+        let line_start = usize::try_from(location.line)
+            .ok()
+            .and_then(|line| line_starts.get(line.checked_sub(1)?))
+            .copied()
+            .unwrap_or(sql.len());
+        let column = usize::try_from(location.column.saturating_sub(1)).unwrap_or(usize::MAX);
+        sql[line_start..]
+            .char_indices()
+            .nth(column)
+            .map_or(sql.len(), |(at, _)| line_start + at)
+    };
+    Some(
+        tokens
+            .into_iter()
+            .filter(|token| !matches!(token.token, Token::Whitespace(_) | Token::EOF))
+            .map(|token| SqlToken {
+                offset: offset(token.span.start),
+                token: token.token,
+            })
+            .collect(),
+    )
+}
+
 /// Whether the words `keywords` follow each other in `sql` outside any
 /// parentheses, with only whitespace and comments between them -- how
 /// PostgreSQL's grammar reads a keyword sequence such as `NOT VALID`. String
 /// literals, quoted identifiers and comments never match.
 fn top_level_keywords(sql: &str, keywords: &[&str]) -> bool {
-    use sqlparser::tokenizer::{Token, Tokenizer};
-    let Ok(tokens) = Tokenizer::new(&PostgreSqlDialect {}, sql).tokenize() else {
+    use sqlparser::tokenizer::Token;
+    let Some(tokens) = sql_tokens(sql) else {
         return false;
     };
     let mut depth = 0usize;
-    let mut words: Vec<Option<&str>> = Vec::new();
+    let mut top_level = Vec::with_capacity(tokens.len());
     for token in &tokens {
-        match token {
-            Token::Whitespace(_) => continue,
+        let at_top = depth == 0;
+        match token.token {
             Token::LParen => depth += 1,
             Token::RParen => depth = depth.saturating_sub(1),
             _ => {}
         }
-        words.push(match token {
-            Token::Word(word) if word.quote_style.is_none() && depth == 0 => Some(word.value.as_str()),
-            _ => None,
-        });
+        top_level.push(at_top && depth == 0);
     }
-    words.windows(keywords.len()).any(|window| {
-        window
+    (0..tokens.len().saturating_sub(keywords.len() - 1)).any(|start| {
+        keywords
             .iter()
-            .zip(keywords)
-            .all(|(word, keyword)| word.is_some_and(|word| word.eq_ignore_ascii_case(keyword)))
+            .enumerate()
+            .all(|(i, keyword)| top_level[start + i] && tokens[start + i].is_keyword(keyword))
     })
 }
 

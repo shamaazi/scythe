@@ -518,62 +518,57 @@ pub(crate) enum DomainConstraint {
 /// ... ADD`, in the order written: the checks, and the not-null constraints
 /// given a name.
 pub(crate) fn domain_constraints(tail: &str) -> Vec<DomainConstraint> {
-    let outside = super::sql_outside_mask(tail);
-    let bytes = tail.as_bytes();
+    use sqlparser::tokenizer::Token;
+    let Some(tokens) = super::sql_tokens(tail) else {
+        return Vec::new();
+    };
+    // The index of the `)` closing the `(` at `open`.
+    let closing = |open: usize| {
+        let mut depth = 0usize;
+        (open..tokens.len()).find(|&at| {
+            match tokens[at].token {
+                Token::LParen => depth += 1,
+                Token::RParen => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            depth == 0
+        })
+    };
     let mut constraints = Vec::new();
-    let mut depth = 0usize;
     let mut name: Option<String> = None;
     let mut index = 0usize;
-    while index < bytes.len() {
-        if !outside[index] {
-            index += 1;
-            continue;
-        }
-        match bytes[index] {
-            b'(' => depth += 1,
-            b')' => depth = depth.saturating_sub(1),
-            _ if depth == 0 && super::keyword_at(bytes, index, "CONSTRAINT") => {
-                let start = super::skip_ws(tail, index + "CONSTRAINT".len());
-                let end = super::find_ws(tail, start);
-                name = Some(unquote_identifier(&tail[start..end]));
-                index = end;
-                continue;
-            }
-            _ if depth == 0 && super::keyword_at(bytes, index, "NOT") => {
-                if let Some(name) = name.take() {
-                    constraints.push(DomainConstraint::NamedNotNull(name));
-                }
-            }
-            // `NULL` is not stored, and neither is the name given to it.
-            _ if depth == 0 && super::keyword_at(bytes, index, "NULL") => name = None,
-            _ if depth == 0 && super::keyword_at(bytes, index, "CHECK") => {
-                let Some(open) = super::find_char_outside(tail, &outside, '(', index) else {
-                    break;
-                };
-                let Some(close) = super::matching_parenthesis(tail, &outside, open) else {
-                    break;
-                };
-                constraints.push(DomainConstraint::Check {
-                    name: name.take(),
-                    body: tail[open + 1..close].trim().to_string(),
-                });
-                index = close + 1;
-                continue;
-            }
-            _ => {}
-        }
+    while let Some(token) = tokens.get(index) {
         index += 1;
+        if token.token == Token::LParen {
+            // A parenthesized group outside a check (a typmod, a `DEFAULT`
+            // expression) holds no constraint keywords.
+            index = closing(index - 1).map_or(tokens.len(), |close| close + 1);
+        } else if token.is_keyword("CONSTRAINT") {
+            name = tokens.get(index).and_then(super::SqlToken::identifier);
+            index += 1;
+        } else if token.is_keyword("NOT") {
+            if let Some(name) = name.take() {
+                constraints.push(DomainConstraint::NamedNotNull(name));
+            }
+        } else if token.is_keyword("NULL") {
+            // `NULL` is not stored, and neither is the name given to it.
+            name = None;
+        } else if token.is_keyword("CHECK") {
+            let Some(close) = tokens
+                .get(index)
+                .filter(|open| open.token == Token::LParen)
+                .and_then(|_| closing(index))
+            else {
+                break;
+            };
+            constraints.push(DomainConstraint::Check {
+                name: name.take(),
+                body: tail[tokens[index].offset + 1..tokens[close].offset].trim().to_string(),
+            });
+            index = close + 1;
+        }
     }
     constraints
-}
-
-/// An identifier as PostgreSQL stores it: a quoted one verbatim, an unquoted
-/// one lowercased.
-pub(crate) fn unquote_identifier(identifier: &str) -> String {
-    match identifier.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) {
-        Some(quoted) => quoted.replace("\"\"", "\""),
-        None => identifier.to_lowercase(),
-    }
 }
 
 impl Catalog {
