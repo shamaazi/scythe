@@ -3,12 +3,10 @@
 
 use std::collections::HashMap;
 
-use async_trait::async_trait;
 use sqlkit_lint::reporters::Finding;
 use sqlkit_lint::types::Severity;
 use tokio_postgres::{Client, NoTls};
 
-use crate::driver::{CheckCatalogEntry, DbDriver};
 use crate::error::InspectError;
 use crate::registry::CheckRegistry;
 use crate::spec::CheckSpec;
@@ -57,17 +55,13 @@ const SC_INS10_ID: &str = "SC-INS10";
 /// succeeds; methods that need the client return
 /// [`InspectError::NotConnected`] otherwise.
 ///
-/// The check registry is built once at construction time from the embedded
-/// canonical TOML; it is stored on the driver so `checks()` can return
-/// a borrowed slice backed by the registry.
+/// Construction is infallible and connectionless, so `--list-checks` can
+/// print the catalog without touching a database: call
+/// [`connect`](Self::connect) before [`run_all`](Self::run_all).
 pub struct PostgresDriver {
     client: Option<Client>,
     /// Canonical check registry, built at `new()`.
     registry: CheckRegistry,
-    /// Catalog entries derived from `registry` at construction, stored so
-    /// `checks()` can return a `&[CheckCatalogEntry]` without lifetime
-    /// gymnastics.
-    catalog: Vec<CheckCatalogEntry>,
     /// Postgres server version number (e.g. `160004` for PG 16.4).
     ///
     /// `None` until `connect()` succeeds and `SHOW server_version_num` is
@@ -85,47 +79,17 @@ pub struct PostgresDriver {
 }
 
 impl PostgresDriver {
-    /// Construct an unconnected driver and load the canonical check registry.
-    /// Call [`DbDriver::connect`] before [`DbDriver::run_all`].
+    /// Construct an unconnected driver with the canonical check registry.
     pub fn new() -> Self {
-        let registry = CheckRegistry::canonical();
-        let catalog = registry
-            .for_engine("postgres")
-            .map(|spec| CheckCatalogEntry {
-                id: spec.id.clone(),
-                name: spec.name.clone(),
-                severity: spec.severity,
-                description: spec.description.clone(),
-            })
-            .collect();
-        Self {
-            client: None,
-            registry,
-            catalog,
-            pg_version: None,
-            suppression: None,
-            api_schemas: Vec::new(),
-        }
+        Self::with_registry(CheckRegistry::canonical())
     }
 
     /// Build a driver with a pre-configured registry (e.g. after applying
     /// severity overrides and user checks from `[inspect]` config).
-    ///
-    /// The catalog is derived from the provided registry.
     pub fn with_registry(registry: CheckRegistry) -> Self {
-        let catalog = registry
-            .for_engine("postgres")
-            .map(|spec| CheckCatalogEntry {
-                id: spec.id.clone(),
-                name: spec.name.clone(),
-                severity: spec.severity,
-                description: spec.description.clone(),
-            })
-            .collect();
         Self {
             client: None,
             registry,
-            catalog,
             pg_version: None,
             suppression: None,
             api_schemas: Vec::new(),
@@ -154,21 +118,10 @@ impl PostgresDriver {
     pub fn client(&self) -> Option<&Client> {
         self.client.as_ref()
     }
-}
 
-impl Default for PostgresDriver {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl DbDriver for PostgresDriver {
-    fn engine(&self) -> &str {
-        "postgres"
-    }
-
-    async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
+    /// Open a connection to `url` and store the client, replacing any held one.
+    /// Errors are returned as [`InspectError::Connect`].
+    pub async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
         let (client, connection) = tokio_postgres::connect(url, NoTls)
             .await
             .map_err(|e| InspectError::Connect {
@@ -203,11 +156,13 @@ impl DbDriver for PostgresDriver {
         Ok(())
     }
 
-    fn checks(&self) -> &[CheckCatalogEntry] {
-        &self.catalog
-    }
-
-    async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError> {
+    /// Run every check in the registry and return their findings.
+    ///
+    /// Returns [`InspectError::NotConnected`] if `connect` has not succeeded.
+    /// A per-check failure degrades to a single warning [`Finding`] naming the
+    /// check instead of stopping the run, so one bad query never loses the
+    /// rest of the report.
+    pub async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError> {
         let client = self
             .client
             .as_ref()
@@ -264,25 +219,15 @@ impl DbDriver for PostgresDriver {
     }
 }
 
+impl Default for PostgresDriver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn engine_name_is_postgres() {
-        assert_eq!(PostgresDriver::new().engine(), "postgres");
-    }
-
-    #[test]
-    fn catalog_lists_canonical_checks() {
-        use crate::spec::CANONICAL_CHECK_IDS;
-        let d = PostgresDriver::new();
-        let catalog = d.checks();
-        assert_eq!(catalog.len(), CANONICAL_CHECK_IDS.len());
-        assert_eq!(catalog[0].id, "SC-INS01");
-        assert_eq!(catalog[1].id, "SC-INS02");
-        assert_eq!(catalog[2].id, "SC-INS03");
-    }
 
     /// Regression guard for the SC-INS13 outage: PostgreSQL only defines the
     /// two-argument `round(v, s)` for `numeric`, so `round(float8, int)` fails
@@ -343,13 +288,5 @@ mod tests {
         let pg_16: u32 = 160007;
         assert!(pg_14 < min_major.saturating_mul(10_000));
         assert!(pg_16 >= min_major.saturating_mul(10_000));
-    }
-
-    #[test]
-    fn with_registry_builds_catalog_correctly() {
-        use crate::spec::CANONICAL_CHECK_IDS;
-        let reg = CheckRegistry::canonical();
-        let d = PostgresDriver::with_registry(reg);
-        assert_eq!(d.checks().len(), CANONICAL_CHECK_IDS.len());
     }
 }

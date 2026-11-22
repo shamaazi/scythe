@@ -1625,7 +1625,6 @@ dependencies = [
 name = "sqlkit-inspect"
 version = "0.20.3"
 dependencies = [
- "async-trait",
  "regex",
  "serde",
  "serde_json",

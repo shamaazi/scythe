@@ -80,8 +80,7 @@ pub struct CheckSpec {
     pub message: String,
     /// SQL executed verbatim against the driver client.
     ///
-    /// Must be a `SELECT` returning zero or more rows; each row produces one
-    /// [`crate::driver::CheckCatalogEntry`]-worth of finding data.
+    /// Must be a `SELECT` returning zero or more rows; each row produces one finding.
     pub sql: String,
     /// CWE identifiers for SARIF output, e.g. `["CWE-732"]`.
     #[serde(default)]

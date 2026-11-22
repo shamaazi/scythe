@@ -19,13 +19,12 @@ include = [
 
 [features]
 default = ["postgres"]
-# `postgres` pulls in the PostgreSQL client; without it the live checks report
-# `InspectError::EngineDisabled`, naming the feature to enable.
+# `postgres` pulls in the PostgreSQL client: the live checks, schema drift and
+# query verification. Without it only the database-free parts compile.
 live-tests = []
 postgres = ["dep:tokio", "dep:tokio-postgres", "dep:tracing"]
 
 [dependencies]
-async-trait = "0.1"
 regex = "1"
 sqlkit-core = { path = "../sqlkit-core", version = "0.20.3" }
 sqlkit-lint = { path = "../sqlkit-lint", version = "0.20.3" }

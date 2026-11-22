@@ -15,16 +15,17 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
+use sqlkit_inspect::{CheckRegistry, InspectConfig, InspectError, parse_inspect_section};
 #[cfg(feature = "postgres")]
-use sqlkit_inspect::PostgresDriver;
-#[cfg(feature = "postgres")]
-use sqlkit_inspect::SuppressionEngine;
-use sqlkit_inspect::{CheckRegistry, DbDriver, InspectConfig, InspectError, UnsupportedDriver, parse_inspect_section};
+use sqlkit_inspect::{PostgresDriver, SuppressionEngine};
 use sqlkit_lint::reporters::{Finding, Format};
 use sqlkit_lint::{Severity, emit_findings};
 
 const TOOL_NAME: &str = "sqlkit-inspect";
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The engine name the inspect check specs declare (`engines = ["postgres"]`).
+const CHECK_ENGINE: &str = "postgres";
 
 /// Inputs to [`run_inspect`]. Mirrors the clap `Commands::Inspect` shape.
 pub struct RunInspectOpts {
@@ -42,8 +43,6 @@ pub struct RunInspectOpts {
     pub exit_zero: bool,
     /// Output path; `None` means stdout.
     pub output: Option<String>,
-    /// Engine override. Defaults to the URL scheme (`postgres` if no URL).
-    pub dialect: Option<String>,
     /// Path to `sqlkit.toml` (default: `"sqlkit.toml"`).
     pub config_path: String,
 }
@@ -55,18 +54,16 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
             None
         });
 
-    let engine = resolve_engine(opts.dialect.as_deref(), opts.database_url.as_deref())?;
-
-    let registry = build_registry(opts.config_path.as_str(), &engine, &inspect_config)?;
+    let registry = build_registry(&inspect_config)?;
 
     if opts.list_checks || opts.explain.is_some() {
         let mut out = open_output(opts.output.as_deref())?;
         if opts.list_checks {
-            print_check_catalog_from_registry(&registry, &engine, out.as_mut())?;
+            print_check_catalog_from_registry(&registry, out.as_mut())?;
             return Ok(());
         }
         if let Some(id) = &opts.explain {
-            print_explanation(&registry, &engine, id, out.as_mut())?;
+            print_explanation(&registry, id, out.as_mut())?;
             return Ok(());
         }
     }
@@ -84,16 +81,7 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
     let config_db_url = inspect_config.as_ref().and_then(|c| c.database_url.as_deref());
     let url = resolve_url(opts.database_url.as_deref(), config_db_url)?;
 
-    let mut driver = build_driver_with_config(&engine, registry, &inspect_config);
-
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-
-    let findings: Vec<Finding> = rt.block_on(async {
-        driver.connect(&url).await?;
-        driver.run_all().await
-    })?;
-
-    let mut findings = findings;
+    let mut findings = live_findings(&url, registry, &inspect_config)?;
     if let Some(floor) = severity_floor {
         findings.retain(|f| f.severity >= floor);
     }
@@ -112,15 +100,13 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// Build a [`CheckRegistry`] for the given engine with:
+/// Build a [`CheckRegistry`] with:
 /// 1. The canonical built-in checks.
 /// 2. Inline user checks from `[[inspect.check]]`.
 /// 3. Extra rules from `extra_rules` paths (already resolved to absolute by
 ///    `parse_inspect_section`).
 /// 4. Severity overrides from `[inspect.severity_overrides]`.
 pub(crate) fn build_registry(
-    config_path: &str,
-    _engine: &str,
     inspect_config: &Option<InspectConfig>,
 ) -> Result<CheckRegistry, Box<dyn std::error::Error>> {
     let mut registry = CheckRegistry::canonical();
@@ -141,83 +127,46 @@ pub(crate) fn build_registry(
         }
     }
 
-    let _ = config_path;
     Ok(registry)
 }
 
-/// Build and configure the right driver for `engine`, wiring in the
-/// suppression engine and api_schemas from config.
-pub(crate) fn build_driver_with_config(
-    engine: &str,
+/// Connect to `url` and run every check in `registry`, applying the
+/// `[inspect]` suppression rules and `api_schemas`.
+#[cfg(feature = "postgres")]
+pub(crate) fn live_findings(
+    url: &str,
     registry: CheckRegistry,
     inspect_config: &Option<InspectConfig>,
-) -> Box<dyn DbDriver> {
-    match engine {
-        #[cfg(feature = "postgres")]
-        "postgres" | "postgresql" => {
-            let mut driver = PostgresDriver::with_registry(registry);
-
-            if let Some(cfg) = inspect_config {
-                if !cfg.suppression.is_empty() {
-                    driver.set_suppression(SuppressionEngine::new(cfg.suppression.clone()));
-                }
-                if !cfg.api_schemas.is_empty() {
-                    driver.set_api_schemas(cfg.api_schemas.clone());
-                }
-            }
-
-            Box::new(driver)
+) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
+    let mut driver = PostgresDriver::with_registry(registry);
+    if let Some(cfg) = inspect_config {
+        if !cfg.suppression.is_empty() {
+            driver.set_suppression(SuppressionEngine::new(cfg.suppression.clone()));
         }
-        // Any other engine or URL scheme has no `sqlkit inspect`
-        // implementation; `UnsupportedDriver` names the engine requested.
-        // An engine whose driver this build left out lands here too, and
-        // `UnsupportedDriver` reports the Cargo feature that would include it.
-        other => {
-            // Unused here, and in every arm when no driver feature is enabled.
-            let _ = (registry, inspect_config);
-            Box::new(UnsupportedDriver::new(other))
+        if !cfg.api_schemas.is_empty() {
+            driver.set_api_schemas(cfg.api_schemas.clone());
         }
     }
+
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    Ok(runtime.block_on(async {
+        driver.connect(url).await?;
+        driver.run_all().await
+    })?)
 }
 
-/// Resolve engine from explicit `--dialect`, else from URL scheme, else
-/// default to `postgres`.
-///
-/// An explicit `--dialect` is normalized and validated against the only two
-/// engines `sqlkit inspect` actually dispatches to
-/// ([`build_driver_with_config`]'s `"postgres"` match): before
-/// this, an unrecognized value (a typo, or `--dialect klingon`) passed
-/// through unchanged, `--list-checks` silently reported "no checks
-/// available" (indistinguishable from a real engine with a currently-empty
-/// catalog), and a live run of `--dialect klingon` would have silently
-/// fallen into `build_driver_with_config`'s `_ => MysqlDriver` catch-all --
-/// running the *wrong* driver rather than erroring. See #212. A URL's
-/// scheme is not validated the same way: an unrecognized scheme still
-/// reaches `build_driver_with_config`'s fallback today, but connecting with
-/// it fails loudly at the driver, which is not the same silent-success
-/// failure mode `--dialect` has for the no-connection `--list-checks` path.
-fn resolve_engine(dialect: Option<&str>, url: Option<&str>) -> Result<String, String> {
-    const KNOWN_ENGINES: &[&str] = &["postgres", "postgresql"];
-
-    if let Some(d) = dialect {
-        let lower = d.to_ascii_lowercase();
-        return match lower.as_str() {
-            "postgres" | "postgresql" => Ok("postgres".to_string()),
-            _ => Err(format!(
-                "unknown --dialect '{d}' (expected {})",
-                KNOWN_ENGINES.join("|")
-            )),
-        };
-    }
-    if let Some(u) = url
-        && let Some(scheme) = u.split("://").next()
-    {
-        return Ok(match scheme {
-            "postgres" | "postgresql" => "postgres".to_string(),
-            other => other.to_string(),
-        });
-    }
-    Ok("postgres".to_string())
+/// Without the `postgres` feature there is no database client to inspect with.
+#[cfg(not(feature = "postgres"))]
+pub(crate) fn live_findings(
+    _url: &str,
+    _registry: CheckRegistry,
+    _inspect_config: &Option<InspectConfig>,
+) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
+    Err(
+        "live inspection needs the PostgreSQL client: this build was compiled without the `postgres` Cargo \
+         feature"
+            .into(),
+    )
 }
 
 /// Resolve the database URL with the full precedence chain:
@@ -287,25 +236,21 @@ fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error:
     }
 }
 
-/// Print a check catalog from a [`CheckRegistry`], grouped by engine.
+/// Print the check catalog from a [`CheckRegistry`].
 fn print_check_catalog_from_registry(
     registry: &CheckRegistry,
-    engine: &str,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let checks: Vec<_> = registry.for_engine(engine).collect();
+    let checks: Vec<_> = registry.for_engine(CHECK_ENGINE).collect();
     if checks.is_empty() {
-        writeln!(
-            out,
-            "no checks available for engine `{engine}` — try `sqlkit inspect --list-checks` with --dialect postgres"
-        )?;
+        writeln!(out, "no checks available")?;
         return Ok(());
     }
 
     let id_w = checks.iter().map(|c| c.id.len()).max().unwrap_or(2).max(2);
     let name_w = checks.iter().map(|c| c.name.len()).max().unwrap_or(4).max(4);
 
-    writeln!(out, "[{engine}]")?;
+    writeln!(out, "[{CHECK_ENGINE}]")?;
     for check in checks {
         writeln!(
             out,
@@ -328,18 +273,13 @@ fn print_check_catalog_from_registry(
 /// Exits with an error message if the ID is not found.
 pub(crate) fn print_explanation(
     registry: &CheckRegistry,
-    engine: &str,
     id: &str,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let spec = registry
         .get(id)
-        .filter(|s| s.engines.iter().any(|e| e == engine))
-        .ok_or_else(|| {
-            format!(
-                "no check with id '{id}' for engine '{engine}' — try `sqlkit inspect --list-checks --dialect {engine}`"
-            )
-        })?;
+        .filter(|s| s.engines.iter().any(|e| e == CHECK_ENGINE))
+        .ok_or_else(|| format!("no check with id '{id}' — try `sqlkit inspect --list-checks`"))?;
 
     writeln!(out, "{} — {}", spec.id, spec.name)?;
     writeln!(out, "  category: {}", spec.category)?;
@@ -380,45 +320,6 @@ fn severity_label(s: Severity) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn resolve_engine_explicit_dialect_wins() {
-        assert_eq!(
-            resolve_engine(Some("postgresql"), Some("other://x/y")).unwrap(),
-            "postgres"
-        );
-    }
-
-    #[test]
-    fn resolve_engine_from_url_scheme() {
-        assert_eq!(resolve_engine(None, Some("postgres://u@h/db")).unwrap(), "postgres");
-        assert_eq!(resolve_engine(None, Some("postgresql://u@h/db")).unwrap(), "postgres");
-    }
-
-    #[test]
-    fn resolve_engine_defaults_to_postgres() {
-        assert_eq!(resolve_engine(None, None).unwrap(), "postgres");
-    }
-
-    /// #212: an explicit `--dialect` alias is normalized -- `postgresql`
-    /// (sqlkit's own canonical engine name) must resolve the same as
-    /// sqruff/inspect's `postgres` spelling, not just pass through raw.
-    #[test]
-    fn resolve_engine_normalizes_explicit_dialect_aliases() {
-        assert_eq!(resolve_engine(Some("postgresql"), None).unwrap(), "postgres");
-        assert_eq!(resolve_engine(Some("POSTGRES"), None).unwrap(), "postgres");
-    }
-
-    /// #212: an unrecognized `--dialect` must be rejected, not silently
-    /// treated as a real (if currently empty) engine catalog, and not
-    /// silently dispatched to `MysqlDriver` via
-    /// `build_driver_with_config`'s catch-all.
-    #[test]
-    fn resolve_engine_rejects_unknown_explicit_dialect() {
-        let err = resolve_engine(Some("klingon"), None).unwrap_err();
-        assert!(err.contains("klingon"));
-        assert!(err.contains("postgres"));
-    }
 
     #[test]
     fn resolve_url_prefers_positional() {
@@ -524,7 +425,7 @@ mod tests {
     fn explain_known_id_prints_body() {
         let registry = CheckRegistry::canonical();
         let mut buf = Vec::new();
-        print_explanation(&registry, "postgres", "SC-INS04", &mut buf).expect("explain SC-INS04");
+        print_explanation(&registry, "SC-INS04", &mut buf).expect("explain SC-INS04");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             output.contains("no-primary-key"),
@@ -537,7 +438,7 @@ mod tests {
     fn explain_unknown_id_errors() {
         let registry = CheckRegistry::canonical();
         let mut buf = Vec::new();
-        let result = print_explanation(&registry, "postgres", "SC-NOPE", &mut buf);
+        let result = print_explanation(&registry, "SC-NOPE", &mut buf);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(

@@ -7,7 +7,7 @@ use sqlkit_lint::sqruff_adapter;
 use sqlkit_lint::types::Severity;
 use sqlkit_lint::{SuppressionSet, emit_findings};
 
-use super::inspect::{build_driver_with_config, build_registry};
+use super::inspect::{build_registry, live_findings};
 use super::shared::{
     CatalogLoadRequest, ParseSeverities, PostgresEngine, config_dir, load_catalog, resolve_globs, split_query_file,
 };
@@ -445,7 +445,7 @@ fn lint_files(
         }
     }
 
-    let inspect_violations = try_run_inspect(config_path, database_url, None);
+    let inspect_violations = try_run_inspect(config_path, database_url);
     all_violations.extend(inspect_violations);
 
     Ok(all_violations)
@@ -797,7 +797,7 @@ fn lint_from_config(
         }
     }
 
-    let inspect_findings = try_run_inspect(config_path, database_url, None);
+    let inspect_findings = try_run_inspect(config_path, database_url);
     all_violations.extend(inspect_findings);
 
     Ok(all_violations)
@@ -828,7 +828,7 @@ fn lint_from_config(
 ///
 /// Inspect findings that do come back carry `source: Some("inspect")` so
 /// mixed output is distinguishable.
-fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_override: Option<&str>) -> Vec<FileViolation> {
+fn try_run_inspect(config_path: &str, explicit_url: Option<&str>) -> Vec<FileViolation> {
     let inspect_config = parse_inspect_section(Path::new(config_path)).unwrap_or_else(|e| {
         tracing::debug!("sqlkit lint: could not parse [inspect] config: {e}");
         None
@@ -848,9 +848,7 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_overrid
         }
     };
 
-    let engine = engine_override.unwrap_or("postgres");
-
-    let registry = match build_registry(config_path, engine, &inspect_config) {
+    let registry = match build_registry(&inspect_config) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("sqlkit lint: warning: failed to build inspect registry: {e}");
@@ -858,35 +856,20 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_overrid
         }
     };
 
-    let mut driver = build_driver_with_config(engine, registry, &inspect_config);
-
-    let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-        Ok(r) => r,
+    let findings = match live_findings(&url, registry, &inspect_config) {
+        Ok(findings) => findings,
         Err(e) => {
-            eprintln!("sqlkit lint: warning: failed to build tokio runtime for inspect: {e}");
-            return Vec::new();
-        }
-    };
-
-    let findings = rt.block_on(async {
-        if let Err(e) = driver.connect(&url).await {
+            // The host only, never the full URL, which may carry a password.
             let host = url
                 .split("://")
                 .nth(1)
                 .and_then(|rest| rest.split('/').next())
                 .and_then(|authority| authority.split('@').next_back())
                 .unwrap_or("<unknown>");
-            eprintln!("sqlkit lint: warning: could not connect to inspect database (host: {host}): {e}");
+            eprintln!("sqlkit lint: warning: inspect could not connect to or run against {host}: {e}");
             return Vec::new();
         }
-        match driver.run_all().await {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("sqlkit lint: warning: inspect checks failed: {e}");
-                Vec::new()
-            }
-        }
-    });
+    };
 
     findings
         .into_iter()

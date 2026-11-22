@@ -133,14 +133,7 @@ fn inspect_help_shows_expected_flags() {
 
     let stdout = std::str::from_utf8(&output.stdout).unwrap();
 
-    for flag in [
-        "--explain",
-        "--list-checks",
-        "--severity",
-        "--exit-zero",
-        "--output",
-        "--dialect",
-    ] {
+    for flag in ["--explain", "--list-checks", "--severity", "--exit-zero", "--output"] {
         assert!(
             stdout.contains(flag),
             "inspect --help must mention flag {flag}; got:\n{stdout}"
@@ -176,14 +169,10 @@ fn format_json_with_list_checks_exits_zero_and_lists_checks() {
     );
 }
 
-/// Explicit `--dialect postgres` must show all 13 checks — the same as the
-/// default.
+/// `--list-checks` must show all 13 checks.
 #[test]
-fn list_checks_postgres_dialect_shows_all_checks() {
-    let assert = sqlkit()
-        .args(["inspect", "--list-checks", "--dialect", "postgres"])
-        .assert()
-        .success();
+fn list_checks_shows_all_checks() {
+    let assert = sqlkit().args(["inspect", "--list-checks"]).assert().success();
 
     let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
     for id in [
@@ -192,38 +181,9 @@ fn list_checks_postgres_dialect_shows_all_checks() {
     ] {
         assert!(
             stdout.contains(id),
-            "--dialect postgres --list-checks must include {id}; stdout:\n{stdout}"
+            "--list-checks must include {id}; stdout:\n{stdout}"
         );
     }
-}
-
-/// `sqlkit inspect` against an engine with no driver must fail immediately (no
-/// socket ever opens: `UnsupportedDriver::connect` never touches the URL),
-/// naming the engine the user asked for (#131).
-#[test]
-fn inspect_unsupported_engine_errors_naming_the_engine_not_a_stub() {
-    let output = sqlkit()
-        .args(["inspect", "nosuchdb://localhost/x"])
-        .env_remove("DATABASE_URL")
-        .env_remove("SQLKIT_DATABASE_URL")
-        .output()
-        .expect("command must run");
-
-    assert!(
-        !output.status.success(),
-        "inspect against an engine with no driver must exit non-zero; exit code: {:?}",
-        output.status.code()
-    );
-
-    let stderr = std::str::from_utf8(&output.stderr).unwrap();
-    assert!(
-        stderr.contains("engine `nosuchdb` is not supported"),
-        "stderr must name the engine actually requested; got:\n{stderr}"
-    );
-    assert!(
-        !stderr.contains("connection to"),
-        "stderr must not report a connection attempt for an unsupported engine; got:\n{stderr}"
-    );
 }
 
 /// `sqlkit inspect` without a DB URL and without `--list-checks` must exit

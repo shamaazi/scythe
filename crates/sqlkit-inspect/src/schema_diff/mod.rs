@@ -36,10 +36,10 @@
 //! never touch a connection. [`fetch_live_schema`] and [`drift_findings`]
 //! (the free functions `sqlkit-cli`'s `sqlkit check` calls directly) remain
 //! PostgreSQL-only, reading `pg_catalog` through a `tokio_postgres::Client`
-//! parameter. [`source::SchemaCatalogDriver`] is the trait for
-//! reading a catalog, implemented by [`source::PostgresCatalogSource`], which also exposes [`fetch_live_catalog`] for callers that need the richer
-//! code-generation catalog, including primary-key metadata and user-defined
-//! types.
+//! parameter. [`source::PostgresCatalogSource`] wraps them for
+//! callers without a client, and also exposes [`fetch_live_catalog`] for
+//! callers that need the richer code-generation catalog, including
+//! primary-key metadata and user-defined types.
 
 pub mod catalog;
 pub mod diff;
@@ -69,7 +69,6 @@ pub use model::{
 };
 #[cfg(feature = "postgres")]
 pub use source::PostgresCatalogSource;
-pub use source::SchemaCatalogDriver;
 
 /// Fetch the live schema once and diff every supplied DDL description against
 /// it.

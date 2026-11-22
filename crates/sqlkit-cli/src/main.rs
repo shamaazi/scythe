@@ -187,10 +187,6 @@ enum Commands {
         /// Write reporter output to file instead of stdout
         #[arg(short, long, value_name = "PATH")]
         output: Option<String>,
-        /// Engine to target: postgres|postgresql.
-        /// Default: parsed from URL scheme.
-        #[arg(long)]
-        dialect: Option<String>,
         /// Path to config file (default: sqlkit.toml)
         #[arg(short, long, default_value = "sqlkit.toml")]
         config: String,
@@ -275,7 +271,6 @@ fn main() {
             severity,
             exit_zero,
             output,
-            dialect,
             config,
         } => commands::inspect::run_inspect(commands::inspect::RunInspectOpts {
             database_url,
@@ -285,7 +280,6 @@ fn main() {
             severity,
             exit_zero,
             output,
-            dialect,
             config_path: config,
         }),
     };

@@ -42,7 +42,7 @@
 
 #![cfg(all(feature = "live-tests", feature = "postgres"))]
 
-use sqlkit_inspect::{DbDriver, PostgresDriver};
+use sqlkit_inspect::PostgresDriver;
 use sqlkit_lint::types::Severity;
 use tokio_postgres::NoTls;
 

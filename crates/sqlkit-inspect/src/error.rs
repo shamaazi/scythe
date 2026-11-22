@@ -65,38 +65,6 @@ pub enum InspectError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
-    /// The requested engine has no `sqlkit inspect` implementation.
-    ///
-    /// Carries the engine the *user* asked for, not the engine of whichever
-    /// driver happened to be constructed. Naming the wrong engine here reads
-    /// as a bug rather than an unsupported-engine notice, and sends the
-    /// reader looking for a defect that is not there.
-    #[error(
-        "engine `{engine}` is not supported by `sqlkit inspect` — live inspection, \
-         schema drift and the SC-INS checks are implemented for PostgreSQL \
-         (`postgres`, `postgresql`) only"
-    )]
-    Unsupported {
-        /// The engine name as the user spelled it (URL scheme or `--dialect`).
-        engine: String,
-    },
-
-    /// The requested engine has a driver, but this build was compiled
-    /// without the Cargo feature that includes it.
-    ///
-    /// Distinct from [`InspectError::Unsupported`]: the engine works in a
-    /// default build, so the remedy is rebuilding with the named feature.
-    #[error(
-        "engine `{engine}` is not available in this build: it was compiled without the `{feature}` \
-         Cargo feature (rebuild with `--features {feature}` or with default features)"
-    )]
-    EngineDisabled {
-        /// The engine name as the user spelled it.
-        engine: String,
-        /// The Cargo feature that includes the engine's driver.
-        feature: &'static str,
-    },
-
     /// A message placeholder resolved to a column whose driver-reported type
     /// this runner cannot render as text.
     ///
@@ -154,7 +122,7 @@ pub enum InspectError {
     #[error("no database URL provided — pass a positional URL, set DATABASE_URL, or set SQLKIT_DATABASE_URL")]
     UrlMissing,
 
-    /// A driver method was called before [`DbDriver::connect`] succeeded.
+    /// A driver method was called before `connect` succeeded.
     #[error("driver {engine} is not connected — call connect() before run_all()")]
     NotConnected {
         /// Engine whose method was called.
@@ -270,18 +238,6 @@ mod tests {
             "postgres catalog query SC-INS01 failed: db error: \
              ERROR: permission denied for table pg_constraint"
         );
-    }
-
-    /// The unsupported-engine message must name the engine the user asked for.
-    /// Naming a different one sends the reader hunting for a bug.
-    #[test]
-    fn should_name_the_requested_engine_when_it_is_unsupported() {
-        let error = InspectError::Unsupported {
-            engine: "nosuchdb".to_string(),
-        };
-        let rendered = error.to_string();
-        assert!(rendered.starts_with("engine `nosuchdb` is not supported"), "{rendered}");
-        assert!(!rendered.contains("engine `postgres`"), "{rendered}");
     }
 
     #[test]

@@ -1,73 +1,20 @@
-//! `SchemaCatalogDriver` — the engine-agnostic interface for reading a live
-//! database's schema into the neutral [`SchemaDescription`] catalog shape.
-//!
-//! This is a different abstraction from [`DbDriver`](crate::driver::DbDriver):
-//! `DbDriver` runs the `SC-INS` health-check registry — hand-written,
-//! engine-specific SQL living in `checks.toml` — and returns
-//! [`Finding`](sqlkit_lint::reporters::Finding)s. Porting that registry to a
-//! second engine means writing and validating a new query per check against
-//! that engine's own catalog views, which is real per-engine work this trait
-//! does not attempt.
-//!
-//! What *is* engine-independent is the shape schema drift already compares:
-//! tables, their columns, each column's neutral type and nullability, and
-//! (see [`ColumnDescription::primary_key`](super::model::ColumnDescription))
-//! which columns identify a row. [`fetch_live_schema`](super::live::fetch_live_schema)
-//! builds exactly that shape for PostgreSQL by reading `pg_catalog` directly
-//! through a `tokio_postgres::Client` — there was no trait to implement
-//! because there was only ever the one engine. This trait is that missing
-//! seam: an engine gains catalog introspection by implementing `connect` and
-//! `fetch_schema` against its own driver, with no change required to
-//! [`SchemaDescription`], [`diff`](super::diff::diff), or anything that
-//! consumes them.
-//!
-//! [`PostgresCatalogSource`] implements the same trait while preserving
-//! `fetch_live_schema`'s established free-function API for callers that
-//! already own a `tokio_postgres::Client`.
-
-use async_trait::async_trait;
+//! [`PostgresCatalogSource`]: reads a live database's schema into the neutral
+//! [`SchemaDescription`] catalog shape schema drift compares, and the richer
+//! code-generation catalog. It wraps [`fetch_live_schema`](super::live::fetch_live_schema)
+//! and [`fetch_live_catalog`](super::live::fetch_live_catalog) for callers that
+//! do not already own a `tokio_postgres::Client`.
 #[cfg(feature = "postgres")]
 use sqlkit_core::catalog::Catalog;
 #[cfg(feature = "postgres")]
 use tokio_postgres::{Client, NoTls};
 
+#[cfg(feature = "postgres")]
 use crate::error::InspectError;
 
 #[cfg(feature = "postgres")]
 use super::live::{fetch_live_catalog, fetch_live_schema};
+#[cfg(feature = "postgres")]
 use super::model::SchemaDescription;
-
-/// Read a live database's schema into a [`SchemaDescription`].
-///
-/// Construction is expected to be infallible and connectionless (mirroring
-/// [`DbDriver`](crate::driver::DbDriver)); [`connect`](Self::connect) opens
-/// the connection and [`fetch_schema`](Self::fetch_schema) reads the catalog.
-/// Splitting them keeps a driver usable in contexts that only need identity
-/// (e.g. a future `--list-engines`) without touching the network or disk.
-///
-/// `fetch_schema` takes `&mut self` rather than `&self` so a driver can hold an
-/// exclusively-owned connection.
-#[async_trait]
-pub trait SchemaCatalogDriver: Send {
-    /// Stable engine identifier, e.g. `"postgres"`. Matches the
-    /// engine strings [`DbDriver::engine`](crate::driver::DbDriver::engine)
-    /// and `sqlkit_core::dialect::SqlDialect::from_str` use, so a caller that
-    /// already resolved an engine name for one can reuse it for the other.
-    fn engine(&self) -> &'static str;
-
-    /// Open a connection using `url`. Implementations should be idempotent: calling
-    /// `connect` twice replaces any connection already held.
-    async fn connect(&mut self, url: &str) -> Result<(), InspectError>;
-
-    /// Read every table this connection can see into a [`SchemaDescription`].
-    ///
-    /// `declared_schemas` is the schema-qualifier scope the committed DDL
-    /// declares — see [`fetch_live_schema`](super::live::fetch_live_schema)'s
-    /// doc comment for why PostgreSQL's version unions this with the
-    /// connection's search path. Engines with no comparable multi-schema
-    /// scoping are free to ignore the parameter.
-    async fn fetch_schema(&mut self, declared_schemas: &[String]) -> Result<SchemaDescription, InspectError>;
-}
 
 /// PostgreSQL-backed live catalog source.
 #[cfg(feature = "postgres")]
@@ -110,13 +57,9 @@ impl Default for PostgresCatalogSource {
 }
 
 #[cfg(feature = "postgres")]
-#[async_trait]
-impl SchemaCatalogDriver for PostgresCatalogSource {
-    fn engine(&self) -> &'static str {
-        "postgres"
-    }
-
-    async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
+impl PostgresCatalogSource {
+    /// Open a connection using `url`, replacing any connection already held.
+    pub async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
         let (client, connection) =
             tokio_postgres::connect(url, NoTls)
                 .await
@@ -133,7 +76,12 @@ impl SchemaCatalogDriver for PostgresCatalogSource {
         Ok(())
     }
 
-    async fn fetch_schema(&mut self, declared_schemas: &[String]) -> Result<SchemaDescription, InspectError> {
+    /// Read every table this connection can see into a [`SchemaDescription`].
+    ///
+    /// `declared_schemas` is the schema-qualifier scope the committed DDL
+    /// declares -- see [`fetch_live_schema`] for why it is unioned with the
+    /// connection's search path.
+    pub async fn fetch_schema(&mut self, declared_schemas: &[String]) -> Result<SchemaDescription, InspectError> {
         let client = self
             .client
             .as_ref()
@@ -145,11 +93,6 @@ impl SchemaCatalogDriver for PostgresCatalogSource {
 #[cfg(all(test, feature = "postgres"))]
 mod tests {
     use super::*;
-
-    #[test]
-    fn engine_name_is_postgres() {
-        assert_eq!(PostgresCatalogSource::new().engine(), "postgres");
-    }
 
     #[tokio::test]
     async fn fetch_schema_without_connect_errors() {
