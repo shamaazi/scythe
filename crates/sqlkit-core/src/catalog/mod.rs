@@ -6,12 +6,14 @@ pub(crate) mod type_normalizer;
 mod view_resolver;
 
 use ahash::AHashMap;
+use sqlparser::ast::Spanned;
 use sqlparser::ast::{
     AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ArgMode, ColumnOption, CommentObject,
     CreateFunction, DataType, Expr, FunctionCalledOnNull, FunctionReturnType, ObjectName, Statement, TableConstraint,
     UserDefinedTypeRepresentation,
 };
 use sqlparser::parser::Parser;
+use sqlparser::tokenizer::Location;
 
 use crate::errors::SqlkitError;
 use sqlparser::dialect::PostgreSqlDialect;
@@ -949,8 +951,9 @@ impl Catalog {
         } else {
             let mut table = Table::new(Vec::new(), raw_name);
             // Checks, column-level or not, attached once every column exists:
-            // a column-level check may name another column.
-            let mut pending_checks: Vec<(Option<String>, Expr)> = Vec::new();
+            // a column-level check may name another column. Each is kept with
+            // where it was written, the order PostgreSQL names them in.
+            let mut pending_checks: Vec<(Location, Option<String>, Expr)> = Vec::new();
             // Other constraints given a name, which PostgreSQL creates after
             // the checks: they take no name a check of this table could.
             let mut named_constraints: Vec<NamedConstraint> = Vec::new();
@@ -967,7 +970,7 @@ impl Catalog {
                 for opt_def in &col_def.options {
                     if let ColumnOption::Check(check) = &opt_def.option {
                         let name = check.name.as_ref().or(opt_def.name.as_ref()).map(ident_to_lower);
-                        pending_checks.push((name, (*check.expr).clone()));
+                        pending_checks.push((opt_def.span().start, name, (*check.expr).clone()));
                     }
                     if let Some(name) = column_option_constraint_name(opt_def) {
                         named_constraints.push(NamedConstraint {
@@ -1013,7 +1016,7 @@ impl Catalog {
             for constraint in &ct.constraints {
                 if let TableConstraint::Check(check) = constraint {
                     let name = check.name.as_ref().map(ident_to_lower);
-                    pending_checks.push((name, (*check.expr).clone()));
+                    pending_checks.push((constraint.span().start, name, (*check.expr).clone()));
                 }
                 named_constraints.extend(named_table_constraint(constraint));
                 if let TableConstraint::PrimaryKey(pk_constraint) = constraint {
@@ -1027,9 +1030,17 @@ impl Catalog {
                 }
             }
 
+            // PostgreSQL names a table's checks in the order they are written,
+            // column and table constraints interleaved: `transformCreateStmt`
+            // collects both into one list as it walks the table's elements.
+            // Without positions (none are ever missing from parsed SQL) the
+            // columns' checks stay first.
+            if pending_checks.iter().all(|(location, ..)| location.line > 0) {
+                pending_checks.sort_by_key(|(location, ..)| *location);
+            }
             let namespace = self.namespace_of(&table_name).to_string();
             let mut taken = self.constraint_names(&namespace);
-            for (name, expr) in pending_checks {
+            for (_, name, expr) in pending_checks {
                 attach_check(&mut table, name, &expr, true, &mut taken);
             }
             table.other_constraints.extend(named_constraints);
@@ -1054,6 +1065,12 @@ impl Catalog {
         operations: Vec<AlterTableOperation>,
     ) -> Result<(), SqlkitError> {
         let table_key = object_name_to_key(&name);
+        let mut operations = operations;
+        // PostgreSQL runs an `ALTER TABLE`'s subcommands in passes, not in
+        // the order written; the order matters here for the names it gives
+        // unnamed checks (and a dropped constraint's name is free again).
+        operations.sort_by_key(alter_table_pass);
+
         for op in operations {
             match op {
                 AlterTableOperation::AddColumn { column_def, .. } => {
@@ -1409,6 +1426,31 @@ fn lookup_qualified<'a, T>(map: &'a AHashMap<String, T>, name: &str, search_path
 /// identifier keeps its exact case and loses its quote characters.
 /// `expr.to_string()` alone retains the quote characters themselves, which
 /// then never matches a registered column name. See issue #178.
+/// The pass PostgreSQL's `ALTER TABLE` runs a subcommand in
+/// (`AlterTablePass` in `tablecmds.c`): drops first, then column type
+/// changes, added columns (with their own constraints), added checks, other
+/// added constraints, column attributes, defaults and the rest. Subcommands of one pass keep their
+/// written order.
+fn alter_table_pass(operation: &AlterTableOperation) -> u8 {
+    match operation {
+        AlterTableOperation::DropColumn { .. } | AlterTableOperation::DropConstraint { .. } => 0,
+        AlterTableOperation::AlterColumn { op, .. } => match op {
+            AlterColumnOperation::DropNotNull | AlterColumnOperation::DropDefault => 0,
+            AlterColumnOperation::SetDataType { .. } => 1,
+            AlterColumnOperation::SetNotNull => 5,
+            AlterColumnOperation::SetDefault { .. } => 6,
+            _ => 7,
+        },
+        AlterTableOperation::AddColumn { .. } => 2,
+        AlterTableOperation::AddConstraint {
+            constraint: TableConstraint::Check(_),
+            ..
+        } => 3,
+        AlterTableOperation::AddConstraint { .. } => 4,
+        _ => 7,
+    }
+}
+
 /// The name a column option gives the constraint it declares, for the kinds
 /// PostgreSQL records as constraints other than checks: `NOT NULL`, `PRIMARY
 /// KEY`, `UNIQUE` and `REFERENCES`.

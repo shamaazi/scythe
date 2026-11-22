@@ -484,6 +484,79 @@ fn named(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
 // from `pg_constraint`.
 
 #[test]
+fn should_name_create_table_checks_in_written_order() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE TABLE t4 (a int, CHECK (b > 0), b int CHECK (b < 5));",
+        "CREATE TABLE t4b (b int CHECK (b < 5), CHECK (b > 0));",
+        "CREATE TABLE t1 (a int CHECK (a > 0), CHECK (a < 10), b int CHECK (b > 0), CHECK (a < b), CHECK (a <> 5));",
+        "CREATE TABLE a3 (a int, b int CHECK (b > 0) CHECK (a < b), CHECK (a > 0));",
+        "CREATE TABLE t5 (a int, CONSTRAINT t5_a_check CHECK (a < 9), CHECK (a > 0));",
+    ])
+    .unwrap();
+    // A table check written before a column's own check is named first.
+    assert_eq!(
+        check_names(&catalog, "t4"),
+        named(&[("b", "t4_b_check"), ("b", "t4_b_check1")])
+    );
+    assert_eq!(
+        check_names(&catalog, "t4b"),
+        named(&[("b", "t4b_b_check"), ("b", "t4b_b_check1")])
+    );
+    assert_eq!(
+        check_names(&catalog, "t1"),
+        named(&[
+            ("a", "t1_a_check"),
+            ("a", "t1_a_check1"),
+            ("a", "t1_a_check2"),
+            ("b", "t1_b_check")
+        ])
+    );
+    // `CHECK (a < b)` takes `a3_check`; the later `CHECK (a > 0)` is `a3_a_check`.
+    assert_eq!(
+        check_names(&catalog, "a3"),
+        named(&[("a", "a3_a_check"), ("b", "a3_b_check")])
+    );
+    assert_eq!(
+        check_names(&catalog, "t5"),
+        named(&[("a", "t5_a_check"), ("a", "t5_a_check1")])
+    );
+}
+
+#[test]
+fn should_name_alter_table_checks_in_postgresql_pass_order() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE TABLE a1 (a int CHECK (a > 0));",
+        // Added columns' checks are named before added constraints, whatever
+        // the written order.
+        "ALTER TABLE a1 ADD CHECK (a > 1), ADD COLUMN b int CHECK (a > 2), ADD COLUMN c int CHECK (c > 0), \
+         ADD CONSTRAINT x CHECK (a > 3);",
+        // A dropped constraint's name is free again, even written after.
+        "ALTER TABLE a1 ADD CHECK (a > 4), DROP CONSTRAINT a1_a_check;",
+    ])
+    .unwrap();
+    let a1 = catalog.get_table("a1").unwrap();
+    let a: Vec<(&str, &str)> = a1.columns[0]
+        .constraints
+        .checks
+        .iter()
+        .map(|check| (check.system_name.as_str(), check.sql.as_str()))
+        .collect();
+    assert_eq!(
+        a,
+        [
+            ("a1_a_check1", "a > 2"),
+            ("a1_a_check2", "a > 1"),
+            ("x", "a > 3"),
+            ("a1_a_check", "a > 4")
+        ]
+    );
+    assert_eq!(
+        check_names(&catalog, "a1").last().unwrap(),
+        &named(&[("c", "a1_c_check")])[0]
+    );
+}
+
+#[test]
 fn should_not_take_the_name_of_any_constraint_in_the_schema() {
     let catalog = Catalog::from_ddl(&[
         // Another relation's check on several columns, and a domain's check.
