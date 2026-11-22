@@ -168,9 +168,9 @@ const MAX_IDENTIFIER_BYTES: usize = 63;
 /// the name fits in 63 bytes, and when the name is `taken` by another
 /// constraint in the schema the label becomes `check1`, `check2`, ...
 ///
-/// `taken` holds the names of the checks this catalog records; constraints it
-/// does not record (keys, other schemas' checks) are not considered, and
-/// neither are checks on several columns from earlier statements.
+/// `taken` holds the names of the constraints of the schema (see
+/// [`Catalog::constraint_names`]) and those the statement has already named:
+/// the `others` list PostgreSQL passes, of the checks named before this one.
 pub(crate) fn generated_check_name(name1: &str, name2: Option<&str>, taken: &AHashSet<String>) -> String {
     let mut label = "check".to_string();
     let mut pass = 0;
@@ -292,18 +292,45 @@ impl Catalog {
         table.columns.iter().find(|c| c.name == column)
     }
 
-    /// The names of every check the catalog records, which an unnamed
-    /// check's generated name must not take.
-    pub(crate) fn check_names(&self) -> AHashSet<String> {
-        let tables = self
-            .tables
-            .values()
-            .flat_map(|t| t.columns.iter().map(|c| &c.constraints));
-        let domains = self.domains.values().map(|d| &d.constraints);
-        tables
-            .chain(domains)
-            .flat_map(|facts| facts.checks.iter().map(|check| check.system_name.clone()))
-            .collect()
+    /// The schema the relation or domain keyed `key` lives in: its qualifier,
+    /// or for a bare name the schema PostgreSQL creates it in, the first on
+    /// the search path (`public` when the catalog has none).
+    pub(crate) fn namespace_of<'a>(&'a self, key: &'a str) -> &'a str {
+        match key.rsplit_once('.') {
+            Some((schema, _)) => schema,
+            None => self
+                .search_path
+                .as_ref()
+                .and_then(|path| path.first())
+                .map_or("public", String::as_str),
+        }
+    }
+
+    /// The names of the constraints the catalog records in `namespace`, of
+    /// relations and domains alike, which an unnamed check's generated name
+    /// must not take: PostgreSQL's `ChooseConstraintName` rejects a name any
+    /// constraint of the schema already has, whatever its kind or owner.
+    ///
+    /// Only explicitly named non-check constraints are recorded: the names
+    /// PostgreSQL generates for them end in `pkey`, `key`, `fkey`, `excl` or
+    /// `not_null` (with an optional number), never in `check`, so they cannot
+    /// collide with a generated check name.
+    pub(crate) fn constraint_names(&self, namespace: &str) -> AHashSet<String> {
+        let mut names = AHashSet::new();
+        for (key, table) in &self.tables {
+            if self.namespace_of(key) == namespace {
+                let checks = table.columns.iter().flat_map(|c| &c.constraints.checks);
+                names.extend(checks.map(|check| check.system_name.clone()));
+                names.extend(table.other_constraints.iter().map(|c| c.name.clone()));
+            }
+        }
+        for (key, domain) in &self.domains {
+            if self.namespace_of(key) == namespace {
+                names.extend(domain.constraints.checks.iter().map(|check| check.system_name.clone()));
+                names.extend(domain.other_constraints.iter().cloned());
+            }
+        }
+        names
     }
 
     fn resolve_column(&self, relation: &str, column: &str, use_: Use, out: &mut ValueConstraints, depth: usize) {
@@ -428,13 +455,24 @@ pub(crate) fn comment_column_target(name: &ObjectName) -> Option<(String, String
     Some((relation.to_string(), column.to_string()))
 }
 
-/// Attach a check on `table` to the one column of `columns` it constrains,
-/// naming it as PostgreSQL would when it is unnamed and recording that name
-/// in `taken`. A check on several columns (or none) relates values to each
-/// other and is not recorded, though its generated name is taken.
+/// A constraint of a relation the catalog records by name only: a check
+/// that relates several columns (or none), or a primary key, unique, foreign
+/// key, exclusion or not-null constraint given an explicit name. Their names
+/// count in the schema's constraint namespace (see
+/// [`Catalog::constraint_names`]).
+#[derive(Debug, Clone)]
+pub(crate) struct NamedConstraint {
+    pub(crate) name: String,
+    /// The columns it covers, which dropping any of drops it.
+    pub(crate) columns: Vec<String>,
+}
+
+/// Attach a check on `table` to the one column it constrains, naming it as
+/// PostgreSQL would when it is unnamed and recording that name in `taken`. A
+/// check on several columns (or none) relates values to each other: it is
+/// recorded by name only.
 pub(crate) fn attach_check(
-    table: &str,
-    columns: &mut [super::Column],
+    table: &mut super::Table,
     name: Option<String>,
     expr: &Expr,
     validated: bool,
@@ -443,25 +481,41 @@ pub(crate) fn attach_check(
     let column = single_column(expr);
     let system_name = name
         .clone()
-        .unwrap_or_else(|| generated_check_name(table, column.as_deref(), taken));
+        .unwrap_or_else(|| generated_check_name(&table.raw_name, column.as_deref(), taken));
     taken.insert(system_name.clone());
-    let Some(column) = column else {
-        return;
-    };
-    if let Some(target) = columns.iter_mut().find(|c| c.name == column) {
-        let mut check = CheckConstraint::new(name, system_name, expr, &column);
-        check.validated = validated;
-        target.constraints.checks.push(check);
+    let target = column
+        .as_ref()
+        .and_then(|column| table.columns.iter_mut().find(|c| &c.name == column));
+    match (column, target) {
+        (Some(column), Some(target)) => {
+            let mut check = CheckConstraint::new(name, system_name, expr, &column);
+            check.validated = validated;
+            target.constraints.checks.push(check);
+        }
+        _ => table.other_constraints.push(NamedConstraint {
+            name: system_name,
+            columns: referenced_columns(expr),
+        }),
     }
 }
 
-/// The `CHECK` constraints of a `CREATE DOMAIN` statement's tail (everything
-/// after the base type), or of an `ALTER DOMAIN ... ADD`, as
-/// `(constraint name, expression SQL)`.
-pub(crate) fn domain_checks(tail: &str) -> Vec<(Option<String>, String)> {
+/// A constraint of a `CREATE DOMAIN` statement's tail (everything after the
+/// base type), or of an `ALTER DOMAIN ... ADD`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DomainConstraint {
+    /// `[CONSTRAINT name] CHECK (body)`.
+    Check { name: Option<String>, body: String },
+    /// `CONSTRAINT name NOT NULL`: only its name matters here.
+    NamedNotNull(String),
+}
+
+/// The constraints of a `CREATE DOMAIN` statement's tail or an `ALTER DOMAIN
+/// ... ADD`, in the order written: the checks, and the not-null constraints
+/// given a name.
+pub(crate) fn domain_constraints(tail: &str) -> Vec<DomainConstraint> {
     let outside = super::sql_outside_mask(tail);
     let bytes = tail.as_bytes();
-    let mut checks = Vec::new();
+    let mut constraints = Vec::new();
     let mut depth = 0usize;
     let mut name: Option<String> = None;
     let mut index = 0usize;
@@ -480,7 +534,13 @@ pub(crate) fn domain_checks(tail: &str) -> Vec<(Option<String>, String)> {
                 index = end;
                 continue;
             }
-            _ if depth == 0 && super::keyword_at(bytes, index, "NOT") => name = None,
+            _ if depth == 0 && super::keyword_at(bytes, index, "NOT") => {
+                if let Some(name) = name.take() {
+                    constraints.push(DomainConstraint::NamedNotNull(name));
+                }
+            }
+            // `NULL` is not stored, and neither is the name given to it.
+            _ if depth == 0 && super::keyword_at(bytes, index, "NULL") => name = None,
             _ if depth == 0 && super::keyword_at(bytes, index, "CHECK") => {
                 let Some(open) = super::find_char_outside(tail, &outside, '(', index) else {
                     break;
@@ -488,7 +548,10 @@ pub(crate) fn domain_checks(tail: &str) -> Vec<(Option<String>, String)> {
                 let Some(close) = super::matching_parenthesis(tail, &outside, open) else {
                     break;
                 };
-                checks.push((name.take(), tail[open + 1..close].trim().to_string()));
+                constraints.push(DomainConstraint::Check {
+                    name: name.take(),
+                    body: tail[open + 1..close].trim().to_string(),
+                });
                 index = close + 1;
                 continue;
             }
@@ -496,7 +559,7 @@ pub(crate) fn domain_checks(tail: &str) -> Vec<(Option<String>, String)> {
         }
         index += 1;
     }
-    checks
+    constraints
 }
 
 /// An identifier as PostgreSQL stores it: a quoted one verbatim, an unquoted
@@ -544,6 +607,86 @@ mod tests {
         taken.insert("users_age_check".to_string());
         taken.insert("users_age_check1".to_string());
         assert_eq!(generated_check_name("users", Some("age"), &taken), "users_age_check2");
+    }
+
+    /// Each relation's constraint names the catalog records, as
+    /// `relation: name` sorted; what PostgreSQL 18 names the same DDL.
+    fn all_names(catalog: &Catalog) -> Vec<String> {
+        let mut names = Vec::new();
+        for (key, table) in &catalog.tables {
+            for check in table.columns.iter().flat_map(|c| &c.constraints.checks) {
+                names.push(format!("{key}: {}", check.system_name));
+            }
+            names.extend(table.other_constraints.iter().map(|c| format!("{key}: {}", c.name)));
+        }
+        for (key, domain) in &catalog.domains {
+            for check in &domain.constraints.checks {
+                names.push(format!("{key}: {}", check.system_name));
+            }
+            names.extend(domain.other_constraints.iter().map(|c| format!("{key}: {c}")));
+        }
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn should_name_checks_on_several_columns_like_postgresql() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE t (a int, b int, CONSTRAINT t_a_check UNIQUE (b), CHECK (a < b));",
+            "ALTER TABLE t DROP CONSTRAINT t_check;",
+            "ALTER TABLE t DROP COLUMN b;",
+            "ALTER TABLE t ADD CHECK (a > 0), ADD CHECK (a <> b2), ADD COLUMN b2 int;",
+            "ALTER TABLE t RENAME CONSTRAINT t_check TO renamed;",
+            "ALTER TABLE t ADD CHECK (a <> 1);",
+            "ALTER TABLE t ADD CHECK (a < b2);",
+            "CREATE TABLE m (a int, b int, CHECK (a < b), CHECK (b > a), CONSTRAINT m_check2 CHECK (a <> b), \
+             CHECK (a + b > 0));",
+            "ALTER TABLE m RENAME COLUMN b TO c;",
+            "ALTER TABLE m ADD CHECK (a < c);",
+        ])
+        .unwrap();
+        assert_eq!(
+            all_names(&catalog),
+            [
+                "m: m_check",
+                "m: m_check1",
+                "m: m_check2",
+                "m: m_check3",
+                "m: m_check4",
+                "t: renamed",
+                "t: t_a_check",
+                "t: t_a_check1",
+                "t: t_check",
+            ]
+        );
+    }
+
+    #[test]
+    fn should_name_domain_checks_in_written_order_around_named_constraints() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE DOMAIN d1 AS int CHECK (VALUE > 0) CHECK (VALUE < 9) CONSTRAINT d1_check2 CHECK (VALUE <> 3) \
+             CHECK (VALUE <> 4);",
+            "CREATE DOMAIN d2 AS int CONSTRAINT d2_check NOT NULL CHECK (VALUE > 0);",
+            "CREATE DOMAIN d3 AS int CONSTRAINT ignored NULL CHECK (VALUE > 0);",
+            "CREATE DOMAIN d4 AS int;",
+            "ALTER DOMAIN d4 ADD CONSTRAINT d4_check NOT NULL;",
+            "ALTER DOMAIN d4 ADD CHECK (VALUE > 0);",
+        ])
+        .unwrap();
+        assert_eq!(
+            all_names(&catalog),
+            [
+                "d1: d1_check",
+                "d1: d1_check1",
+                "d1: d1_check2",
+                "d1: d1_check3",
+                "d2: d2_check",
+                "d2: d2_check1",
+                "d3: d3_check",
+                "d4: d4_check",
+                "d4: d4_check1",
+            ]
+        );
     }
 
     #[test]

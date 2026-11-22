@@ -495,13 +495,9 @@ fn add_relations(catalog: &mut Catalog, definitions: Vec<RelationDefinition>) ->
             });
         }
 
-        catalog.tables.insert(
-            key.clone(),
-            Table {
-                columns,
-                raw_name: definition.name.name.clone(),
-            },
-        );
+        catalog
+            .tables
+            .insert(key.clone(), Table::new(columns, definition.name.name.clone()));
         catalog.relation_names.insert(key.clone(), definition.name);
         catalog.relation_kinds.insert(key.clone(), definition.kind);
         catalog.raw_column_types.insert(key.clone(), raw_types);
@@ -570,6 +566,7 @@ fn add_domains(catalog: &mut Catalog, definitions: Vec<DomainDefinition>) -> Res
                 base_type,
                 not_null: definition.not_null,
                 constraints: ColumnConstraints::default(),
+                other_constraints: Vec::new(),
             },
         );
         catalog.domain_names.insert(key.clone(), definition.name);

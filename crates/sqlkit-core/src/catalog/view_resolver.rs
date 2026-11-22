@@ -102,12 +102,12 @@ impl Catalog {
                     }
                 })
                 .collect();
-            self.tables.insert(view_key, Table { columns, raw_name });
+            self.tables.insert(view_key, Table::new(columns, raw_name));
             return Ok(());
         }
 
         let columns = self.resolve_select_columns(query)?;
-        self.tables.insert(view_key, Table { columns, raw_name });
+        self.tables.insert(view_key, Table::new(columns, raw_name));
         Ok(())
     }
 

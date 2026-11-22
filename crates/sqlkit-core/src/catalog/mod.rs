@@ -18,8 +18,8 @@ use sqlparser::dialect::PostgreSqlDialect;
 
 use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key, object_name_to_raw_name};
 
-use constraints::attach_check;
 pub use constraints::{CheckConstraint, ColumnConstraints, ColumnOrigin};
+use constraints::{DomainConstraint, NamedConstraint, attach_check};
 
 pub use builder::{
     CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
@@ -105,6 +105,9 @@ pub(crate) struct DomainDef {
     pub(crate) base_type: String,
     pub(crate) not_null: bool,
     pub(crate) constraints: ColumnConstraints,
+    /// The names of the constraints it was given other than its checks:
+    /// named `NOT NULL`s, which count in the schema's constraint namespace.
+    pub(crate) other_constraints: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +140,18 @@ pub struct Table {
     /// Always the bare (unqualified) name, never schema-qualified, since
     /// every current consumer (SC-N02) only ever checks bare table casing.
     pub raw_name: String,
+    /// The constraints recorded by name only; see [`NamedConstraint`].
+    pub(crate) other_constraints: Vec<NamedConstraint>,
+}
+
+impl Table {
+    pub(crate) fn new(columns: Vec<Column>, raw_name: String) -> Self {
+        Self {
+            columns,
+            raw_name,
+            other_constraints: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -632,10 +647,20 @@ impl Catalog {
             Err(_) => base_type_raw.to_lowercase(),
         };
 
-        let mut taken = self.check_names();
-        for (name, body) in constraints::domain_checks(&rest[end_pos..]) {
-            let check = self.domain_check(&domain_name, name, &body, &mut taken);
-            constraints.checks.push(check);
+        let namespace = self.namespace_of(&domain_name).to_string();
+        let mut taken = self.constraint_names(&namespace);
+        let mut other_constraints = Vec::new();
+        for constraint in constraints::domain_constraints(&rest[end_pos..]) {
+            match constraint {
+                DomainConstraint::Check { name, body } => {
+                    let check = self.domain_check(&domain_name, name, &body, &mut taken);
+                    constraints.checks.push(check);
+                }
+                DomainConstraint::NamedNotNull(name) => {
+                    taken.insert(name.clone());
+                    other_constraints.push(name);
+                }
+            }
         }
 
         self.domains.insert(
@@ -644,6 +669,7 @@ impl Catalog {
                 base_type: normalized,
                 not_null,
                 constraints,
+                other_constraints,
             },
         );
         true
@@ -673,17 +699,23 @@ impl Catalog {
             let rest_upper = &upper[name_end..];
             let after_add = skip_ws(rest_upper, 0) + "ADD".len();
             let not_valid = top_level_keywords(&rest[after_add..], &["NOT", "VALID"]);
-            let mut taken = self.check_names();
-            let checks: Vec<CheckConstraint> = constraints::domain_checks(&rest[after_add..])
-                .into_iter()
-                .map(|(name, body)| {
-                    let mut check = self.domain_check(&key, name, &body, &mut taken);
-                    check.validated = !not_valid;
-                    check
-                })
-                .collect();
+            let namespace = self.namespace_of(&key).to_string();
+            let mut taken = self.constraint_names(&namespace);
+            let mut checks = Vec::new();
+            let mut other_constraints = Vec::new();
+            for constraint in constraints::domain_constraints(&rest[after_add..]) {
+                match constraint {
+                    DomainConstraint::Check { name, body } => {
+                        let mut check = self.domain_check(&key, name, &body, &mut taken);
+                        check.validated = !not_valid;
+                        checks.push(check);
+                    }
+                    DomainConstraint::NamedNotNull(name) => other_constraints.push(name),
+                }
+            }
             if let Some(domain) = self.domains.get_mut(&key) {
                 domain.constraints.checks.extend(checks);
+                domain.other_constraints.extend(other_constraints);
             }
             return;
         }
@@ -695,6 +727,7 @@ impl Catalog {
             let at = if keyword(2, "IF") && keyword(3, "EXISTS") { 4 } else { 2 };
             if let Some(name) = identifier(at) {
                 checks.retain(|check| check.system_name != name);
+                domain.other_constraints.retain(|other| *other != name);
             }
         } else if keyword(0, "VALIDATE") && keyword(1, "CONSTRAINT") {
             if let Some(name) = identifier(2) {
@@ -706,7 +739,23 @@ impl Catalog {
             && let (Some(old), Some(new)) = (identifier(2), identifier(4))
         {
             rename_check(checks, &old, &new);
+            for other in domain.other_constraints.iter_mut().filter(|other| **other == old) {
+                other.clone_from(&new);
+            }
         }
+    }
+
+    /// The schema of the table `key` names, resolved as `get_table_mut`
+    /// resolves it.
+    fn table_namespace(&self, key: &str) -> String {
+        let mut resolved = key.to_string();
+        if !self.tables.contains_key(key) && !key.contains('.') {
+            let suffix = format!(".{key}");
+            if let Some(found) = self.tables.keys().filter(|k| k.ends_with(&suffix)).min() {
+                resolved.clone_from(found);
+            }
+        }
+        self.namespace_of(&resolved).to_string()
     }
 
     /// The key of the domain `key` names: itself, or the first (sorted)
@@ -876,7 +925,7 @@ impl Catalog {
         let table_name = object_name_to_key(&ct.name);
         let raw_name = object_name_to_raw_name(&ct.name);
 
-        let columns: Vec<Column> = if ct.columns.is_empty() {
+        let table = if ct.columns.is_empty() {
             match ct.query {
                 // `CREATE TABLE ... AS SELECT`: the schema comes entirely
                 // from the query's projected columns. Resolve it through
@@ -885,21 +934,26 @@ impl Catalog {
                 // issue #183.
                 // A table copies the query's column types but none of its
                 // sources' constraints, so its columns keep no origin.
-                Some(query) => self
-                    .resolve_select_columns(*query)?
-                    .into_iter()
-                    .map(|column| Column {
-                        constraints: ColumnConstraints::default(),
-                        ..column
-                    })
-                    .collect(),
-                None => Vec::new(),
+                Some(query) => Table::new(
+                    self.resolve_select_columns(*query)?
+                        .into_iter()
+                        .map(|column| Column {
+                            constraints: ColumnConstraints::default(),
+                            ..column
+                        })
+                        .collect(),
+                    raw_name,
+                ),
+                None => Table::new(Vec::new(), raw_name),
             }
         } else {
-            let mut columns: Vec<Column> = Vec::new();
-            // Checks on one column, column-level or not, attached once every
-            // column exists: a column-level check may name another column.
+            let mut table = Table::new(Vec::new(), raw_name);
+            // Checks, column-level or not, attached once every column exists:
+            // a column-level check may name another column.
             let mut pending_checks: Vec<(Option<String>, Expr)> = Vec::new();
+            // Other constraints given a name, which PostgreSQL creates after
+            // the checks: they take no name a check of this table could.
+            let mut named_constraints: Vec<NamedConstraint> = Vec::new();
 
             for col_def in &ct.columns {
                 let col_name = ident_to_lower(&col_def.name);
@@ -914,6 +968,12 @@ impl Catalog {
                     if let ColumnOption::Check(check) = &opt_def.option {
                         let name = check.name.as_ref().or(opt_def.name.as_ref()).map(ident_to_lower);
                         pending_checks.push((name, (*check.expr).clone()));
+                    }
+                    if let Some(name) = column_option_constraint_name(opt_def) {
+                        named_constraints.push(NamedConstraint {
+                            name,
+                            columns: vec![col_name.clone()],
+                        });
                     }
                     match &opt_def.option {
                         ColumnOption::Null => {
@@ -940,7 +1000,7 @@ impl Catalog {
                     }
                 }
 
-                columns.push(Column {
+                table.columns.push(Column {
                     name: col_name,
                     sql_type,
                     nullable,
@@ -952,12 +1012,14 @@ impl Catalog {
 
             for constraint in &ct.constraints {
                 if let TableConstraint::Check(check) = constraint {
-                    pending_checks.push((check.name.as_ref().map(ident_to_lower), (*check.expr).clone()));
+                    let name = check.name.as_ref().map(ident_to_lower);
+                    pending_checks.push((name, (*check.expr).clone()));
                 }
+                named_constraints.extend(named_table_constraint(constraint));
                 if let TableConstraint::PrimaryKey(pk_constraint) = constraint {
                     for idx_col in &pk_constraint.columns {
                         let pk_name = pk_column_name(&idx_col.column.expr);
-                        if let Some(col) = columns.iter_mut().find(|c| c.name == pk_name) {
+                        if let Some(col) = table.columns.iter_mut().find(|c| c.name == pk_name) {
                             col.primary_key = true;
                             col.nullable = false;
                         }
@@ -965,12 +1027,13 @@ impl Catalog {
                 }
             }
 
-            let mut taken = self.check_names();
+            let namespace = self.namespace_of(&table_name).to_string();
+            let mut taken = self.constraint_names(&namespace);
             for (name, expr) in pending_checks {
-                attach_check(&raw_name, &mut columns, name, &expr, true, &mut taken);
+                attach_check(&mut table, name, &expr, true, &mut taken);
             }
-
-            columns
+            table.other_constraints.extend(named_constraints);
+            table
         };
 
         // `CREATE TABLE IF NOT EXISTS` on a table that is already
@@ -981,7 +1044,7 @@ impl Catalog {
             return Ok(());
         }
 
-        self.tables.insert(table_name, Table { columns, raw_name });
+        self.tables.insert(table_name, table);
         Ok(())
     }
 
@@ -991,11 +1054,10 @@ impl Catalog {
         operations: Vec<AlterTableOperation>,
     ) -> Result<(), SqlkitError> {
         let table_key = object_name_to_key(&name);
-
         for op in operations {
             match op {
                 AlterTableOperation::AddColumn { column_def, .. } => {
-                    let mut taken = self.check_names();
+                    let mut taken = self.constraint_names(&self.table_namespace(&table_key));
                     let Some(table) = get_table_mut(&mut self.tables, &table_key) else {
                         return Err(SqlkitError::unknown_table(&table_key));
                     };
@@ -1032,12 +1094,20 @@ impl Catalog {
                             &self.domains,
                         ),
                     });
+                    let mut named_constraints = Vec::new();
                     for opt_def in &column_def.options {
                         if let ColumnOption::Check(check) = &opt_def.option {
                             let name = check.name.as_ref().or(opt_def.name.as_ref()).map(ident_to_lower);
-                            attach_check(&table.raw_name, &mut table.columns, name, &check.expr, true, &mut taken);
+                            attach_check(table, name, &check.expr, true, &mut taken);
+                        }
+                        if let Some(name) = column_option_constraint_name(opt_def) {
+                            named_constraints.push(NamedConstraint {
+                                name,
+                                columns: vec![ident_to_lower(&column_def.name)],
+                            });
                         }
                     }
+                    table.other_constraints.extend(named_constraints);
                 }
                 AlterTableOperation::DropColumn { column_names, .. } => {
                     let Some(table) = get_table_mut(&mut self.tables, &table_key) else {
@@ -1046,6 +1116,8 @@ impl Catalog {
                     for column_name in &column_names {
                         let col_lower = ident_to_lower(column_name);
                         table.columns.retain(|c| c.name != col_lower);
+                        // So are the constraints that cover it.
+                        table.other_constraints.retain(|c| !c.columns.contains(&col_lower));
                     }
                 }
                 AlterTableOperation::RenameColumn {
@@ -1057,6 +1129,10 @@ impl Catalog {
                     };
                     let old_name = ident_to_lower(&old_column_name);
                     let new_name = ident_to_lower(&new_column_name);
+                    let covered = table.other_constraints.iter_mut().flat_map(|c| c.columns.iter_mut());
+                    for column in covered.filter(|column| **column == old_name) {
+                        column.clone_from(&new_name);
+                    }
                     if let Some(col) = table.columns.iter_mut().find(|c| c.name == old_name) {
                         col.name = new_name;
                     }
@@ -1122,21 +1198,16 @@ impl Catalog {
                     }
                 }
                 AlterTableOperation::AddConstraint { constraint, not_valid } => {
-                    let mut taken = self.check_names();
+                    let mut taken = self.constraint_names(&self.table_namespace(&table_key));
                     let Some(table) = get_table_mut(&mut self.tables, &table_key) else {
                         return Err(SqlkitError::unknown_table(&table_key));
                     };
                     if let TableConstraint::Check(check) = &constraint {
                         // `NOT VALID` leaves the rows already stored unchecked.
-                        attach_check(
-                            &table.raw_name,
-                            &mut table.columns,
-                            check.name.as_ref().map(ident_to_lower),
-                            &check.expr,
-                            !not_valid,
-                            &mut taken,
-                        );
+                        let name = check.name.as_ref().map(ident_to_lower);
+                        attach_check(table, name, &check.expr, !not_valid, &mut taken);
                     }
+                    table.other_constraints.extend(named_table_constraint(&constraint));
                     if let TableConstraint::PrimaryKey(pk_constraint) = &constraint {
                         for idx_col in &pk_constraint.columns {
                             let pk_name = pk_column_name(&idx_col.column.expr);
@@ -1155,6 +1226,7 @@ impl Catalog {
                         for col in &mut table.columns {
                             col.constraints.checks.retain(|check| check.system_name != name);
                         }
+                        table.other_constraints.retain(|other| other.name != name);
                     }
                 }
                 AlterTableOperation::ValidateConstraint { name } => {
@@ -1170,6 +1242,9 @@ impl Catalog {
                     if let Some(table) = get_table_mut(&mut self.tables, &table_key) {
                         for col in &mut table.columns {
                             rename_check(&mut col.constraints.checks, &old, &new);
+                        }
+                        for other in table.other_constraints.iter_mut().filter(|other| other.name == old) {
+                            other.name.clone_from(&new);
                         }
                     }
                 }
@@ -1334,6 +1409,51 @@ fn lookup_qualified<'a, T>(map: &'a AHashMap<String, T>, name: &str, search_path
 /// identifier keeps its exact case and loses its quote characters.
 /// `expr.to_string()` alone retains the quote characters themselves, which
 /// then never matches a registered column name. See issue #178.
+/// The name a column option gives the constraint it declares, for the kinds
+/// PostgreSQL records as constraints other than checks: `NOT NULL`, `PRIMARY
+/// KEY`, `UNIQUE` and `REFERENCES`.
+fn column_option_constraint_name(option: &sqlparser::ast::ColumnOptionDef) -> Option<String> {
+    let own = match &option.option {
+        ColumnOption::NotNull => None,
+        ColumnOption::PrimaryKey(constraint) => constraint.name.as_ref(),
+        ColumnOption::Unique(constraint) => constraint.name.as_ref(),
+        ColumnOption::ForeignKey(constraint) => constraint.name.as_ref(),
+        _ => return None,
+    };
+    own.or(option.name.as_ref()).map(ident_to_lower)
+}
+
+/// A table constraint other than a check that was given a name, with the
+/// columns it covers.
+fn named_table_constraint(constraint: &TableConstraint) -> Option<NamedConstraint> {
+    let index_columns = |columns: &[sqlparser::ast::IndexColumn]| -> Vec<String> {
+        columns
+            .iter()
+            .map(|column| pk_column_name(&column.column.expr))
+            .collect()
+    };
+    let (name, columns) = match constraint {
+        TableConstraint::PrimaryKey(c) => (c.name.as_ref(), index_columns(&c.columns)),
+        TableConstraint::Unique(c) => (c.name.as_ref(), index_columns(&c.columns)),
+        TableConstraint::ForeignKey(c) => (c.name.as_ref(), c.columns.iter().map(ident_to_lower).collect()),
+        TableConstraint::Exclude(c) => (
+            c.name.as_ref(),
+            c.elements
+                .iter()
+                .map(|element| pk_column_name(&element.column.column.expr))
+                .collect(),
+        ),
+        TableConstraint::PrimaryKeyUsingIndex(c) | TableConstraint::UniqueUsingIndex(c) => {
+            (c.name.as_ref(), Vec::new())
+        }
+        _ => return None,
+    };
+    Some(NamedConstraint {
+        name: ident_to_lower(name?),
+        columns,
+    })
+}
+
 fn pk_column_name(expr: &Expr) -> String {
     match expr {
         Expr::Identifier(ident) => ident_to_lower(ident),

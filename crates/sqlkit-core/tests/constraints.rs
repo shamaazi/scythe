@@ -462,3 +462,95 @@ fn should_split_smart_tags_from_comments() {
     assert_eq!(b.description.as_deref(), Some("A name.\n@pattern ^x$"));
     assert_eq!(b.rules.pattern, None, "a description line is never a rule");
 }
+
+/// The names the catalog gives every check of `relation`'s columns, as
+/// `(column, name)` in the order the checks were added.
+fn check_names(catalog: &Catalog, relation: &str) -> Vec<(String, String)> {
+    let table = catalog.get_table(relation).unwrap();
+    let mut names = Vec::new();
+    for column in &table.columns {
+        for check in &column.constraints.checks {
+            names.push((column.name.clone(), check.system_name.clone()));
+        }
+    }
+    names
+}
+
+fn named(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs.iter().map(|(c, n)| (c.to_string(), n.to_string())).collect()
+}
+
+// Each expectation below is what PostgreSQL 18 names the same DDL, read back
+// from `pg_constraint`.
+
+#[test]
+fn should_not_take_the_name_of_any_constraint_in_the_schema() {
+    let catalog = Catalog::from_ddl(&[
+        // Another relation's check on several columns, and a domain's check.
+        "CREATE TABLE t11_a (x int, y int, CHECK (x < y));",
+        "CREATE DOMAIN t12_a AS int CHECK (VALUE > 0);",
+        "CREATE TABLE t11 (a int CHECK (a > 0));",
+        "CREATE TABLE t12 (a int CHECK (a > 0));",
+    ])
+    .unwrap();
+    let with_checks = Catalog::from_ddl(&[
+        "CREATE TABLE p (id int PRIMARY KEY);",
+        "CREATE TABLE t7 (a int, CONSTRAINT t7_a_check UNIQUE (a));",
+        "ALTER TABLE t7 ADD CHECK (a > 0);",
+        "CREATE TABLE t8 (a int, CONSTRAINT t8_a_check PRIMARY KEY (a));",
+        "ALTER TABLE t8 ADD CHECK (a > 0);",
+        "CREATE TABLE t9 (a int CONSTRAINT t9_a_check NOT NULL);",
+        "ALTER TABLE t9 ADD CHECK (a > 0);",
+        "CREATE TABLE t10 (a int CONSTRAINT t10_a_check REFERENCES p);",
+        "ALTER TABLE t10 ADD CHECK (a > 0);",
+        "CREATE TABLE t13 (a int, CONSTRAINT t13_a_check EXCLUDE (a WITH =));",
+        "ALTER TABLE t13 ADD CHECK (a > 0);",
+        "CREATE TABLE t16 (a int, b int);",
+        "ALTER TABLE t16 ADD CONSTRAINT t16_a_check FOREIGN KEY (b) REFERENCES p;",
+        "ALTER TABLE t16 ADD CHECK (a > 0);",
+    ])
+    .unwrap();
+    for table in ["t7", "t8", "t9", "t10", "t13", "t16"] {
+        assert_eq!(
+            check_names(&with_checks, table),
+            named(&[("a", &format!("{table}_a_check1"))]),
+            "{table}"
+        );
+    }
+    assert_eq!(check_names(&catalog, "t11"), named(&[("a", "t11_a_check1")]));
+    assert_eq!(check_names(&catalog, "t12"), named(&[("a", "t12_a_check1")]));
+}
+
+#[test]
+fn should_only_avoid_constraint_names_in_the_same_schema() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE TABLE e2.x (a int, CONSTRAINT t15_a_check CHECK (a > 0));",
+        "CREATE TABLE t15 (a int CHECK (a > 0));",
+        "CREATE TABLE e2.t15 (a int CHECK (a > 0));",
+        "CREATE TABLE public.y (a int, b int, CONSTRAINT t17_a_check UNIQUE (b));",
+        "CREATE TABLE t17 (a int CHECK (a > 0));",
+    ])
+    .unwrap();
+    assert_eq!(check_names(&catalog, "t15"), named(&[("a", "t15_a_check")]));
+    assert_eq!(check_names(&catalog, "e2.t15"), named(&[("a", "t15_a_check1")]));
+    // A bare name is created in `public`, the default search path's schema.
+    assert_eq!(check_names(&catalog, "t17"), named(&[("a", "t17_a_check1")]));
+}
+
+#[test]
+fn should_free_constraint_names_with_what_owns_them() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE TABLE t (a int, b int, CONSTRAINT t_a_check UNIQUE (b), CHECK (a < b));",
+        "ALTER TABLE t DROP CONSTRAINT t_check;",
+        "ALTER TABLE t DROP COLUMN b;",
+        "ALTER TABLE t ADD CHECK (a > 0), ADD CHECK (a <> b2), ADD COLUMN b2 int;",
+        "ALTER TABLE t RENAME CONSTRAINT t_check TO renamed;",
+        "ALTER TABLE t ADD CHECK (a <> 1);",
+        "ALTER TABLE t ADD CHECK (a < b2);",
+    ])
+    .unwrap();
+    assert_eq!(
+        check_names(&catalog, "t"),
+        named(&[("a", "t_a_check"), ("a", "t_a_check1")])
+    );
+}
