@@ -17,7 +17,7 @@
 //! at the bottom of this file for why the row key must not be mangled.
 
 #![cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(
         dead_code,
         unused_imports,
@@ -41,7 +41,7 @@ const QUERY: &str = "-- @name FindItem\n-- @returns :one\n\
 /// happen to share the affected field) for `backend_name` against
 /// [`SCHEMA`]/[`QUERY`].
 fn generate_row_struct(backend_name: &str) -> String {
-    let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
+    let backend = get_backend(backend_name).expect("backend must support postgresql");
     let catalog = Catalog::from_ddl(&[SCHEMA]).expect("schema must parse");
     let parsed = parse_query(QUERY).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
@@ -49,7 +49,7 @@ fn generate_row_struct(backend_name: &str) -> String {
     code.row_struct.expect("expected a row struct")
 }
 
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 #[test]
 fn rust_sqlx_mangles_the_type_keyword() {
     let row_struct = generate_row_struct("rust-sqlx");

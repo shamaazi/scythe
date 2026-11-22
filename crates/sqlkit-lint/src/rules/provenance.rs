@@ -116,12 +116,12 @@ impl LintRule for BackendDrift {
     }
 }
 
-/// `SC-PRV04` — the artifact was generated for a different engine than this
-/// target now configures.
+/// `SC-PRV04` — the artifact's header names an engine other than PostgreSQL,
+/// the only one sqlkit generates for.
 ///
 /// `Error` by default, for the same reason as [`BackendDrift`]: placeholder
 /// syntax, quoting, and type mapping are all engine-specific, so the
-/// committed file is wrong for the configured engine.
+/// committed file is wrong for PostgreSQL.
 pub struct EngineDrift;
 
 impl LintRule for EngineDrift {
@@ -138,7 +138,7 @@ impl LintRule for EngineDrift {
         Severity::Error
     }
     fn description(&self) -> &'static str {
-        "Generated artifact was produced for a different engine than this target configures"
+        "Generated artifact was produced for an engine other than PostgreSQL"
     }
 }
 

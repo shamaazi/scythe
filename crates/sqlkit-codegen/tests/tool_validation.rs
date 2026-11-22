@@ -2,7 +2,7 @@
 //! All tools are expected to be installed.
 
 #![cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(
         dead_code,
         unused_imports,
@@ -56,18 +56,18 @@ const QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
     DELETE FROM users WHERE id = $1;";
 
 fn generate_full_file(backend_name: &str) -> String {
-    let backend = get_backend(backend_name, "postgresql").unwrap();
+    let backend = get_backend(backend_name).unwrap();
     generate_full_file_from_backend(backend_name, &*backend)
 }
 
 fn generate_full_file_with_options(backend_name: &str, options: &std::collections::HashMap<String, String>) -> String {
-    let mut backend = get_backend(backend_name, "postgresql").unwrap();
+    let mut backend = get_backend(backend_name).unwrap();
     backend.apply_options(options).unwrap();
     generate_full_file_from_backend(backend_name, &*backend)
 }
 
 fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBackend) -> String {
-    let (schema, queries, engine) = (SCHEMA, [QUERY_ONE, QUERY_MANY, QUERY_EXEC], "postgresql");
+    let (schema, queries) = (SCHEMA, [QUERY_ONE, QUERY_MANY, QUERY_EXEC]);
 
     let catalog = Catalog::from_ddl(&[schema]).unwrap();
 
@@ -118,7 +118,7 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
     // the bytes a real `sqlkit generate` writes, provenance header included, so
     // a header in a position the language rejects fails here.
     //
-    // The version, engine, schema, and queries values are placeholders: the
+    // The version, schema, and queries values are placeholders: the
     // header's legality depends on its comment prefix and its position, not
     // on its field values.
     provenance::assemble_file(
@@ -126,7 +126,7 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
         &provenance::header_line(
             backend,
             env!("CARGO_PKG_VERSION"),
-            engine,
+            provenance::ENGINE,
             "sch1:0123456789abcdef",
             "q1:fedcba9876543210",
         ),
@@ -235,16 +235,16 @@ macro_rules! backend_test_with_options {
     };
 }
 
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 backend_test!(test_rust_sqlx, "rust-sqlx");
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 backend_test!(test_rust_tokio_postgres, "rust-tokio-postgres");
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 backend_test!(test_typescript_postgres, "typescript-postgres");
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 backend_test!(test_typescript_bun, "typescript-bun");
 
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 backend_test_with_options!(test_typescript_postgres_zod, "typescript-postgres", "row_type" => "zod");
 backend_test_with_options!(test_typescript_bun_zod, "typescript-bun", "row_type" => "zod");
 backend_test_with_options!(test_typescript_bun_camel, "typescript-bun", "field_case" => "camelCase");
@@ -263,9 +263,9 @@ backend_test_with_options!(test_typescript_bun_camel, "typescript-bun", "field_c
 // (if present) real `tsc --checkJs --strict` -- see `validate_javascript_tools`
 // in `src/validation.rs`.
 
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 backend_test!(test_javascript_postgres, "javascript-postgres");
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 backend_test!(test_javascript_bun, "javascript-bun");
 
 const JS_MODE_POSTGRES_SCHEMA: [&str; 2] = [
@@ -288,13 +288,8 @@ const JS_MODE_GROUPED: &str = "-- @name GetUsersWithOrders\n-- @returns :grouped
 /// column (`users.bio`, via `one_sql`) and a `:grouped` query
 /// (`JS_MODE_GROUPED`) in one file, the same way `generate_full_file_from_backend`
 /// assembles `:one`/`:many`/`:exec` output above.
-fn generate_js_mode_nullable_and_grouped_file(
-    backend_name: &str,
-    engine: &str,
-    schema: &[&str],
-    one_sql: &str,
-) -> String {
-    let backend = get_backend(backend_name, engine).unwrap();
+fn generate_js_mode_nullable_and_grouped_file(backend_name: &str, schema: &[&str], one_sql: &str) -> String {
+    let backend = get_backend(backend_name).unwrap();
     let catalog = Catalog::from_ddl(schema).unwrap();
 
     let mut all_codes = Vec::new();
@@ -366,12 +361,11 @@ fn assert_js_mode_tool_validation_passes(backend_name: &str, code: &str) {
     }
 }
 
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn test_javascript_postgres_grouped_and_nullable_pass_real_tools() {
     let code = generate_js_mode_nullable_and_grouped_file(
         "javascript-postgres",
-        "postgresql",
         &JS_MODE_POSTGRES_SCHEMA,
         JS_MODE_POSTGRES_ONE,
     );
@@ -388,15 +382,11 @@ fn test_javascript_postgres_grouped_and_nullable_pass_real_tools() {
     assert_js_mode_tool_validation_passes("javascript-postgres", &code);
 }
 
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn test_javascript_bun_grouped_and_nullable_pass_real_tools() {
-    let code = generate_js_mode_nullable_and_grouped_file(
-        "javascript-bun",
-        "postgresql",
-        &JS_MODE_POSTGRES_SCHEMA,
-        JS_MODE_POSTGRES_ONE,
-    );
+    let code =
+        generate_js_mode_nullable_and_grouped_file("javascript-bun", &JS_MODE_POSTGRES_SCHEMA, JS_MODE_POSTGRES_ONE);
     eprintln!("\n=== javascript-bun (nullable + grouped) ===\n{code}\n=== END ===\n");
     assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
     assert!(
@@ -430,7 +420,7 @@ fn test_javascript_bun_grouped_and_nullable_pass_real_tools() {
 /// Rust is the sharpest entry: `validate_structural` returns `vec![]` for the
 /// two `rust-*` backends too. Their generated suites parse both with
 /// `syn`, but this file still has no real driver-backed validator for them.
-#[cfg(all(feature = "lang-rust", feature = "lang-typescript", feature = "postgres"))]
+#[cfg(all(feature = "lang-rust", feature = "lang-typescript"))]
 #[test]
 fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
     const NO_TOOL_VALIDATOR: &[&str] = &[

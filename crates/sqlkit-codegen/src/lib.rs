@@ -10,7 +10,7 @@ pub mod sql_literal;
 pub mod validation;
 
 pub use backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
-pub use backends::{engine_feature, get_backend};
+pub use backends::get_backend;
 pub use overrides::TypeOverride;
 
 use ahash::AHashSet;
@@ -155,9 +155,9 @@ pub fn singularize(name: &str) -> String {
     }
 }
 
-/// Get the manifest for a backend. Defaults to PostgreSQL engine.
+/// Get the manifest for a backend.
 pub fn get_manifest_for_backend(backend_name: &str) -> Result<BackendManifest, SqlkitError> {
-    let backend = get_backend(backend_name, "postgresql")?;
+    let backend = get_backend(backend_name)?;
     Ok(backend.manifest().clone())
 }
 
@@ -921,7 +921,7 @@ pub fn degrade_unsupported_nested_structs(
 
 /// Backward-compatible: generate code using the default sqlx backend.
 pub fn generate(analyzed: &AnalyzedQuery) -> Result<GeneratedCode, SqlkitError> {
-    let backend = get_backend("rust-sqlx", "postgresql")?;
+    let backend = get_backend("rust-sqlx")?;
     generate_with_backend(analyzed, &*backend)
 }
 
@@ -978,7 +978,7 @@ pub fn load_or_default_manifest() -> Result<BackendManifest, SqlkitError> {
 
 #[cfg(test)]
 #[cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(dead_code, reason = "helpers shared with tests of backends this build leaves out")
 )]
 mod tests {
@@ -1034,7 +1034,7 @@ mod tests {
         assert_eq!(model_struct_name("app.widgets", &test_naming()), "AppWidget");
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_generate_select_many() {
         let query = make_query(
@@ -1078,7 +1078,7 @@ mod tests {
         assert!(query_fn.contains(".fetch_all(pool)"));
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_generate_select_one_with_param() {
         let query = make_query(
@@ -1119,7 +1119,7 @@ mod tests {
         assert!(query_fn.contains(".fetch_one(pool)"));
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_generate_exec() {
         let query = make_query(
@@ -1148,7 +1148,7 @@ mod tests {
         assert!(query_fn.contains(".execute(pool)"));
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_generate_with_enum_column() {
         let query = make_query(
@@ -1302,10 +1302,10 @@ mod tests {
         })
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_grouped_sqlx_structs() {
-        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let backend = get_backend("rust-sqlx").unwrap();
         let query = make_grouped_query();
         let result = generate_with_backend(&query, &*backend).unwrap();
 
@@ -1351,10 +1351,10 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_grouped_sqlx_query_fn() {
-        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let backend = get_backend("rust-sqlx").unwrap();
         let query = make_grouped_query();
         let result = generate_with_backend(&query, &*backend).unwrap();
 
@@ -1434,10 +1434,10 @@ mod tests {
         }
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_grouped_unsupported_backend_returns_clear_error() {
-        let manifest = get_backend("rust-sqlx", "postgresql").unwrap().manifest().clone();
+        let manifest = get_backend("rust-sqlx").unwrap().manifest().clone();
         let backend = StubBackend { manifest };
         let query = make_grouped_query();
         let result = generate_with_backend(&query, &backend);
@@ -1458,10 +1458,10 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_tokio_postgres_backend_basic() {
-        let backend = get_backend("tokio-postgres", "postgresql").unwrap();
+        let backend = get_backend("tokio-postgres").unwrap();
 
         let query = make_query(
             "ListUsers",
@@ -1501,10 +1501,10 @@ mod tests {
         assert!(!query_fn.contains("sqlx"));
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_tokio_postgres_enum() {
-        let backend = get_backend("tokio-postgres", "postgresql").unwrap();
+        let backend = get_backend("tokio-postgres").unwrap();
 
         let enum_info = sqlkit_core::analyzer::EnumInfo {
             sql_name: "user_status".to_string(),
@@ -1520,10 +1520,10 @@ mod tests {
         assert!(!def.contains("sqlx"));
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_sql_with_least_coalesce_sum_preserved() {
-        let backend = get_backend("tokio-postgres", "postgresql").unwrap();
+        let backend = get_backend("tokio-postgres").unwrap();
 
         let query = make_query(
             "GetBillingAggregates",
@@ -1559,10 +1559,10 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_generated_rust_code_structure() {
-        let backend = get_backend("tokio-postgres", "postgresql").unwrap();
+        let backend = get_backend("tokio-postgres").unwrap();
 
         let query = make_query(
             "GetUser",
@@ -1658,10 +1658,10 @@ mod tests {
         assert!(nested_struct_shape("array<int32>").is_none());
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_degrade_unsupported_nested_structs_defaults_to_plain_json() {
-        let manifest = get_backend("rust-sqlx", "postgresql").unwrap().manifest().clone();
+        let manifest = get_backend("rust-sqlx").unwrap().manifest().clone();
         let backend = StubBackend { manifest };
         let nested = a_nested_struct();
         let columns = vec![
@@ -1767,10 +1767,10 @@ mod tests {
         }
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_degrade_unsupported_nested_structs_keeps_supported_column_and_collects_def() {
-        let manifest = get_backend("rust-sqlx", "postgresql").unwrap().manifest().clone();
+        let manifest = get_backend("rust-sqlx").unwrap().manifest().clone();
         let backend = NestedSupportingBackend { manifest };
         let nested = a_nested_struct();
         let columns = vec![AnalyzedColumn {
@@ -1800,10 +1800,10 @@ mod tests {
     // referenced *and* defined, not just referenced.
     // -----------------------------------------------------------------
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_enum_inside_array_is_emitted_not_just_referenced() {
-        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let backend = get_backend("rust-sqlx").unwrap();
         let mut query = make_query(
             "GetMany",
             QueryCommand::Many,
@@ -1846,12 +1846,12 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_composite_inside_array_is_emitted_not_just_referenced() {
         use sqlkit_core::analyzer::{CompositeFieldInfo, CompositeInfo};
 
-        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let backend = get_backend("rust-sqlx").unwrap();
         let mut query = make_query(
             "GetManyAddrs",
             QueryCommand::Many,
@@ -1902,12 +1902,12 @@ mod tests {
     /// walk, `reachable_composite_names` didn't exist and the loop only checked
     /// `type_referenced_by_columns`/`nested_refs`, so `inner_point`'s definition was silently
     /// skipped even though `analyzed.composites` already carried it.
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_composite_reachable_only_through_another_composites_field_is_emitted() {
         use sqlkit_core::analyzer::{CompositeFieldInfo, CompositeInfo};
 
-        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let backend = get_backend("rust-sqlx").unwrap();
         let mut query = make_query(
             "GetShape",
             QueryCommand::One,
@@ -1963,12 +1963,12 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn file_wide_nested_composite_promotion_uses_nested_capable_definition() {
         use sqlkit_core::analyzer::{CompositeFieldInfo, CompositeInfo};
 
-        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let backend = get_backend("rust-sqlx").unwrap();
         let mut query = make_query(
             "RoundTripAddress",
             QueryCommand::One,
@@ -2101,10 +2101,10 @@ mod tests {
     // collide with the synthesized `children` field.
     // -----------------------------------------------------------------
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_grouped_parent_column_named_children_collides_with_synthesized_field() {
-        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let backend = get_backend("rust-sqlx").unwrap();
         let parent_cols = vec![
             AnalyzedColumn {
                 name: "id".to_string(),
@@ -2262,28 +2262,13 @@ mod tests {
         "javascript-bun",
     ];
 
-    /// `get_backend(name, engine)` rejects an engine the backend's manifest
-    /// doesn't cover (e.g. `go-database-sql` has no PostgreSQL manifest at
-    /// all); try engines in order and use whichever one the backend
-    /// actually accepts, since this test cares about naming consistency,
-    /// not which engine.
-    ///
-    /// `None` when the backend, or every engine it accepts, was left out of
-    /// this build by its Cargo features.
+    /// `None` when the backend was left out of this build by its Cargo features.
     fn backend_for_select_star(name: &str) -> Option<Box<dyn CodegenBackend>> {
-        const ENGINES: &[&str] = &["postgresql"];
-        for engine in ENGINES {
-            if let Ok(backend) = get_backend(name, engine) {
-                return Some(backend);
-            }
+        match get_backend(name) {
+            Ok(backend) => Some(backend),
+            Err(error) if error.to_string().contains("not available in this build") => None,
+            Err(error) => panic!("backend '{name}' does not construct: {error}"),
         }
-        let left_out = ENGINES.iter().any(|engine| {
-            get_backend(name, engine).is_err_and(|error| error.to_string().contains("not available in this build"))
-        });
-        if left_out {
-            return None;
-        }
-        panic!("no known engine works for backend '{name}'");
     }
 
     fn select_star_query() -> AnalyzedQuery {

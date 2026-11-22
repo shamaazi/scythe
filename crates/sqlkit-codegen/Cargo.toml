@@ -22,14 +22,11 @@ include = [
 ]
 
 [features]
-# The engine and every language. A build that targets fewer can disable the
-# rest with `default-features = false`; `get_backend` then reports a backend
-# or engine left out of the build as an error naming the feature to enable.
-default = ["all-engines", "all-languages"]
-all-engines = ["postgres"]
+# Every language. A build that targets fewer can disable the rest with
+# `default-features = false`; `get_backend` then reports a backend left out of
+# the build as an error naming the feature to enable.
+default = ["all-languages"]
 all-languages = ["lang-rust", "lang-typescript"]
-# The engine: whether `get_backend` accepts `postgresql` (and its aliases).
-postgres = []
 # Languages: which backend modules are compiled. `lang-typescript` includes
 # the JavaScript variants of every TypeScript backend.
 lang-rust = []
@@ -49,4 +46,4 @@ syn = { version = "3", features = ["full", "parsing"] }
 [[bench]]
 name = "analyze_codegen"
 harness = false
-required-features = ["lang-rust", "lang-typescript", "postgres"]
+required-features = ["lang-rust", "lang-typescript"]

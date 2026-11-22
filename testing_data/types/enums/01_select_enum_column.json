@@ -1,7 +1,6 @@
 {
   "category": "types/enums",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

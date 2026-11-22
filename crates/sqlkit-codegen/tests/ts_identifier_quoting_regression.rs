@@ -23,7 +23,7 @@
 //! additive on top -- a machine without them still fails on a regression.
 
 #![cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(
         dead_code,
         unused_imports,
@@ -41,8 +41,8 @@ use sqlkit_core::analyzer::analyze;
 use sqlkit_core::catalog::Catalog;
 use sqlkit_core::parser::parse_query;
 
-/// Every TypeScript backend and an engine it supports.
-const TS_BACKENDS: [(&str, &str); 2] = [("typescript-postgres", "postgresql"), ("typescript-bun", "postgresql")];
+/// Every TypeScript backend.
+const TS_BACKENDS: [&str; 2] = ["typescript-postgres", "typescript-bun"];
 
 /// A schema/query pair whose column names need quoting.
 fn fixture() -> (&'static str, [&'static str; 3]) {
@@ -65,10 +65,7 @@ fn fixture() -> (&'static str, [&'static str; 3]) {
 }
 
 /// The `javascript-*` (JSDoc emit mode, #81) counterpart of [`TS_BACKENDS`].
-/// Each pairs with the same engine its `typescript-*` sibling in
-/// [`TS_BACKENDS`] uses, since `get_backend` dispatches both names to the
-/// same per-engine constructor (`new` vs. `new_js`).
-const JS_BACKENDS: [(&str, &str); 2] = [("javascript-postgres", "postgresql"), ("javascript-bun", "postgresql")];
+const JS_BACKENDS: [&str; 2] = ["javascript-postgres", "javascript-bun"];
 
 /// The three keys every fixture projects, spelled as they must appear in the
 /// generated file: quoted.
@@ -98,7 +95,7 @@ fn generate_all(backend: &dyn CodegenBackend) -> Vec<GeneratedCode> {
 
 /// Assemble the generated pieces into the file `sqlkit generate` would
 /// write, so the checkers below see the same bytes.
-fn assemble(backend: &dyn CodegenBackend, engine: &str, codes: &[GeneratedCode]) -> String {
+fn assemble(backend: &dyn CodegenBackend, codes: &[GeneratedCode]) -> String {
     let mut body = backend.file_header_for_results(codes);
     body.push('\n');
     for code in codes {
@@ -112,7 +109,7 @@ fn assemble(backend: &dyn CodegenBackend, engine: &str, codes: &[GeneratedCode])
         &provenance::header_line(
             backend,
             env!("CARGO_PKG_VERSION"),
-            engine,
+            provenance::ENGINE,
             "sch1:0123456789abcdef",
             "q1:fedcba9876543210",
         ),
@@ -120,9 +117,8 @@ fn assemble(backend: &dyn CodegenBackend, engine: &str, codes: &[GeneratedCode])
     )
 }
 
-fn build(backend_name: &str, engine: &str, options: &HashMap<String, String>) -> Box<dyn CodegenBackend> {
-    let mut backend =
-        get_backend(backend_name, engine).unwrap_or_else(|e| panic!("{backend_name} must support {engine}: {e}"));
+fn build(backend_name: &str, options: &HashMap<String, String>) -> Box<dyn CodegenBackend> {
+    let mut backend = get_backend(backend_name).unwrap_or_else(|e| panic!("{backend_name} must construct: {e}"));
     backend.apply_options(options).expect("options must apply");
     backend
 }
@@ -151,13 +147,13 @@ fn tool_check(backend_name: &str, file: &str) {
 /// interface spliced `p.field_name` in bare (`2fa: string;`), the per-item
 /// bind read it back with `item.2fa`, and the pg row remaps read
 /// driver rows with `row.my col`.
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn every_typescript_backend_quotes_non_identifier_column_names() {
-    for (backend_name, engine) in TS_BACKENDS {
-        let backend = build(backend_name, engine, &HashMap::new());
+    for backend_name in TS_BACKENDS {
+        let backend = build(backend_name, &HashMap::new());
         let codes = generate_all(&*backend);
-        let file = assemble(&*backend, engine, &codes);
+        let file = assemble(&*backend, &codes);
 
         for quoted in QUOTED_KEYS {
             assert!(
@@ -191,13 +187,13 @@ fn every_typescript_backend_quotes_non_identifier_column_names() {
 /// parseable JSDoc name token (a whitespace-containing one splits into a
 /// name and a bogus description; a leading digit is not a valid identifier
 /// start either).
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn every_javascript_backend_describes_non_identifier_columns_with_a_quoted_typedef_key() {
-    for (backend_name, engine) in JS_BACKENDS {
-        let backend = build(backend_name, engine, &HashMap::new());
+    for backend_name in JS_BACKENDS {
+        let backend = build(backend_name, &HashMap::new());
         let codes = generate_all(&*backend);
-        let file = assemble(&*backend, engine, &codes);
+        let file = assemble(&*backend, &codes);
 
         // The row typedef must keep the driver's own key spelling. A
         // `javascript-*` query fn ends in `return rows;`, so the runtime keys
@@ -247,7 +243,7 @@ fn every_javascript_backend_describes_non_identifier_columns_with_a_quoted_typed
 /// This must fail before the fix: the bracket-access read paths spliced the
 /// column name into a single-quoted JS string without escaping, so a column
 /// named `it's` produced `row['it's']` -- the literal closes after `it`.
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn an_apostrophe_in_a_column_name_is_escaped_in_bracket_reads() {
     const SCHEMA: &str = "CREATE TABLE weird (id INT PRIMARY KEY, \"it's\" TEXT NOT NULL);";
@@ -255,7 +251,7 @@ fn an_apostrophe_in_a_column_name_is_escaped_in_bracket_reads() {
 
     let options = HashMap::from([("field_case".to_string(), "camelCase".to_string())]);
     for backend_name in ["typescript-postgres", "typescript-bun"] {
-        let backend = build(backend_name, "postgresql", &options);
+        let backend = build(backend_name, &options);
         let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
         let parsed = parse_query(QUERY).unwrap();
         let analyzed = analyze(&catalog, &parsed).unwrap();

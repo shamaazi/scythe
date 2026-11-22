@@ -1,6 +1,5 @@
 {
   "category": "aggregates/nested_json",
-  "config": { "engine": "postgresql" },
   "description": "json_agg over a relation wildcard infers a named nested struct, including an enum field and a quoted mixed-case column",
   "expected": {
     "generated_code": {

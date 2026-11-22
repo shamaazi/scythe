@@ -46,26 +46,21 @@ fn test_deprecated_annotation() {
     );
     assert!(!analyzed.columns[2].nullable, "column nullable for email");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "deprecated_annotation", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "deprecated_annotation", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -111,7 +106,7 @@ fn test_deprecated_annotation() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -178,8 +173,8 @@ fn test_deprecated_annotation() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "deprecated_annotation", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "deprecated_annotation", e
                 ),
             },
         }
@@ -226,26 +221,21 @@ fn test_left_join_grouped() {
     );
     assert!(analyzed.columns[3].nullable, "column nullable for total");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "left_join_grouped", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "left_join_grouped", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -291,7 +281,7 @@ fn test_left_join_grouped() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -344,8 +334,8 @@ fn test_left_join_grouped() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "left_join_grouped", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "left_join_grouped", e
                 ),
             },
         }
@@ -392,26 +382,21 @@ fn test_simple_grouped() {
     );
     assert!(analyzed.columns[3].nullable, "column nullable for total");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "simple_grouped", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "simple_grouped", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -457,7 +442,7 @@ fn test_simple_grouped() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -510,8 +495,8 @@ fn test_simple_grouped() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "simple_grouped", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "simple_grouped", e
                 ),
             },
         }
@@ -553,26 +538,21 @@ fn test_valid_name_pascal() {
     );
     assert!(!analyzed.columns[2].nullable, "column nullable for email");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "valid_name_pascal", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "valid_name_pascal", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -618,7 +598,7 @@ fn test_valid_name_pascal() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -679,8 +659,8 @@ fn test_valid_name_pascal() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "valid_name_pascal", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "valid_name_pascal", e
                 ),
             },
         }
@@ -722,26 +702,21 @@ fn test_valid_name_snake() {
     );
     assert!(!analyzed.columns[2].nullable, "column nullable for email");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "valid_name_snake", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "valid_name_snake", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -787,7 +762,7 @@ fn test_valid_name_snake() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -848,8 +823,8 @@ fn test_valid_name_snake() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "valid_name_snake", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "valid_name_snake", e
                 ),
             },
         }
@@ -897,26 +872,21 @@ fn test_optional_multiple() {
     );
     assert!(analyzed.columns[1].nullable, "column nullable for total");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "optional_multiple", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "optional_multiple", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -962,7 +932,7 @@ fn test_optional_multiple() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -1015,8 +985,8 @@ fn test_optional_multiple() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "optional_multiple", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "optional_multiple", e
                 ),
             },
         }
@@ -1057,26 +1027,21 @@ fn test_optional_simple() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "optional_simple", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "optional_simple", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -1122,7 +1087,7 @@ fn test_optional_simple() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -1175,8 +1140,8 @@ fn test_optional_simple() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "optional_simple", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "optional_simple", e
                 ),
             },
         }
@@ -1219,26 +1184,21 @@ fn test_optional_with_required() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "optional_with_required", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "optional_with_required", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -1284,7 +1244,7 @@ fn test_optional_with_required() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -1337,8 +1297,8 @@ fn test_optional_with_required() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "optional_with_required", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "optional_with_required", e
                 ),
             },
         }
@@ -1360,26 +1320,21 @@ fn test_returns_exec() {
     assert_eq!(analyzed.name, "DeleteAllUsers", "query name");
     assert_eq!(analyzed.command.to_string(), "exec", "query command");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "returns_exec", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "returns_exec", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -1425,7 +1380,7 @@ fn test_returns_exec() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -1480,8 +1435,8 @@ fn test_returns_exec() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "returns_exec", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "returns_exec", e
                 ),
             },
         }
@@ -1507,26 +1462,21 @@ fn test_returns_exec_result() {
     assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
     assert!(!analyzed.params[0].nullable, "param nullable for id");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "returns_exec_result", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "returns_exec_result", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -1572,7 +1522,7 @@ fn test_returns_exec_result() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -1627,8 +1577,8 @@ fn test_returns_exec_result() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "returns_exec_result", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "returns_exec_result", e
                 ),
             },
         }
@@ -1652,26 +1602,21 @@ fn test_returns_exec_rows() {
     assert_eq!(analyzed.name, "DeactivateUsers", "query name");
     assert_eq!(analyzed.command.to_string(), "exec_rows", "query command");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "returns_exec_rows", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "returns_exec_rows", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -1717,7 +1662,7 @@ fn test_returns_exec_rows() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -1772,8 +1717,8 @@ fn test_returns_exec_rows() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "returns_exec_rows", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "returns_exec_rows", e
                 ),
             },
         }
@@ -1805,26 +1750,21 @@ fn test_returns_many() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "returns_many", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "returns_many", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -1870,7 +1810,7 @@ fn test_returns_many() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -1931,8 +1871,8 @@ fn test_returns_many() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "returns_many", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "returns_many", e
                 ),
             },
         }
@@ -1968,26 +1908,21 @@ fn test_returns_one() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
+    // Codegen verification: every backend should produce valid output.
     let all_backends: &[&str] = &[
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-sqlx",
-        #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+        #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
-        #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+        #[cfg(feature = "lang-typescript")]
         "typescript-postgres",
     ];
     for backend_name in all_backends {
-        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
             Ok(b) => b,
             Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "returns_one", e
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "returns_one", e
             ),
         };
         let declared_codegen_failure: Option<&str> = None;
@@ -2033,7 +1968,7 @@ fn test_returns_one() {
                     &sqlkit_codegen::provenance::header_line(
                         &*backend,
                         env!("CARGO_PKG_VERSION"),
-                        engine,
+                        sqlkit_codegen::provenance::ENGINE,
                         "sch1:0123456789abcdef",
                         "q1:fedcba9876543210",
                     ),
@@ -2094,8 +2029,8 @@ fn test_returns_one() {
                     );
                 }
                 None => panic!(
-                    "backend {} failed to generate code for engine {} in fixture {}: {}",
-                    backend_name, engine, "returns_one", e
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "returns_one", e
                 ),
             },
         }

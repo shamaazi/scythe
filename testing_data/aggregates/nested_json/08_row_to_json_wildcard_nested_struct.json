@@ -1,6 +1,5 @@
 {
   "category": "aggregates/nested_json",
-  "config": { "engine": "postgresql" },
   "description": "row_to_json over a relation wildcard infers a nested struct without the array wrapper json_agg adds",
   "expected": {
     "generated_code": {

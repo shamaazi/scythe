@@ -1,7 +1,6 @@
 {
   "category": "dml/delete",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

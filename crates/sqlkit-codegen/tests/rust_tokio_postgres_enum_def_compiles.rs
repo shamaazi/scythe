@@ -18,7 +18,7 @@
 //! the identical reason: `tokio_postgres::types::{FromSql, ToSql}` are
 //! referenced by fully-qualified path with no `use` to stub around.
 
-#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+#![cfg(feature = "lang-rust")]
 
 use std::fs;
 use std::path::PathBuf;
@@ -67,7 +67,7 @@ tokio-postgres = "0.7"
 /// compiles, surfacing the compiler's own output on failure.
 #[test]
 fn rust_tokio_postgres_enum_def_compiles_with_a_real_toolchain() {
-    let backend = get_backend("rust-tokio-postgres", "postgresql").expect("rust-tokio-postgres/postgresql");
+    let backend = get_backend("rust-tokio-postgres").expect("rust-tokio-postgres/postgresql");
 
     // Two SQL values that are distinct enough not to collide under
     // PascalCase -- the exact shape `check_enum_variant_collisions` must let

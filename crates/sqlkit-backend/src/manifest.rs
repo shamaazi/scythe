@@ -21,7 +21,6 @@ pub struct BackendMeta {
     pub name: String,
     pub language: String,
     pub file_extension: String,
-    pub engine: String,
     pub description: Option<String>,
 }
 
@@ -82,11 +81,9 @@ pub fn load_manifest(path: &Path) -> Result<BackendManifest, BackendError> {
 ///
 /// # What is not overridable
 ///
-/// There is deliberately no `[backend]` section. `name`, `language`,
-/// `file_extension`, and `engine` are identity, not configuration: manifest
-/// selection is a pure function of `(backend, engine)` (#82), and letting an
-/// override rewrite the engine would reintroduce exactly the cross-engine
-/// mismatch that made the old working-directory lookup unsafe.
+/// There is deliberately no `[backend]` section. `name`, `language` and
+/// `file_extension` are identity, not configuration: manifest selection is a
+/// pure function of the backend (#82).
 /// `#[serde(deny_unknown_fields)]` turns a `[backend]` table — or any other
 /// misspelled section or field — into a parse error naming the offending key.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -335,7 +332,6 @@ mod tests {
         assert_eq!(manifest.backend.name, "rust-tokio-postgres");
         assert_eq!(manifest.backend.language, "rust");
         assert_eq!(manifest.backend.file_extension, "rs");
-        assert_eq!(manifest.backend.engine, "postgresql");
         assert_eq!(manifest.types.scalars["int32"], "i32");
         assert_eq!(manifest.types.scalars["inet"], "std::net::IpAddr");
         assert_eq!(manifest.types.scalars["time_tz"], "chrono::NaiveTime");
@@ -519,11 +515,11 @@ mod tests {
     }
 
     /// `[backend]` is identity, not configuration: manifest selection stays a
-    /// pure function of `(backend, engine)` (#82), so an overlay may not
-    /// rewrite the engine or the file extension.
+    /// pure function of the backend (#82), so an overlay may not rewrite the
+    /// name or the file extension.
     #[test]
     fn parse_overlay_rejects_the_backend_section() {
-        let error = parse_overlay("[backend]\nengine = \"other\"\n")
+        let error = parse_overlay("[backend]\nfile_extension = \"other\"\n")
             .unwrap_err()
             .to_string();
         assert!(

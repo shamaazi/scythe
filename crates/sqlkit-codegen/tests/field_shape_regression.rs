@@ -18,7 +18,7 @@
 //! none of which parse.
 
 #![cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(
         dead_code,
         unused_imports,
@@ -46,7 +46,7 @@ const QUERY: &str = "-- @name FindItem\n-- @returns :one\n\
 const MANGLING_BACKENDS: [&str; 1] = ["rust-sqlx"];
 
 fn generate(backend_name: &str) -> String {
-    let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
+    let backend = get_backend(backend_name).expect("backend must support postgresql");
     let catalog = Catalog::from_ddl(&[SCHEMA]).expect("schema must parse");
     let parsed = parse_query(QUERY).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
@@ -90,7 +90,7 @@ fn outside_string_literals(source: &str) -> String {
     out
 }
 
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 #[test]
 fn no_backend_emits_a_space_or_dash_inside_a_generated_name() {
     for backend_name in MANGLING_BACKENDS {
@@ -109,7 +109,7 @@ fn no_backend_emits_a_space_or_dash_inside_a_generated_name() {
 /// Rust, `myCol` under camelCase. What
 /// every one of them must agree on is that the two words survived and are
 /// joined by something an identifier can hold.
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 #[test]
 fn every_backend_emits_the_mangled_names() {
     for backend_name in MANGLING_BACKENDS {
@@ -128,7 +128,7 @@ fn every_backend_emits_the_mangled_names() {
 /// conversion the manifest asks for *and* any second conversion a backend
 /// applies on top. A bare `_` does not survive either, which is why the guard is a
 /// word.
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 #[test]
 fn a_leading_digit_never_survives_into_a_generated_name() {
     for backend_name in MANGLING_BACKENDS {
@@ -149,7 +149,7 @@ fn a_leading_digit_never_survives_into_a_generated_name() {
 /// The SQL text is not a generated name and must keep the column exactly as
 /// the database spells it -- mangling there would query a column that does
 /// not exist.
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 #[test]
 fn the_sql_text_still_names_the_columns_as_the_database_does() {
     for backend_name in MANGLING_BACKENDS {

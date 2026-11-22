@@ -1,7 +1,6 @@
 {
   "category": "params/between",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

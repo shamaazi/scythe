@@ -17,7 +17,7 @@
 //! this crate -- since this suite must still pass on a machine without them.
 
 #![cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(
         dead_code,
         unused_imports,
@@ -41,13 +41,8 @@ const SCHEMA: &str = "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT N
 /// compilers must see the same bytes `sqlkit generate` would write, not a
 /// hand-trimmed fragment.
 fn generate_full_file(backend_name: &str, query_sql: &str) -> String {
-    generate_full_file_for_engine(backend_name, "postgresql", SCHEMA, query_sql)
-}
-
-fn generate_full_file_for_engine(backend_name: &str, engine: &str, schema: &str, query_sql: &str) -> String {
-    let backend = get_backend(backend_name, engine)
-        .unwrap_or_else(|e| panic!("backend {backend_name} must support engine {engine}: {e}"));
-    let catalog = Catalog::from_ddl(&[schema]).expect("schema must parse");
+    let backend = get_backend(backend_name).unwrap_or_else(|e| panic!("backend {backend_name} must construct: {e}"));
+    let catalog = Catalog::from_ddl(&[SCHEMA]).expect("schema must parse");
     let parsed = parse_query(query_sql).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
@@ -62,7 +57,7 @@ fn generate_full_file_for_engine(backend_name: &str, engine: &str, schema: &str,
         &provenance::header_line(
             &*backend,
             env!("CARGO_PKG_VERSION"),
-            engine,
+            provenance::ENGINE,
             "sch1:0123456789abcdef",
             "q1:fedcba9876543210",
         ),
@@ -152,7 +147,7 @@ fn compiles_or_skipped(tool: &str, probe_arg: &str, args: &[&str]) {
 const RUST_HASH_QUOTE_QUERY: &str = "-- @name FindUser\n-- @returns :one\n\
     SELECT id, name FROM users WHERE name = $1 AND name != 'ends with a hash-quote \"# sequence';";
 
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 #[test]
 fn tokio_postgres_raw_string_widens_delimiter_for_hash_quote() {
     let file = generate_full_file("rust-tokio-postgres", RUST_HASH_QUOTE_QUERY);

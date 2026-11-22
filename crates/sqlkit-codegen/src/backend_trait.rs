@@ -445,10 +445,4 @@ pub trait CodegenBackend: Send + Sync {
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), SqlkitError> {
         crate::backend_options::reject_unknown_options(&[], options)
     }
-
-    /// Database engines this backend supports.
-    /// Defaults to PostgreSQL only. Multi-DB backends override this.
-    fn supported_engines(&self) -> &[&str] {
-        &["postgresql"]
-    }
 }

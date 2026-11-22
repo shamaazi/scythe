@@ -32,16 +32,7 @@ pub struct SqlxBackend {
 }
 
 impl SqlxBackend {
-    pub fn new(engine: &str) -> Result<Self, SqlkitError> {
-        match engine {
-            "postgresql" | "postgres" | "pg" => {}
-            _ => {
-                return Err(SqlkitError::new(
-                    ErrorCode::InvalidConfig,
-                    format!("unsupported engine '{}' for rust-sqlx backend", engine),
-                ));
-            }
-        }
+    pub fn new() -> Result<Self, SqlkitError> {
         let manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
         Ok(Self {
             manifest,
@@ -95,10 +86,6 @@ impl CodegenBackend for SqlxBackend {
 
     fn manifest_mut(&mut self) -> &mut sqlkit_backend::manifest::BackendManifest {
         &mut self.manifest
-    }
-
-    fn supported_engines(&self) -> &[&str] {
-        &["postgresql"]
     }
 
     fn file_header(&self) -> String {
@@ -794,7 +781,7 @@ mod option_tests {
 
     #[test]
     fn structs_only_option_applies_when_true() {
-        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let mut backend = SqlxBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "structs_only".to_string(),
@@ -808,7 +795,7 @@ mod option_tests {
     /// leaving `structs_only` disabled.
     #[test]
     fn structs_only_option_rejects_invalid_value() {
-        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let mut backend = SqlxBackend::new().unwrap();
         let result = backend.apply_options(&std::collections::HashMap::from([(
             "structs_only".to_string(),
             "maybe".to_string(),
@@ -822,7 +809,7 @@ mod option_tests {
     /// every TypeScript backend.
     #[test]
     fn apply_options_rejects_unknown_key_with_invalid_config() {
-        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let mut backend = SqlxBackend::new().unwrap();
         let err = backend
             .apply_options(&std::collections::HashMap::from([(
                 "structs_onl".to_string(),
@@ -849,7 +836,7 @@ mod option_tests {
     /// "unknown option 'serde'". All three options must coexist.
     #[test]
     fn serde_and_derive_options_apply_together_with_structs_only() {
-        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let mut backend = SqlxBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([
                 ("serde".to_string(), "true".to_string()),
@@ -870,7 +857,7 @@ mod option_tests {
     /// harmless no-op.
     #[test]
     fn derive_line_dedupes_extra_derive_matching_a_base_derive() {
-        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let mut backend = SqlxBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "derive".to_string(),
@@ -885,7 +872,7 @@ mod option_tests {
     /// set must not duplicate the derive `serde` itself already inserted.
     #[test]
     fn derive_line_dedupes_extra_derive_matching_the_serde_derives() {
-        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let mut backend = SqlxBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([
                 ("serde".to_string(), "true".to_string()),
@@ -900,7 +887,7 @@ mod option_tests {
     /// leaving `serde` disabled.
     #[test]
     fn serde_option_rejects_invalid_value() {
-        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let mut backend = SqlxBackend::new().unwrap();
         let result = backend.apply_options(&std::collections::HashMap::from([(
             "serde".to_string(),
             "maybe".to_string(),
@@ -913,7 +900,7 @@ mod option_tests {
     /// extra derives alongside sqlx's own `sqlx::FromRow`.
     #[test]
     fn serde_and_derive_options_generate_row_struct_with_serde_derive() {
-        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let mut backend = SqlxBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([
                 ("serde".to_string(), "true".to_string()),

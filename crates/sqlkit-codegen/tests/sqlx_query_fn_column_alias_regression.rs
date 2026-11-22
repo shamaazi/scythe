@@ -20,7 +20,7 @@
 //! backslash and quote *again*. The SQL text sqlx actually receives at
 //! compile time ends up with a literal backslash sqlx never asked for.
 
-#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+#![cfg(feature = "lang-rust")]
 
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
@@ -35,7 +35,7 @@ const SCHEMA: [&str; 2] = [
 const QUERY: &str = "-- @name GetWidget\n-- @returns :one\nSELECT id, \"my col\", status FROM widgets WHERE id = $1;";
 
 fn generate_query_fn() -> String {
-    let backend = get_backend("rust-sqlx", "postgresql").expect("backend must support postgresql");
+    let backend = get_backend("rust-sqlx").expect("backend must support postgresql");
     let catalog = Catalog::from_ddl(&SCHEMA).expect("schema must parse");
     let parsed = parse_query(QUERY).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");

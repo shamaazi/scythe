@@ -1,7 +1,6 @@
 {
   "category": "params/in_clause",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

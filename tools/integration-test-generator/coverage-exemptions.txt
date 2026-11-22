@@ -17,14 +17,14 @@
 # denominator can quietly improve.
 
 [manifests]
-# Backend manifests (name|engine) that ship but that no integration project
+# Backend manifests (by name) that ship but that no integration project
 # exercises. Delete the line when you add the project.
 #
 # An integration project is only worth adding together with the devenv task
 # that runs it: a project nothing runs generates output that is checked for
 # freshness but never executed.
 
-typescript-postgres|postgresql : the postgres.js driver mode of the backend typescript-bun is built on; this fork runs only the Bun project (typescript-bun), which exercises the shared code generator
+typescript-postgres : the postgres.js driver mode of the backend typescript-bun is built on; this fork runs only the Bun project (typescript-bun), which exercises the shared code generator
 
 [devenv-integration]
 # Integration projects the `sqlkit:integration` devenv task does not run.

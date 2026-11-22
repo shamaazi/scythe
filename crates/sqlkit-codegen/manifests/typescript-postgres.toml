@@ -2,7 +2,6 @@
 name = "typescript-postgres"
 language = "typescript"
 file_extension = "ts"
-engine = "postgresql"
 description = "TypeScript code generation targeting postgres.js"
 
 [types.scalars]

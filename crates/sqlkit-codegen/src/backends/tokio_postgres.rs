@@ -171,17 +171,8 @@ pub struct TokioPostgresBackend {
 }
 
 impl TokioPostgresBackend {
-    pub fn new(engine: &str) -> Result<Self, SqlkitError> {
-        let default_toml = match engine {
-            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
-            _ => {
-                return Err(SqlkitError::new(
-                    ErrorCode::InvalidConfig,
-                    format!("rust-tokio-postgres only supports PostgreSQL, got engine '{}'", engine),
-                ));
-            }
-        };
-        let manifest = super::parse_manifest(default_toml)?;
+    pub fn new() -> Result<Self, SqlkitError> {
+        let manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
         Ok(Self {
             manifest,
             serde: false,
@@ -250,10 +241,6 @@ impl CodegenBackend for TokioPostgresBackend {
 
     fn manifest_mut(&mut self) -> &mut sqlkit_backend::manifest::BackendManifest {
         &mut self.manifest
-    }
-
-    fn supported_engines(&self) -> &[&str] {
-        &["postgresql"]
     }
 
     fn file_header(&self) -> String {
@@ -803,7 +790,7 @@ mod tests {
 
     #[test]
     fn test_grouped_tokio_postgres_structs() {
-        let backend = TokioPostgresBackend::new("postgresql").unwrap();
+        let backend = TokioPostgresBackend::new().unwrap();
         let query = make_grouped_query();
         let result = generate_with_backend(&query, &backend).unwrap();
 
@@ -846,7 +833,7 @@ mod tests {
 
     #[test]
     fn test_grouped_tokio_postgres_query_fn() {
-        let backend = TokioPostgresBackend::new("postgresql").unwrap();
+        let backend = TokioPostgresBackend::new().unwrap();
         let query = make_grouped_query();
         let result = generate_with_backend(&query, &backend).unwrap();
 
@@ -886,7 +873,7 @@ mod tests {
     fn serde_option_applies_when_true() {
         use crate::backend_trait::CodegenBackend;
 
-        let mut backend = TokioPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TokioPostgresBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "serde".to_string(),
@@ -902,7 +889,7 @@ mod tests {
     fn serde_option_rejects_invalid_value() {
         use crate::backend_trait::CodegenBackend;
 
-        let mut backend = TokioPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TokioPostgresBackend::new().unwrap();
         let result = backend.apply_options(&std::collections::HashMap::from([(
             "serde".to_string(),
             "maybe".to_string(),

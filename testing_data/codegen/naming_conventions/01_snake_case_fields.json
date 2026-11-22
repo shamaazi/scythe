@@ -1,7 +1,6 @@
 {
   "category": "codegen/naming_conventions",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

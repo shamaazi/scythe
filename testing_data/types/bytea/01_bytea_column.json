@@ -1,7 +1,6 @@
 {
   "category": "types/bytea",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

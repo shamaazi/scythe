@@ -106,24 +106,23 @@ pub fn has_unannotated_sql(content: &str) -> bool {
     saw_content
 }
 
-/// Deserialize a `[[sql]] engine`. The key is optional, since PostgreSQL is the only engine;
-/// when present it must name PostgreSQL. Every command reads `engine` through this function,
-/// so this is the one place it is validated.
-pub fn deserialize_engine<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::Deserialize;
+/// A `[[sql]] engine` key. The key is optional, since PostgreSQL is the only engine; when
+/// present it must name PostgreSQL. Every command reads `engine` as this type, so this is
+/// the one place it is validated.
+#[derive(Debug, Default)]
+pub struct PostgresEngine;
 
-    let engine = Option::<String>::deserialize(deserializer)?;
-    if let Some(engine) = &engine
-        && !matches!(engine.to_ascii_lowercase().as_str(), "postgresql" | "postgres" | "pg")
-    {
-        return Err(serde::de::Error::custom(format!(
-            "unsupported engine '{engine}': sqlkit supports PostgreSQL only (`postgresql`, `postgres` or `pg`;              the key may also be omitted)"
-        )));
+impl<'de> serde::Deserialize<'de> for PostgresEngine {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let engine = String::deserialize(deserializer)?;
+        match engine.to_ascii_lowercase().as_str() {
+            "postgresql" | "postgres" | "pg" => Ok(PostgresEngine),
+            _ => Err(serde::de::Error::custom(format!(
+                "unsupported engine '{engine}': sqlkit supports PostgreSQL only (`postgresql`, `postgres` or \
+                 `pg`; the key may also be omitted)"
+            ))),
+        }
     }
-    Ok(engine)
 }
 
 /// Redact the password component of a connection URL like

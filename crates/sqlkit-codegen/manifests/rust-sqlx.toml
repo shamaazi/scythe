@@ -2,7 +2,6 @@
 name = "rust-sqlx"
 language = "rust"
 file_extension = "rs"
-engine = "postgresql"
 description = "Rust code generation targeting sqlx with PostgreSQL"
 
 [types.scalars]

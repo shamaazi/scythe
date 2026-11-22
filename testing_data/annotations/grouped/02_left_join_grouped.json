@@ -1,8 +1,5 @@
 {
   "category": "annotations/grouped",
-  "config": {
-    "engine": "postgresql"
-  },
   "description": "Verify :grouped with LEFT JOIN makes child columns nullable",
   "expected": {
     "query": {

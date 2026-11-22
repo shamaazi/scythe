@@ -1,7 +1,6 @@
 {
   "category": "params/where_equals",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

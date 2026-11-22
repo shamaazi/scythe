@@ -9,7 +9,6 @@
   ],
   "query_sql": "-- @name GetAmbiguous\n-- @returns :many\nSELECT id FROM users u JOIN orders o ON u.id = o.user_id;",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

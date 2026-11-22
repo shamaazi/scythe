@@ -20,7 +20,7 @@ use crate::backend_trait::CodegenBackend;
 
 /// Parse a backend's compiled-in manifest.
 ///
-/// Manifest selection is a pure function of (backend, engine). There is
+/// Manifest selection is a pure function of the backend. There is
 /// deliberately no filesystem lookup here: generated output must not depend
 /// on the process working directory (#82).
 /// The summary a generator writes above a query's function: the free-text
@@ -623,19 +623,11 @@ fn rewrite_code_span_placeholders(
     }
 }
 
-/// Get a backend by name and database engine.
+/// Get a backend by name.
 ///
-/// The `engine` parameter (e.g. "postgresql") determines
-/// which manifest is loaded for type mappings. PG-only backends reject non-PG engines.
-///
-/// A backend or engine whose Cargo feature this build was compiled without is
+/// A backend whose language feature this build was compiled without is
 /// rejected with an error naming that feature.
-pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, SqlkitError> {
-    let canonical_engine = normalize_engine(engine);
-    if let Some(feature) = disabled_engine_feature(canonical_engine) {
-        return Err(disabled_feature(&format!("engine '{engine}'"), feature));
-    }
-
+pub fn get_backend(name: &str) -> Result<Box<dyn CodegenBackend>, SqlkitError> {
     // Constructs a backend whose module `$feature` compiles in, or reports
     // the feature that would.
     macro_rules! backend {
@@ -651,25 +643,24 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
     }
 
     let backend: Box<dyn CodegenBackend> = match name {
-        "rust-sqlx" | "sqlx" | "rust" => backend!("lang-rust", sqlx::SqlxBackend::new(canonical_engine)),
+        "rust-sqlx" | "sqlx" | "rust" => backend!("lang-rust", sqlx::SqlxBackend::new()),
         "rust-tokio-postgres" | "tokio-postgres" => {
-            backend!("lang-rust", tokio_postgres::TokioPostgresBackend::new(canonical_engine))
+            backend!("lang-rust", tokio_postgres::TokioPostgresBackend::new())
         }
-        "typescript-postgres" | "ts" | "typescript" => backend!(
-            "lang-typescript",
-            typescript_postgres::TypescriptPostgresBackend::new(canonical_engine)
-        ),
+        "typescript-postgres" | "ts" | "typescript" => {
+            backend!("lang-typescript", typescript_postgres::TypescriptPostgresBackend::new())
+        }
         "javascript-postgres" => backend!(
             "lang-typescript",
-            typescript_postgres::TypescriptPostgresBackend::new_js(canonical_engine)
+            typescript_postgres::TypescriptPostgresBackend::new_js()
         ),
         "typescript-bun" => backend!(
             "lang-typescript",
-            typescript_postgres::TypescriptPostgresBackend::new_bun(canonical_engine)
+            typescript_postgres::TypescriptPostgresBackend::new_bun()
         ),
         "javascript-bun" => backend!(
             "lang-typescript",
-            typescript_postgres::TypescriptPostgresBackend::new_bun_js(canonical_engine)
+            typescript_postgres::TypescriptPostgresBackend::new_bun_js()
         ),
         _ => {
             return Err(SqlkitError::new(
@@ -679,50 +670,11 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         }
     };
 
-    if !backend
-        .supported_engines()
-        .iter()
-        .any(|e| normalize_engine(e) == canonical_engine)
-    {
-        return Err(SqlkitError::new(
-            ErrorCode::InvalidConfig,
-            format!(
-                "backend '{}' does not support engine '{}'. Supported: {:?}",
-                name,
-                engine,
-                backend.supported_engines()
-            ),
-        ));
-    }
-
     Ok(backend)
 }
 
-/// Each engine Cargo feature, the canonical engines it enables, and whether
-/// this build was compiled with it.
-const ENGINE_FEATURES: &[(&str, &[&str], bool)] = &[("postgres", &["postgresql"], cfg!(feature = "postgres"))];
-
-/// The Cargo feature that enables `engine`, in any of its alias spellings, or
-/// `None` for an engine this crate does not know.
-pub fn engine_feature(engine: &str) -> Option<&'static str> {
-    engine_feature_entry(engine).map(|(feature, _, _)| *feature)
-}
-
-/// The Cargo feature `engine` needs when this build was compiled without it.
-fn disabled_engine_feature(engine: &str) -> Option<&'static str> {
-    engine_feature_entry(engine)
-        .filter(|(_, _, enabled)| !enabled)
-        .map(|(feature, _, _)| *feature)
-}
-
-fn engine_feature_entry(engine: &str) -> Option<&'static (&'static str, &'static [&'static str], bool)> {
-    let canonical = normalize_engine(engine);
-    ENGINE_FEATURES
-        .iter()
-        .find(|(_, engines, _)| engines.contains(&canonical))
-}
-
-/// The error for a backend or engine left out of this build.
+/// The error for a backend left out of this build.
+#[cfg(not(all(feature = "lang-rust", feature = "lang-typescript")))]
 fn disabled_feature(subject: &str, feature: &str) -> SqlkitError {
     SqlkitError::new(
         ErrorCode::InvalidConfig,
@@ -731,19 +683,6 @@ fn disabled_feature(subject: &str, feature: &str) -> SqlkitError {
              (rebuild with `--features {feature}` or with default features)"
         ),
     )
-}
-
-/// Normalize engine name to canonical form.
-///
-/// Public so callers outside this crate (e.g. `sqlkit-cli`) can classify a
-/// `[[sql]]` block's configured engine without duplicating the alias table —
-/// for example, to decide whether a block is PostgreSQL-wire-compatible
-/// before attempting live-database verification.
-pub fn normalize_engine(engine: &str) -> &str {
-    match engine {
-        "postgresql" | "postgres" | "pg" => "postgresql",
-        other => other,
-    }
 }
 
 /// Exact-value characterization tests for `clean_sql`, `clean_sql_oneline`,
@@ -800,7 +739,7 @@ mod tests {
         assert!(
             offenders.is_empty(),
             "found a working-directory-relative manifest path literal in: {offenders:?} (#82 regression \
-             -- manifest selection must be a pure function of (backend, engine), no filesystem lookup)"
+             -- manifest selection must be a pure function of the backend, no filesystem lookup)"
         );
     }
 
@@ -818,16 +757,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn engine_feature_covers_every_alias_of_an_engine() {
-        assert_eq!(engine_feature("pg"), Some("postgres"));
-        assert_eq!(engine_feature("klingon"), None);
-    }
-
     #[cfg(not(feature = "lang-typescript"))]
     #[test]
     fn get_backend_names_the_language_feature_a_disabled_backend_needs() {
-        let error = get_backend("typescript-bun", "postgresql")
+        let error = get_backend("typescript-bun")
             .err()
             .expect("typescript-bun is not compiled in");
         assert_eq!(error.code, ErrorCode::InvalidConfig);

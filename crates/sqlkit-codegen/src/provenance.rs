@@ -75,23 +75,11 @@ fn needs_escape(character: char) -> bool {
 ///
 /// In practice this is the identity function. Every value that reaches
 /// [`header_line`] today — a semver `version`, a hardcoded `backend.name()`
-/// literal, an `engine` alias, `sch1:` + 16 hex, `q1:` + 16 hex — contains
+/// literal, [`ENGINE`], `sch1:` + 16 hex, `q1:` + 16 hex — contains
 /// none of the escaped characters, so no shipped header's bytes change and
-/// no `Cow` is ever allocated. The escaping exists for the one field that
-/// is *not* constrained: `engine` is the `[[sql]]` `engine = "..."` value,
-/// deserialized verbatim from the user's `sqlkit.toml` with no validation
-/// upstream (`normalize_engine` only consults it to pick a dialect; the raw
-/// string is what a caller passes through to here). Encoding at the point
-/// of embedding, rather than at config parse time, means the guarantee
-/// holds regardless of how a value arrives — this call site today, or any
-/// future one — not just for callers that happen to validate first.
-///
-/// The verifier (`sqlkit check`) must encode its configured engine the same
-/// way before comparing it against the header's `engine` field: the header
-/// always holds the encoded value, so comparing it against a raw one would
-/// permanently false-flag SC-PRV04 for any config whose engine string
-/// needed escaping. Comparing encoded-to-encoded is equivalent to comparing
-/// decoded-to-decoded, because the encoding is injective.
+/// no `Cow` is ever allocated. Encoding at the point of embedding means the
+/// guarantee holds regardless of how a value arrives, not just for callers
+/// that happen to validate first.
 pub fn sanitize_field(value: &str) -> Cow<'_, str> {
     if !value.contains(needs_escape) {
         return Cow::Borrowed(value);
@@ -196,6 +184,11 @@ pub fn parse_header_fields(line: &str) -> Option<Vec<(&str, String)>> {
     )
 }
 
+/// The engine every provenance header records. sqlkit generates for PostgreSQL only; the
+/// field stays so headers keep their shape, and `sqlkit check` reports SC-PRV04 for an
+/// artifact whose header names anything else.
+pub const ENGINE: &str = "postgresql";
+
 /// Build the provenance header line that [`assemble_file`] prepends to every
 /// generated file, right after [`CodegenBackend::file_preamble`] and before
 /// [`CodegenBackend::file_header`]: the sentinel `sqlkit check` searches for,
@@ -223,9 +216,8 @@ pub fn parse_header_fields(line: &str) -> Option<Vec<(&str, String)>> {
 /// — added in #94 so that editing a `.sql` query file without touching the
 /// schema is no longer invisible to `sqlkit check`.
 ///
-/// *Every* field is passed through [`sanitize_field`] before embedding, not
-/// just the free-form `engine` one. Four of the five cannot contain an
-/// escapable character today, so encoding them is provably a no-op and the
+/// *Every* field is passed through [`sanitize_field`] before embedding. None of
+/// them can contain an escapable character today, so encoding them is provably a no-op and the
 /// emitted bytes are unchanged — but "cannot" is a property of the current
 /// callers, not of this function's signature, which accepts an arbitrary
 /// `&str` for each. Encoding uniformly means [`parse_header_fields`] is the
@@ -417,7 +409,7 @@ pub fn assemble_file(preamble: &str, header: &str, body: &str) -> String {
 
 #[cfg(test)]
 #[cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(dead_code, reason = "helpers shared with tests of backends this build leaves out")
 )]
 mod tests {
@@ -549,13 +541,13 @@ mod tests {
     /// Also asserts the two structural guarantees a caller cannot recover
     /// from if they are lost: the header stays exactly one line, and it
     /// stays behind a comment token.
-    #[cfg(all(feature = "lang-rust", feature = "lang-typescript", feature = "postgres"))]
+    #[cfg(all(feature = "lang-rust", feature = "lang-typescript"))]
     #[test]
     fn header_line_round_trips_adversarial_field_values() {
         // One backend per language, because the emitted line differs by language.
         for backend_name in ["rust-sqlx", "typescript-bun"] {
-            let backend = crate::get_backend(backend_name, "postgresql")
-                .unwrap_or_else(|e| panic!("{backend_name} with postgresql: {e}"));
+            let backend =
+                crate::get_backend(backend_name).unwrap_or_else(|e| panic!("{backend_name} with postgresql: {e}"));
             let comment = comment_prefix(&backend.manifest().backend.language);
 
             for version in ADVERSARIAL_FIELD_VALUES {
@@ -595,10 +587,10 @@ mod tests {
     /// The round trip must also survive assembly, where the header is one
     /// line among many rather than the whole string — the shape a verifier
     /// actually reads off disk.
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn assembled_file_round_trips_a_space_bearing_field_value() {
-        let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = crate::get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let engine = "postgresql\nfn evil() {}";
 
         let file = assemble_file(
@@ -648,28 +640,10 @@ mod tests {
         );
     }
 
-    /// Documents why the verifier's sanitized-vs-sanitized SC-PRV04
-    /// comparison cannot be exercised end to end with a value that actually
-    /// differs pre/post sanitization: `get_backend` rejects any `engine`
-    /// whose `normalize_engine()` output is not an exact-string match for
-    /// one of the backend's `supported_engines()`, and every recognized
-    /// alias is a clean literal containing neither `\n` nor `\r`. Any engine
-    /// value containing one fails `get_backend` before verification ever
-    /// reaches the comparison — so the sanitizing comparison closes a latent
-    /// bug, not a currently reachable one. It is still correct:
-    /// [`header_line`] accepts an arbitrary `&str` with no such gate, so the
-    /// comparison must not depend on `get_backend` policing its input for it.
-    #[test]
-    fn sanitize_field_is_a_no_op_for_every_alias_get_backend_accepts() {
-        for alias in ["postgresql", "postgres", "pg"] {
-            assert_eq!(sanitize_field(alias).as_ref(), alias);
-        }
-    }
-
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn header_line_embeds_the_caller_supplied_version_not_this_crates_own() {
-        let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = crate::get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let line = header_line(
             backend.as_ref(),
             "9.9.9-caller",
@@ -701,10 +675,10 @@ mod tests {
     /// still constructs. Pinned as a literal, not compared against a second
     /// call to `header_line`, so a change to `build_header_line` that moved
     /// *both* callers together the same wrong way would still be caught.
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn header_line_is_byte_identical_to_the_pre_options_five_field_form() {
-        let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = crate::get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let line = header_line(
             backend.as_ref(),
             "0.15.0",
@@ -720,10 +694,10 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn header_line_with_options_appends_the_sixth_field_before_the_suffix() {
-        let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = crate::get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let line = header_line_with_options(
             backend.as_ref(),
             "0.15.0",
@@ -740,10 +714,10 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "lang-rust", feature = "postgres"))]
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn header_line_with_options_round_trips_through_parse_header_fields() {
-        let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = crate::get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let line = header_line_with_options(
             backend.as_ref(),
             "0.15.0",

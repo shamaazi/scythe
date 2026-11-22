@@ -1,7 +1,6 @@
 {
   "category": "params/coalesce_param",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

@@ -1,7 +1,6 @@
 {
   "category": "types/arrays",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

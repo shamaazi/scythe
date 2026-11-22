@@ -45,8 +45,6 @@ struct BackendConfig {
     name: String,
     /// Language identifier for template selection.
     language: String,
-    /// Database engine: "postgresql".
-    engine: String,
     /// Driver name used by the sqlkit backend, e.g. "sqlx", "tokio-postgres".
     driver: String,
     /// Environment variable for the database connection string.
@@ -62,7 +60,6 @@ struct BackendConfig {
 struct TemplateContext {
     backend_name: String,
     language: String,
-    engine: String,
     driver: String,
     connection_env: String,
     backend: String,
@@ -77,21 +74,16 @@ struct TemplateContext {
 
 impl From<&BackendConfig> for TemplateContext {
     fn from(cfg: &BackendConfig) -> Self {
-        let engine_dir = match cfg.engine.as_str() {
-            "postgresql" => "pg",
-            other => other,
-        };
         Self {
             backend_name: cfg.name.clone(),
             language: cfg.language.clone(),
-            engine: cfg.engine.clone(),
             driver: cfg.driver.clone(),
             connection_env: cfg.connection_env.clone(),
             backend: cfg.backend.clone(),
             options: cfg.options.clone(),
-            schema_dir: format!("../sql/{engine_dir}"),
+            schema_dir: "../sql/pg".to_string(),
             schema_file: "schema.sql".to_string(),
-            queries_dir: format!("../sql/{engine_dir}/queries"),
+            queries_dir: "../sql/pg/queries".to_string(),
         }
     }
 }
@@ -131,7 +123,7 @@ fn language_outputs(language: &str) -> LanguageOutputs {
 /// The hand-maintained half of `build_backends()`: driver, connection env var
 /// and per-variant options (row_type, structs_only, etc.) for every project
 /// this generator ships. This data cannot come from the manifests directory —
-/// a manifest declares only (name, language, engine), not which driver
+/// a manifest declares only (name, language), not which driver
 /// crate/package exercises it or which one-off option combinations are worth
 /// their own project — so it stays a literal list.
 ///
@@ -145,7 +137,6 @@ fn backend_variants() -> Vec<BackendConfig> {
         BackendConfig {
             name: "rust-sqlx".into(),
             language: "rust".into(),
-            engine: "postgresql".into(),
             driver: "sqlx".into(),
             connection_env: "DATABASE_URL".into(),
             backend: "rust-sqlx".into(),
@@ -154,7 +145,6 @@ fn backend_variants() -> Vec<BackendConfig> {
         BackendConfig {
             name: "rust-tokio-postgres".into(),
             language: "rust".into(),
-            engine: "postgresql".into(),
             driver: "tokio-postgres".into(),
             connection_env: "DATABASE_URL".into(),
             backend: "rust-tokio-postgres".into(),
@@ -178,17 +168,15 @@ struct ManifestFile {
 #[derive(Debug, Deserialize)]
 struct ManifestBackendMeta {
     name: String,
-    engine: String,
 }
 
-/// Every manifest that ships, keyed by the (name, engine) pair the backend
-/// resolver uses. This is the disk-derived side of the completeness check:
+/// Every manifest that ships, keyed by the name the backend resolver uses. This is the disk-derived side of the completeness check:
 /// `build_backends()` cannot ship a project for a manifest this function does
 /// not find.
-fn discover_manifest_pairs(manifests_dir: &Path) -> BTreeSet<(String, String)> {
+fn discover_manifest_names(manifests_dir: &Path) -> BTreeSet<String> {
     let entries =
         fs::read_dir(manifests_dir).unwrap_or_else(|err| panic!("reading {}: {err}", manifests_dir.display()));
-    let mut pairs = BTreeSet::new();
+    let mut names = BTreeSet::new();
     for entry in entries {
         let path = entry
             .unwrap_or_else(|err| panic!("reading manifest entry: {err}"))
@@ -199,18 +187,18 @@ fn discover_manifest_pairs(manifests_dir: &Path) -> BTreeSet<(String, String)> {
         let contents = fs::read_to_string(&path).unwrap_or_else(|err| panic!("reading {}: {err}", path.display()));
         let parsed: ManifestFile =
             toml::from_str(&contents).unwrap_or_else(|err| panic!("parsing manifest {}: {err}", path.display()));
-        pairs.insert((parsed.backend.name, parsed.backend.engine));
+        names.insert(parsed.backend.name);
     }
     assert!(
-        !pairs.is_empty(),
+        !names.is_empty(),
         "no manifests found under {}",
         manifests_dir.display()
     );
-    pairs
+    names
 }
 
 /// Parses the `[manifests]` section of `coverage-exemptions.txt`: lines
-/// shaped `<name>|<engine> : <reason>`. Deliberately reads the same file
+/// shaped `<name> : <reason>`. Deliberately reads the same file
 /// `tests/coverage_completeness.rs` reads (rather than a second, generator-only
 /// opt-out list), because both are asserting the same fact — a manifest with
 /// no project — and two allowlists for one fact is exactly the drift issue
@@ -240,11 +228,11 @@ fn load_manifest_exemptions(exemptions_path: &Path) -> HashMap<String, String> {
 }
 
 /// Integration projects kept by hand outside `backend_variants()` (their
-/// scaffolding is not rendered from the templates), as `(backend, engine)`.
+/// scaffolding is not rendered from the templates), by backend name.
 /// Their committed `sqlkit.toml` still exercises the manifest, which
 /// `tests/coverage_completeness.rs` counts, so the build-time check counts it
 /// too instead of demanding an exemption that test would call stale.
-const HAND_MAINTAINED_BACKENDS: &[(&str, &str)] = &[("typescript-bun", "postgresql")];
+const HAND_MAINTAINED_BACKENDS: &[&str] = &["typescript-bun"];
 
 /// Cross-checks `backend_variants()` against the manifests directory and
 /// `coverage-exemptions.txt`, failing the build in both directions — a
@@ -252,54 +240,42 @@ const HAND_MAINTAINED_BACKENDS: &[(&str, &str)] = &[("typescript-bun", "postgres
 /// manifest is covered now — the usual stale-entry ratchet. See `backend_variants()`'s doc comment for why the entries
 /// themselves cannot be generated from the manifest directly.
 fn validate_manifest_coverage(variants: &[BackendConfig], manifests_dir: &Path, exemptions_path: &Path) {
-    let shipped = discover_manifest_pairs(manifests_dir);
+    let shipped = discover_manifest_names(manifests_dir);
 
-    // A variant names the (backend, engine) it *asks* for, but the resolver
-    // can answer with a manifest declared under a different engine. So coverage is whatever the real
+    // A variant names the backend it *asks* for, possibly by alias, so coverage is whatever the real
     // resolver reaches, not a literal pair match -- re-deriving that
     // fallback table here would reintroduce the "two derivations, never
     // cross-checked" shape this check exists to kill.
-    let mut covered: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut covered: BTreeSet<String> = BTreeSet::new();
     for variant in variants {
-        let backend = get_backend(&variant.backend, &variant.engine).unwrap_or_else(|err| {
+        let backend = get_backend(&variant.backend).unwrap_or_else(|err| {
             panic!(
-                "backend_variants() entry '{}' requests backend '{}' on engine '{}', which does not \
-                 resolve to any manifest: {err}",
-                variant.name, variant.backend, variant.engine
+                "backend_variants() entry '{}' requests backend '{}', which does not resolve to any \
+                 manifest: {err}",
+                variant.name, variant.backend
             )
         });
-        let meta = &backend.manifest().backend;
-        covered.insert((meta.name.clone(), meta.engine.clone()));
+        covered.insert(backend.manifest().backend.name.clone());
     }
-    for (backend, engine) in HAND_MAINTAINED_BACKENDS {
-        let backend = get_backend(backend, engine)
-            .unwrap_or_else(|err| panic!("hand-maintained backend '{backend}' on '{engine}' does not resolve: {err}"));
-        let meta = &backend.manifest().backend;
-        covered.insert((meta.name.clone(), meta.engine.clone()));
+    for name in HAND_MAINTAINED_BACKENDS {
+        let backend =
+            get_backend(name).unwrap_or_else(|err| panic!("hand-maintained backend '{name}' does not resolve: {err}"));
+        covered.insert(backend.manifest().backend.name.clone());
     }
 
     let exemptions = load_manifest_exemptions(exemptions_path);
     let mut failures = Vec::new();
 
-    for (name, engine) in shipped.difference(&covered) {
-        let key = format!("{name}|{engine}");
-        if !exemptions.contains_key(&key) {
+    for name in shipped.difference(&covered) {
+        if !exemptions.contains_key(name) {
             failures.push(format!(
-                "manifest '{name}' (engine '{engine}') has no entry in backend_variants() and no \
-                 exemption in {}",
+                "manifest '{name}' has no entry in backend_variants() and no exemption in {}",
                 exemptions_path.display()
             ));
         }
     }
     for key in exemptions.keys() {
-        let Some((name, engine)) = key.split_once('|') else {
-            failures.push(format!(
-                "malformed exemption key '{key}' in {}",
-                exemptions_path.display()
-            ));
-            continue;
-        };
-        if covered.contains(&(name.to_string(), engine.to_string())) {
+        if covered.contains(key) {
             failures.push(format!(
                 "exemption '{key}' in {} is stale -- it is covered now, delete the line",
                 exemptions_path.display()

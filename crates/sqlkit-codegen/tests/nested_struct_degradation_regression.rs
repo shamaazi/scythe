@@ -15,7 +15,7 @@
 //! third tuple element or forgets to assign the field fails loudly here.
 
 #![cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(
         dead_code,
         unused_imports,
@@ -39,14 +39,14 @@ const NESTED_ARRAY_QUERY: &str = "-- @name GetUserOrders\n-- @returns :many\n\
     SELECT u.id, json_agg(o.*) AS orders FROM users u JOIN orders o ON o.user_id = u.id GROUP BY u.id;";
 
 fn generate(backend_name: &str) -> Result<GeneratedCode, SqlkitError> {
-    let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
+    let backend = get_backend(backend_name).expect("backend must support postgresql");
     let catalog = Catalog::from_ddl(&[NESTED_ARRAY_SCHEMA]).expect("schema must parse");
     let parsed = parse_query(NESTED_ARRAY_QUERY).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     generate_with_backend(&analyzed, &*backend)
 }
 
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn typescript_postgresql_backends_emit_native_nested_structs() {
     for backend in ["typescript-postgres", "typescript-bun"] {
@@ -74,7 +74,7 @@ fn typescript_postgresql_backends_emit_native_nested_structs() {
     }
 }
 
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn javascript_aliases_keep_the_plain_json_fallback() {
     for backend in ["javascript-postgres", "javascript-bun"] {
@@ -85,7 +85,7 @@ fn javascript_aliases_keep_the_plain_json_fallback() {
     }
 }
 
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn unsupported_future_json_field_degrades_the_entire_nested_struct() {
     let nested = NestedStructInfo {
@@ -97,7 +97,7 @@ fn unsupported_future_json_field_degrades_the_entire_nested_struct() {
         }],
     };
     for backend_name in ["typescript-postgres", "typescript-bun"] {
-        let backend = get_backend(backend_name, "postgresql").expect("backend must support PostgreSQL");
+        let backend = get_backend(backend_name).expect("backend must support PostgreSQL");
         assert!(
             backend
                 .generate_nested_struct_def(&nested)
@@ -111,7 +111,7 @@ fn unsupported_future_json_field_degrades_the_entire_nested_struct() {
 /// `rust-sqlx` implements `generate_nested_struct_def`, so nothing here was
 /// degraded: the field must stay empty rather than report a false positive
 /// for a backend that actually generated the struct.
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 #[test]
 fn supporting_backend_reports_no_degradation() {
     let code = generate("rust-sqlx").expect("codegen must succeed");

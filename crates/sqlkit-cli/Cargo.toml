@@ -32,28 +32,27 @@ name = "sqlkit"
 path = "src/main.rs"
 
 [features]
-# The PostgreSQL engine and every target language. Building with
+# Live-database support and every target language. Building with
 # `--no-default-features` and naming only what a project uses skips the rest,
 # e.g. `--no-default-features --features postgres,lang-typescript`.
 # Configuring a backend left out of the build is a runtime error naming the
 # feature to enable.
-default = ["all-engines", "all-languages"]
-all-engines = ["postgres"]
+default = ["postgres", "all-languages"]
 all-languages = ["lang-rust", "lang-typescript"]
-# The engine. It also enables `sqlkit inspect` and `sqlkit check --database-url`.
-postgres = ["dep:tokio-postgres", "sqlkit-codegen/postgres", "sqlkit-inspect/postgres"]
+# The PostgreSQL client: `sqlkit inspect` and `sqlkit check --database-url`.
+# Generation, checking and linting work without it.
+postgres = ["dep:tokio-postgres", "sqlkit-inspect/postgres"]
 # Target languages. `lang-typescript` includes the JavaScript variants.
 lang-rust = ["sqlkit-codegen/lang-rust"]
 lang-typescript = ["sqlkit-codegen/lang-typescript"]
-# Gates the live-PostgreSQL integration tests in `tests/lint_live.rs` and
-# `tests/check_mixed_engine_integration.rs` -- see #162. Without this feature
-# those tests do not exist as far as `cargo test` is concerned (the files
-# start with `#![cfg(feature = "live-tests")]`), which is different from, and
-# safer than, the env-var-only skip they used before: that skip printed `ok`
-# regardless of whether a database was ever reachable, and no CI job set the
-# env var it checked, so all four ran zero times while reporting success in
-# every run. Matches `sqlkit-inspect` and `sqlkit-conformance`'s own
-# `live-tests` feature.
+# Gates the live-PostgreSQL integration tests in `tests/lint_live.rs` -- see
+# #162. Without this feature those tests do not exist as far as `cargo test`
+# is concerned (the file starts with `#![cfg(feature = "live-tests")]`), which
+# is different from, and safer than, the env-var-only skip they used before:
+# that skip printed `ok` regardless of whether a database was ever reachable,
+# and no CI job set the env var it checked, so they ran zero times while
+# reporting success in every run. Matches `sqlkit-inspect` and
+# `sqlkit-conformance`'s own `live-tests` feature.
 live-tests = []
 
 [dependencies]

@@ -1,7 +1,6 @@
 {
   "category": "annotations/deprecated",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

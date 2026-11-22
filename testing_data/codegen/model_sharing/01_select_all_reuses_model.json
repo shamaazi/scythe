@@ -1,7 +1,6 @@
 {
   "category": "codegen/model_sharing",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

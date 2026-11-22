@@ -18,8 +18,8 @@ use sqlkit_core::parser::parse_query;
 use sqlkit_lint::{QueryViolation, RuleRegistry, Severity};
 
 use super::shared::{
-    CatalogLoadRequest, ParseSeverities, config_dir, has_unannotated_sql, load_catalog, redact_url_password,
-    resolve_contained_output, resolve_globs, split_query_file,
+    CatalogLoadRequest, ParseSeverities, PostgresEngine, config_dir, has_unannotated_sql, load_catalog,
+    redact_url_password, resolve_contained_output, resolve_globs, split_query_file,
 };
 
 #[derive(Debug, Deserialize)]
@@ -42,7 +42,6 @@ struct SqlkitMeta {
 #[serde(try_from = "RawSqlConfig")]
 struct SqlConfig {
     name: String,
-    engine: String,
     schema: Vec<String>,
     queries: Vec<String>,
     /// Legacy: output directory, used as the default when no `[[sql.gen]]`
@@ -80,7 +79,8 @@ struct SqlConfig {
 #[serde(deny_unknown_fields)]
 struct RawSqlConfig {
     name: String,
-    engine: String,
+    #[serde(default, rename = "engine")]
+    _engine: PostgresEngine,
     schema: Vec<String>,
     queries: Vec<String>,
     #[serde(default)]
@@ -102,7 +102,6 @@ impl TryFrom<RawSqlConfig> for SqlConfig {
 
         Ok(SqlConfig {
             name: raw.name,
-            engine: raw.engine,
             schema: raw.schema,
             queries: raw.queries,
             output: raw.output,
@@ -591,12 +590,8 @@ fn run_generate_inner(
         // every job's resolved (output_dir, filename) up front.
         let mut backends: Vec<(&ResolvedGenTarget, Box<dyn CodegenBackend>, String)> = Vec::new();
         for target in &gen_targets {
-            let mut backend = get_backend(&target.backend, &sql_config.engine).map_err(|e| {
-                format!(
-                    "backend '{}' with engine '{}': {}",
-                    target.backend, sql_config.engine, e
-                )
-            })?;
+            let mut backend =
+                get_backend(&target.backend).map_err(|e| format!("backend '{}': {}", target.backend, e))?;
 
             // Merged before `apply_options`, not after, so any state a backend
             // derives from the manifest there sees the user's overlay.
@@ -699,7 +694,6 @@ fn run_generate_inner(
                 &job.output_dir,
                 &overrides,
                 ProvenanceFields {
-                    engine: &sql_config.engine,
                     schema: &schema_fingerprint,
                     queries: &job.queries_fingerprint,
                     options: options_fingerprint,
@@ -957,7 +951,7 @@ fn validate_gen_targets_constructible(
     for target in &gen_targets {
         let target_label = format!("{}:{}", sql_config.name, target.backend);
 
-        let mut backend = match get_backend(&target.backend, &sql_config.engine) {
+        let mut backend = match get_backend(&target.backend) {
             Ok(backend) => backend,
             Err(e) => {
                 violations.push(QueryViolation {
@@ -965,9 +959,9 @@ fn validate_gen_targets_constructible(
                     rule_id: Cow::Borrowed("SC-PRV09"),
                     severity,
                     message: format!(
-                        "backend '{}' with engine '{}' could not be constructed: {} (run `sqlkit generate` \
-                         for the full diagnosis)",
-                        target.backend, sql_config.engine, e
+                        "backend '{}' could not be constructed: {} (run `sqlkit generate` for the full \
+                         diagnosis)",
+                        target.backend, e
                     ),
                 });
                 continue;
@@ -1059,17 +1053,11 @@ struct QueryResult {
 /// `options` is the `opt1:<16 hex>` fingerprint from
 /// [`resolve_options_fingerprint`] (GH #155) -- the `options=`
 /// counterpart to `schema`'s `sch1:` and `queries`'s `q1:` fields.
-fn provenance_header_line(
-    backend: &dyn CodegenBackend,
-    engine: &str,
-    schema: &str,
-    queries: &str,
-    options: &str,
-) -> String {
+fn provenance_header_line(backend: &dyn CodegenBackend, schema: &str, queries: &str, options: &str) -> String {
     sqlkit_codegen::provenance::header_line_with_options(
         backend,
         env!("CARGO_PKG_VERSION"),
-        engine,
+        sqlkit_codegen::provenance::ENGINE,
         schema,
         queries,
         options,
@@ -1228,14 +1216,13 @@ fn record_type_declaration(
 fn assemble_output(
     backend: &dyn CodegenBackend,
     results: &[QueryResult],
-    engine: &str,
     schema: &str,
     queries: &str,
     options: &str,
 ) -> String {
     sqlkit_codegen::provenance::assemble_file(
         &backend.file_preamble(),
-        &provenance_header_line(backend, engine, schema, queries, options),
+        &provenance_header_line(backend, schema, queries, options),
         &assemble_body(backend, results),
     )
 }
@@ -1354,10 +1341,6 @@ fn output_filename(backend: &dyn CodegenBackend) -> String {
 /// [`generate_for_backend`] past clippy's argument-count threshold.
 #[derive(Clone, Copy)]
 struct ProvenanceFields<'a> {
-    /// The raw `[[sql]]` engine alias (e.g. `"pg"`), exactly as the
-    /// user wrote it — deliberately not normalized, so the header records
-    /// the configured engine rather than the one inference resolved it to.
-    engine: &'a str,
     /// The current [`sqlkit_core::catalog::Catalog::fingerprint`].
     schema: &'a str,
     /// The sibling
@@ -1367,7 +1350,7 @@ struct ProvenanceFields<'a> {
     queries: &'a str,
     /// The `opt1:<16 hex>` fingerprint from [`resolve_options_fingerprint`]
     /// (GH #155) over this *target's* resolved `[[sql.gen]]` options
-    /// and manifest overlay contents -- unlike `engine`/`schema`/`queries`,
+    /// and manifest overlay contents -- unlike `schema`/`queries`,
     /// which are shared by every target under one `[[sql]]` block, this one
     /// is per-target (two targets in the same block can configure different
     /// options), which is why it is computed alongside the other three
@@ -1392,7 +1375,6 @@ fn generate_for_backend(
     validate_output: bool,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let ProvenanceFields {
-        engine,
         schema,
         queries,
         options,
@@ -1524,7 +1506,7 @@ fn generate_for_backend(
 
     check_file_level_type_name_collisions(analyzed_queries, &results, backend)?;
 
-    let mut output_content = assemble_output(backend, &results, engine, schema, queries, options);
+    let mut output_content = assemble_output(backend, &results, schema, queries, options);
 
     let filename = output_filename(backend);
 
@@ -1677,6 +1659,17 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     let config: SqlkitConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
+    // Live verification needs the database client the `postgres` feature brings.
+    if cfg!(not(feature = "postgres"))
+        && let Some(url) = opts.database_url.as_deref()
+    {
+        return Err(format!(
+            "cannot verify against '{}': this build was compiled without the `postgres` Cargo feature",
+            redact_url_password(url)
+        )
+        .into());
+    }
+
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
         registry.apply_config(lint_config);
@@ -1710,9 +1703,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut all_violations: Vec<QueryViolation> = Vec::new();
     // Queries are grouped per `[[sql]]` block so verification connects once and
-    // labels findings with the block's engine. `engine` is carried alongside
-    // the queries so `verify_against_database` can skip non-PostgreSQL blocks
-    // instead of running every query through the PostgreSQL wire protocol.
+    // labels findings with the block's name.
     let mut verifiable: Vec<VerifiableBlock> = Vec::new();
 
     // Maps a query's name back to the `.sql` file it came from, so findings
@@ -1748,8 +1739,8 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         // Validated eagerly, exactly as `sqlkit generate` constructs every
         // target before writing anything: `check` exists to validate what
         // `generate` would do without doing it, so a config `generate`
-        // refuses (an unresolvable `[sql.gen]`, or a backend/engine pair
-        // that will not construct) is now reported as an `SC-PRV09` error
+        // refuses (an unresolvable `[sql.gen]`, or a backend that will not
+        // construct) is now reported as an `SC-PRV09` error
         // finding -- not silently degraded to a droppable SC-PRV07
         // *warning* that only fires once an artifact already happens to
         // exist on disk to check provenance against. See #209, item 1.
@@ -1899,7 +1890,6 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         if should_retain_for_verification(opts.database_url.as_deref()) {
             verifiable.push(VerifiableBlock {
                 name: sql_config.name.clone(),
-                engine: sql_config.engine.clone(),
                 queries: analyzed_queries,
                 schema: sqlkit_inspect::describe_catalog(&catalog)?,
             });
@@ -1963,7 +1953,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let mut findings: Vec<Finding> = all_violations
+    let findings: Vec<Finding> = all_violations
         .iter()
         .filter(|qv| !matches!(qv.severity, Severity::Off))
         .map(|qv| Finding {
@@ -1993,7 +1983,8 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect();
 
-    if let Some(url) = opts.database_url.as_deref() {
+    #[cfg(feature = "postgres")]
+    let findings = if let Some(url) = opts.database_url.as_deref() {
         // Drift rules live in their own registry: `sqlkit lint` and
         // `sqlkit audit` cannot observe a live database, so listing SC-DRF*
         // among their rules would advertise rules those commands can never
@@ -2007,8 +1998,12 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         }
         let drift_severities = sqlkit_inspect::DriftSeverities::from_registry(&drift_registry);
 
+        let mut findings = findings;
         findings.extend(verify_against_database(url, &verifiable, &drift_severities)?);
-    }
+        findings
+    } else {
+        findings
+    };
 
     // Findings go to stdout (matching `sqlkit inspect`) so `--format json` can
     // be redirected to a file; progress messages stay on stderr.
@@ -2056,9 +2051,7 @@ fn check_exit_code(error_count: usize, exit_zero: bool) -> Option<i32> {
 }
 
 /// A `[[sql]]` block queued for live-database verification: its display
-/// name, its configured engine (still in whatever alias form the user wrote
-/// in `sqlkit.toml`, e.g. `"pg"`), and its analyzed
-/// queries.
+/// name and its analyzed queries.
 #[derive(Debug)]
 #[cfg_attr(
     not(feature = "postgres"),
@@ -2069,7 +2062,6 @@ fn check_exit_code(error_count: usize, exit_zero: bool) -> Option<i32> {
 )]
 struct VerifiableBlock {
     name: String,
-    engine: String,
     queries: Vec<sqlkit_core::analyzer::AnalyzedQuery>,
     /// The block's DDL schema, reduced for schema-drift comparison.
     ///
@@ -2085,76 +2077,19 @@ struct VerifiableBlock {
 /// `AnalyzedQuery` data, and it only runs when `--database-url` is supplied.
 /// Without it, `sqlkit check` runs entirely offline, so retaining (cloning
 /// and keeping alive) every analyzed query for the rest of the process would
-/// be pure waste. Kept as a small pure predicate, like
-/// `partition_verifiable_blocks` below, so the retention decision is
+/// be pure waste. Kept as a small pure predicate so the retention decision is
 /// unit-testable without a database, config file, or SQL source.
 fn should_retain_for_verification(database_url: Option<&str>) -> bool {
     database_url.is_some()
 }
 
-/// Split verifiable blocks into ones whose engine speaks the PostgreSQL wire
-/// protocol (eligible for live verification via `tokio-postgres`) and ones
-/// that must be skipped.
-///
-/// Pure and database-free by design: `verify_against_database` is the only
-/// caller that needs a live connection, so the classification logic that
-/// decides *which* blocks reach it is kept separate and unit-testable
-/// without a database.
-fn partition_verifiable_blocks(blocks: &[VerifiableBlock]) -> (Vec<&VerifiableBlock>, Vec<&VerifiableBlock>) {
-    blocks
-        .iter()
-        .partition(|b| sqlkit_codegen::backends::normalize_engine(&b.engine) == "postgresql")
-}
-
-/// Prepare every analyzed query against a live database and report where the
-/// server disagrees with static inference.
-///
-/// Only PostgreSQL is supported today — it is the engine whose extended query
-/// protocol lets us describe a statement without executing it. Other engines
-/// are skipped with a warning rather than failing the run, so `--database-url`
-/// stays harmless in a mixed-engine config.
+/// Prepare every analyzed query against the live database at `url`, over one
+/// connection, and report where the server disagrees with static inference
+/// or the committed DDL has drifted from the database.
+#[cfg(feature = "postgres")]
 fn verify_against_database(
     url: &str,
-    verifiable: &[VerifiableBlock],
-    drift_severities: &sqlkit_inspect::DriftSeverities,
-) -> Result<Vec<sqlkit_lint::reporters::Finding>, Box<dyn std::error::Error>> {
-    let (pg_blocks, skipped_blocks) = partition_verifiable_blocks(verifiable);
-
-    for block in &skipped_blocks {
-        eprintln!(
-            "[{}] Skipping database verification: engine '{}' is not PostgreSQL-compatible \
-             (only PostgreSQL supports live verification); --database-url is ignored for this block.",
-            block.name, block.engine
-        );
-    }
-
-    if pg_blocks.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    verify_postgres_blocks(url, &pg_blocks, drift_severities)
-}
-
-/// Report that live verification needs the `postgres` feature this build
-/// was compiled without, rather than skipping the requested check.
-#[cfg(not(feature = "postgres"))]
-fn verify_postgres_blocks(
-    url: &str,
-    _pg_blocks: &[&VerifiableBlock],
-    _drift_severities: &sqlkit_inspect::DriftSeverities,
-) -> Result<Vec<sqlkit_lint::reporters::Finding>, Box<dyn std::error::Error>> {
-    let disabled = sqlkit_inspect::InspectError::EngineDisabled {
-        engine: "postgres".to_string(),
-        feature: "postgres",
-    };
-    Err(format!("cannot verify against '{}': {disabled}", redact_url_password(url)).into())
-}
-
-/// Verify the PostgreSQL-compatible blocks over one connection to `url`.
-#[cfg(feature = "postgres")]
-fn verify_postgres_blocks(
-    url: &str,
-    pg_blocks: &[&VerifiableBlock],
+    blocks: &[VerifiableBlock],
     drift_severities: &sqlkit_inspect::DriftSeverities,
 ) -> Result<Vec<sqlkit_lint::reporters::Finding>, Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
@@ -2181,7 +2116,7 @@ fn verify_postgres_blocks(
         });
 
         let mut findings = Vec::new();
-        for block in pg_blocks {
+        for block in blocks {
             eprintln!(
                 "[{}] Verifying {} queries against the database...",
                 block.name,
@@ -2196,7 +2131,7 @@ fn verify_postgres_blocks(
         // nullability the committed DDL claims.
         eprintln!("Checking the schema for drift against the database...");
         let schemas: Vec<(&str, &sqlkit_inspect::SchemaDescription)> =
-            pg_blocks.iter().map(|b| (b.name.as_str(), &b.schema)).collect();
+            blocks.iter().map(|b| (b.name.as_str(), &b.schema)).collect();
         findings.extend(sqlkit_inspect::drift_findings(&client, &schemas, drift_severities).await?);
 
         Ok(findings)
@@ -2410,8 +2345,6 @@ struct ProvenanceExpectation<'a> {
     /// Canonical `backend.name()`, never the configured alias -- see the
     /// SC-PRV03 comparison below.
     backend_name: &'a str,
-    /// Sanitized `[[sql]]` engine -- see the SC-PRV04 comparison below.
-    engine: &'a str,
     schema: &'a str,
     /// Current `q1:<16 hex>` fingerprint of this block's analyzed query set
     /// (see [`sqlkit_core::analyzer::AnalyzedQuery::fingerprint_set`]),
@@ -2424,7 +2357,7 @@ struct ProvenanceExpectation<'a> {
     /// [`resolve_options_fingerprint`]), compared against the header's
     /// `options` field for SC-PRV11 -- see that comparison in
     /// [`verify_artifact`] for why it only fires when the header actually
-    /// has one. Per-target, unlike `engine`/`schema`/`queries`: two targets
+    /// has one. Per-target, unlike `schema`/`queries`: two targets
     /// under one `[[sql]]` block can configure different options.
     options: &'a str,
     version: &'a str,
@@ -2468,10 +2401,8 @@ struct ProvenanceExpectation<'a> {
 ///
 /// The two failures that used to propagate are now findings instead:
 ///
-/// - A target whose backend/engine pair does not construct (a typo'd or
-///   removed backend name, or an engine that backend does not support --
-///   note that a config with no `[[sql.gen]]` block at all synthesizes a
-///   `rust-sqlx` target, which does not support every engine `check` accepts).
+/// - A target whose backend does not construct (a typo.d or removed backend
+///   name, or one this build left out).
 ///   A target that cannot be constructed is a target that cannot be verified,
 ///   so it is reported as SC-PRV07 and skipped. `sqlkit generate` still
 ///   reports the same misconfiguration as a hard error, which is the right
@@ -2513,13 +2444,6 @@ fn verify_provenance(
     severities: ProvenanceSeverities,
 ) -> Vec<QueryViolation> {
     let current_schema = catalog.fingerprint();
-    // Sanitized once, for the same reason `provenance_header_line` sanitizes
-    // before embedding: the header can only ever hold the sanitized string,
-    // so comparing it against a raw config value would permanently
-    // false-flag SC-PRV04 for any config whose engine string needed
-    // sanitizing.
-    let sanitized_engine = sqlkit_codegen::provenance::sanitize_field(&sql_config.engine);
-
     let mut violations = Vec::new();
 
     let targets = match resolve_gen_targets(sql_config) {
@@ -2541,7 +2465,7 @@ fn verify_provenance(
     for target in targets {
         let target_label = format!("{}:{}", sql_config.name, target.backend);
 
-        let backend = match get_backend(&target.backend, &sql_config.engine) {
+        let backend = match get_backend(&target.backend) {
             Ok(backend) => backend,
             Err(e) => {
                 violations.push(QueryViolation {
@@ -2549,9 +2473,9 @@ fn verify_provenance(
                     rule_id: Cow::Borrowed("SC-PRV07"),
                     severity: severities.unverifiable,
                     message: format!(
-                        "cannot verify provenance: backend '{}' with engine '{}' could not be \
-                         constructed: {} (run `sqlkit generate` for the full diagnosis)",
-                        target.backend, sql_config.engine, e
+                        "cannot verify provenance: backend '{}' could not be constructed: {} (run \
+                         `sqlkit generate` for the full diagnosis)",
+                        target.backend, e
                     ),
                 });
                 continue;
@@ -2592,7 +2516,6 @@ fn verify_provenance(
             let expected = ProvenanceExpectation {
                 target_label: &target_label,
                 backend_name: backend.name(),
-                engine: sanitized_engine.as_ref(),
                 schema: &current_schema,
                 queries,
                 options: &options_fingerprint,
@@ -2758,17 +2681,17 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
         });
     }
 
-    // `expected.engine` is already the *sanitized* configured engine (see
-    // `verify_provenance`), matching what the header can only ever hold.
-    if header_engine != expected.engine {
+    // sqlkit generates for PostgreSQL only, so a header naming any other engine
+    // was written by a build that targeted another one.
+    if header_engine != sqlkit_codegen::provenance::ENGINE {
         violations.push(QueryViolation {
             query_name: expected.target_label.to_string(),
             rule_id: Cow::Borrowed("SC-PRV04"),
             severity: expected.severities.engine_drift,
             message: format!(
-                "{path_display}: generated for engine '{header_engine}', but this target now \
-                 configures engine '{}' (run `sqlkit generate` to refresh)",
-                expected.engine
+                "{path_display}: generated for engine '{header_engine}', but sqlkit generates for \
+                 {} only (run `sqlkit generate` to refresh)",
+                sqlkit_codegen::provenance::ENGINE
             ),
         });
     }
@@ -3539,57 +3462,6 @@ backend = \"rust-sqlx\"
         assert!(should_retain_for_verification(Some("postgres://localhost/db")));
     }
 
-    fn verifiable_block(name: &str, engine: &str) -> VerifiableBlock {
-        VerifiableBlock {
-            name: name.to_string(),
-            engine: engine.to_string(),
-            queries: Vec::new(),
-            schema: sqlkit_inspect::SchemaDescription::new(),
-        }
-    }
-
-    /// A config with a non-PostgreSQL engine block must keep the postgres
-    /// block eligible for verification and route the other block to the skip
-    /// list — never to the live-DB path. This is the pure,
-    /// database-free half of the mixed-engine regression: it proves the
-    /// filtering logic itself is correct, independent of a running database.
-    #[test]
-    fn partition_verifiable_blocks_splits_postgres_from_other_engines() {
-        let blocks = vec![
-            verifiable_block("pg_block", "postgresql"),
-            verifiable_block("other_block", "nosuchdb"),
-        ];
-
-        let (pg, skipped) = partition_verifiable_blocks(&blocks);
-
-        assert_eq!(pg.len(), 1, "exactly one block must be eligible for verification");
-        assert_eq!(pg[0].name, "pg_block");
-
-        assert_eq!(skipped.len(), 1, "exactly one block must be skipped");
-        assert_eq!(skipped[0].name, "other_block");
-    }
-
-    /// `postgres`, `pg` and `postgresql` are aliases for the same engine and must
-    /// all be treated as verifiable, matching `normalize_engine`.
-    #[test]
-    fn partition_verifiable_blocks_treats_postgres_aliases_as_verifiable() {
-        let blocks = vec![
-            verifiable_block("a", "postgres"),
-            verifiable_block("b", "pg"),
-            verifiable_block("c", "postgresql"),
-        ];
-
-        let (pg, skipped) = partition_verifiable_blocks(&blocks);
-
-        assert_eq!(
-            pg.len(),
-            3,
-            "all three postgres aliases must be verifiable, got: {:?}",
-            pg
-        );
-        assert!(skipped.is_empty());
-    }
-
     fn query_result(model_struct: Option<&str>, row_struct: Option<&str>, query_fn: Option<&str>) -> QueryResult {
         QueryResult {
             code: sqlkit_codegen::GeneratedCode::build(|c| {
@@ -3608,7 +3480,7 @@ backend = \"rust-sqlx\"
     /// their row types.
     #[test]
     fn assemble_body_interleaves_per_query() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let results = vec![
             query_result(Some("MODEL_A"), Some("ROW_A"), Some("FN_A")),
             query_result(None, Some("ROW_B"), Some("FN_B")),
@@ -3678,7 +3550,7 @@ backend = \"rust-sqlx\"
         ];
 
         for &(backend_name, marker) in cases {
-            let backend = get_backend(backend_name, "postgresql").unwrap_or_else(|e| panic!("{backend_name}: {e}"));
+            let backend = get_backend(backend_name).unwrap_or_else(|e| panic!("{backend_name}: {e}"));
 
             let code_a = sqlkit_codegen::generate_with_backend(&make_query("GetOneAddress"), backend.as_ref())
                 .unwrap_or_else(|e| panic!("{backend_name}: query_a failed to generate: {e}"));
@@ -3725,7 +3597,7 @@ backend = \"rust-sqlx\"
     fn check_file_level_type_name_collisions_rejects_row_structs_with_different_bodies() {
         use sqlkit_core::analyzer::AnalyzedColumn;
 
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
 
         let make_query = |name: &str, column: &str| {
             AnalyzedQuery::build(|q| {
@@ -3767,7 +3639,7 @@ backend = \"rust-sqlx\"
     fn check_file_level_type_name_collisions_allows_identical_row_structs() {
         use sqlkit_core::analyzer::AnalyzedColumn;
 
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
 
         let make_query = |name: &str| {
             AnalyzedQuery::build(|q| {
@@ -3809,7 +3681,7 @@ backend = \"rust-sqlx\"
     /// `pub enum OrderStatus`.
     #[test]
     fn check_file_level_type_name_collisions_rejects_enums_with_different_bodies() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
 
         let analyzed = vec![
             AnalyzedQuery::build(|q| {
@@ -3851,7 +3723,7 @@ backend = \"rust-sqlx\"
 
     #[test]
     fn check_file_level_type_name_collisions_promotes_shared_nested_enum() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let analyzed = vec![AnalyzedQuery::default(), AnalyzedQuery::default()];
         let enum_info = EnumInfo {
             sql_name: "user_status".to_string(),
@@ -3888,7 +3760,7 @@ backend = \"rust-sqlx\"
     fn check_file_level_type_name_collisions_rejects_fn_name_collisions() {
         use sqlkit_core::analyzer::AnalyzedColumn;
 
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
 
         let make_query = |name: &str, sql: &str| {
             AnalyzedQuery::build(|q| {
@@ -4006,7 +3878,7 @@ backend = \"rust-sqlx\"
             // which is exactly the condition this test needs.
         }
 
-        let real = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let real = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let backend = EmptyOutputBackend {
             manifest: real.manifest().clone(),
         };
@@ -4030,10 +3902,9 @@ backend = \"rust-sqlx\"
 
     #[test]
     fn provenance_header_line_contains_sentinel_and_all_six_fields() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let line = provenance_header_line(
             backend.as_ref(),
-            "postgresql",
             "sch1:0123456789abcdef",
             "q1:fedcba9876543210",
             "opt1:0011223344556677",
@@ -4049,147 +3920,6 @@ backend = \"rust-sqlx\"
         assert!(line.ends_with('\n'));
     }
 
-    /// Regression test for the header-injection defect: a raw newline in an
-    /// `engine` value must never reach the embedded header, or it would
-    /// terminate the comment early and turn everything after it into live,
-    /// uncommented content in the generated file. It reaches the header
-    /// escaped instead (`\u{a}`), along with the spaces that would
-    /// otherwise split the field -- see
-    /// `sqlkit_codegen::provenance::sanitize_field`. Asserts on the *line
-    /// count* of the produced header, not a substring -- a substring check
-    /// (e.g. `!line.contains("evil")`) would still pass on the broken,
-    /// unescaped version, since the injected text is still present, just on
-    /// its own line.
-    #[test]
-    fn provenance_header_line_sanitizes_newline_in_engine() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
-        let malicious_engine = "postgresql\nfn evil() {}";
-
-        let line = provenance_header_line(
-            backend.as_ref(),
-            malicious_engine,
-            "sch1:ffff",
-            "q1:fedcba9876543210",
-            "opt1:ffff",
-        );
-
-        assert_eq!(
-            line.lines().count(),
-            1,
-            "a sanitized header must be exactly one line, got: {line:?}"
-        );
-        assert_eq!(
-            line,
-            format!(
-                "// sqlkit:provenance v={} backend=rust-sqlx \
-                 engine=postgresql\\u{{a}}fn\\u{{20}}evil()\\u{{20}}{{}} schema=sch1:ffff \
-                 queries=q1:fedcba9876543210 options=opt1:ffff\n",
-                env!("CARGO_PKG_VERSION")
-            )
-        );
-    }
-
-    /// End-to-end: a malicious `engine` value must not inject an
-    /// uncommented line anywhere in the fully assembled output, not just in
-    /// the header line built in isolation.
-    #[test]
-    fn assemble_output_sanitizes_newline_in_engine_end_to_end() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
-        let malicious_engine = "postgresql\nfn evil() {}";
-
-        let output = assemble_output(
-            backend.as_ref(),
-            &[],
-            malicious_engine,
-            "sch1:ffff",
-            "q1:fedcba9876543210",
-            "opt1:ffff",
-        );
-
-        let provenance_lines: Vec<&str> = output.lines().filter(|l| l.contains("sqlkit:provenance")).collect();
-        assert_eq!(
-            provenance_lines.len(),
-            1,
-            "expected exactly one provenance line, got: {provenance_lines:?}"
-        );
-        assert!(
-            provenance_lines[0].starts_with("// sqlkit:provenance "),
-            "the provenance line itself must still be a comment: {:?}",
-            provenance_lines[0]
-        );
-        assert!(
-            !output.lines().any(|line| line.trim_start().starts_with("fn evil()")),
-            "injected content must never appear as its own uncommented line:\n{output}"
-        );
-    }
-
-    /// `parse_provenance_header` must read back exactly the sanitized value
-    /// that was embedded -- the round trip `verify_provenance` depends on.
-    #[test]
-    fn assemble_output_round_trips_sanitized_engine_through_parse_provenance_header() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
-        // No embedded space, unlike the injection-defect example elsewhere
-        // in this file: this test isolates round-trip fidelity of the `\n`
-        // escape itself. The space-bearing case is covered separately by
-        // `parse_provenance_header_round_trips_engine_values_containing_spaces`.
-        let malicious_engine = "postgresql\ndroptable";
-
-        let output = assemble_output(
-            backend.as_ref(),
-            &[],
-            malicious_engine,
-            "sch1:ffff",
-            "q1:fedcba9876543210",
-            "opt1:ffff",
-        );
-        let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
-
-        let expected = sqlkit_codegen::provenance::sanitize_field(malicious_engine);
-        assert_eq!(header.engine.as_deref(), Some(expected.as_ref()));
-    }
-
-    /// Regression test for #133. `parse_provenance_header` tokenizes the
-    /// header tail with `split_ascii_whitespace()`, so an `engine` value
-    /// carrying an internal space used to be silently truncated: everything
-    /// from the first space onward had no `=`, failed `split_once('=')`,
-    /// and was dropped, leaving `header.engine` as the bare prefix
-    /// `"postgresqlfn"`. That is not a comment-injection risk (the line
-    /// stayed one line, stayed a comment) but it is a correctness gap --
-    /// `verify_provenance`'s SC-PRV04 check compares `header.engine`
-    /// against the configured engine, and a truncated value could
-    /// spuriously match or spuriously fail depending on what the surviving
-    /// prefix collided with.
-    ///
-    /// `sqlkit_codegen::provenance::sanitize_field` now escapes whitespace
-    /// rather than only stripping `\n`/`\r`, so the embedded value carries
-    /// no token separator and the field survives the tokenizer whole.
-    /// SC-PRV04 compares encoded-to-encoded (`verify_provenance` runs the
-    /// configured engine through the same function), which is equivalent to
-    /// comparing the decoded values because the encoding is injective.
-    #[test]
-    fn parse_provenance_header_round_trips_engine_values_containing_spaces() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
-        let malicious_engine = "postgresql\nfn evil() {}";
-
-        let output = assemble_output(
-            backend.as_ref(),
-            &[],
-            malicious_engine,
-            "sch1:ffff",
-            "q1:fedcba9876543210",
-            "opt1:ffff",
-        );
-        let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
-
-        let encoded = sqlkit_codegen::provenance::sanitize_field(malicious_engine);
-        assert_eq!(header.engine.as_deref(), Some(encoded.as_ref()), "no truncation");
-        assert_eq!(
-            sqlkit_codegen::provenance::decode_field(header.engine.as_deref().expect("engine field is present")),
-            malicious_engine,
-            "the decoded field must equal what the caller passed in"
-        );
-    }
-
     /// `assemble_output` must emit the *canonical* backend name
     /// (`backend.name()`), not whatever alias resolved to it -- otherwise a
     /// config using `backend = "sqlx"` would produce a header
@@ -4197,20 +3927,14 @@ backend = \"rust-sqlx\"
     /// (`"rust-sqlx"`), permanently false-flagging SC-PRV03.
     #[test]
     fn provenance_header_line_uses_canonical_name_not_config_alias() {
-        let alias_backend = get_backend("sqlx", "postgresql").expect("the 'sqlx' alias should resolve");
+        let alias_backend = get_backend("sqlx").expect("the 'sqlx' alias should resolve");
         assert_eq!(
             alias_backend.name(),
             "rust-sqlx",
             "canonical name backends must agree on"
         );
 
-        let line = provenance_header_line(
-            alias_backend.as_ref(),
-            "postgresql",
-            "sch1:aaaa",
-            "q1:fedcba9876543210",
-            "opt1:aaaa",
-        );
+        let line = provenance_header_line(alias_backend.as_ref(), "sch1:aaaa", "q1:fedcba9876543210", "opt1:aaaa");
         assert!(line.contains("backend=rust-sqlx"));
         assert!(!line.contains("backend=sqlx"));
     }
@@ -4223,13 +3947,12 @@ backend = \"rust-sqlx\"
     /// isolated tests.
     #[test]
     fn assemble_output_round_trips_through_parse_provenance_header() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let results = vec![query_result(Some("MODEL_A"), Some("ROW_A"), Some("FN_A"))];
 
         let output = assemble_output(
             backend.as_ref(),
             &results,
-            "postgresql",
             "sch1:fedcba9876543210",
             "q1:0123456789abcdef",
             "opt1:0123456789abcdef",
@@ -4249,20 +3972,13 @@ backend = \"rust-sqlx\"
     /// leading anything else.
     #[test]
     fn assemble_output_starts_with_provenance_line_when_backend_has_no_preamble() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         assert!(
             backend.file_preamble().is_empty(),
             "test assumes rust-sqlx has no preamble"
         );
 
-        let output = assemble_output(
-            backend.as_ref(),
-            &[],
-            "postgresql",
-            "sch1:cccc",
-            "q1:fedcba9876543210",
-            "opt1:cccc",
-        );
+        let output = assemble_output(backend.as_ref(), &[], "sch1:cccc", "q1:fedcba9876543210", "opt1:cccc");
         assert!(
             output.starts_with("// sqlkit:provenance "),
             "got:\n{}",
@@ -4283,7 +3999,7 @@ backend = \"rust-sqlx\"
     /// old bytes.
     #[test]
     fn assemble_output_no_blank_line_after_provenance_when_preamble_is_empty() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         assert!(
             backend.file_preamble().is_empty(),
             "test assumes rust-sqlx has no preamble"
@@ -4295,14 +4011,7 @@ backend = \"rust-sqlx\"
             .next()
             .expect("test assumes rust-sqlx's file_header is non-empty");
 
-        let output = assemble_output(
-            backend.as_ref(),
-            &[],
-            "postgresql",
-            "sch1:dddd",
-            "q1:fedcba9876543210",
-            "opt1:dddd",
-        );
+        let output = assemble_output(backend.as_ref(), &[], "sch1:dddd", "q1:fedcba9876543210", "opt1:dddd");
         let mut lines = output.lines();
         let provenance_line = lines.next().expect("output must have a first line");
         assert!(
@@ -4416,7 +4125,7 @@ backend = \"rust-sqlx\"
     /// and friends.
     #[test]
     fn queries_field_round_trips_through_header_line_and_parse() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let line = sqlkit_codegen::provenance::header_line(
             backend.as_ref(),
             "0.15.0",
@@ -4464,7 +4173,7 @@ backend = \"rust-sqlx\"
     /// it -- the same contract already pinned for `queries` above.
     #[test]
     fn options_field_round_trips_through_header_line_with_options_and_parse() {
-        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = get_backend("rust-sqlx").expect("rust-sqlx should support postgresql");
         let line = sqlkit_codegen::provenance::header_line_with_options(
             backend.as_ref(),
             "0.15.0",
@@ -4502,7 +4211,6 @@ backend = \"rust-sqlx\"
     fn provenance_test_sql_config(output_dir: &std::path::Path) -> SqlConfig {
         SqlConfig {
             name: "main".to_string(),
-            engine: "postgresql".to_string(),
             schema: Vec::new(),
             queries: Vec::new(),
             output: Some(output_dir.to_string_lossy().into_owned()),
@@ -4712,7 +4420,6 @@ backend = \"rust-sqlx\"
 
         let sql_config = SqlConfig {
             name: "main".to_string(),
-            engine: "postgresql".to_string(),
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -4819,7 +4526,6 @@ backend = \"rust-sqlx\"
 
         let sql_config = SqlConfig {
             name: "main".to_string(),
-            engine: "postgresql".to_string(),
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5030,7 +4736,6 @@ backend = \"rust-sqlx\"
 
         let sql_config = SqlConfig {
             name: "main".to_string(),
-            engine: "postgresql".to_string(),
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5066,7 +4771,7 @@ backend = \"rust-sqlx\"
     }
 
     #[test]
-    fn verify_provenance_detects_engine_mismatch_as_error() {
+    fn verify_provenance_detects_a_non_postgresql_engine_as_error() {
         let dir = tempfile::tempdir().unwrap();
         let catalog = provenance_test_catalog();
         let schema = catalog.fingerprint();
@@ -5185,60 +4890,9 @@ backend = \"rust-sqlx\"
     // Targets that cannot be verified at all (SC-PRV07)
     // -----------------------------------------------------------------------
 
-    /// The exact configuration that used to abort the whole run: an engine
-    /// `rust-sqlx` does not support with **no `[[sql.gen]]` block**, so
-    /// `resolve_gen_targets` synthesizes a `rust-sqlx` target that cannot be
-    /// constructed. That failure used to `?`-propagate out of `run_check`
-    /// before `emit_findings` ran, handing a SARIF or JSON consumer an empty
-    /// report plus exit 1 and discarding every lint finding from every
-    /// preceding `[[sql]]` block. It must now be an ordinary finding.
-    #[test]
-    fn verify_provenance_reports_unconstructable_backend_as_a_finding_not_a_failure() {
-        let dir = tempfile::tempdir().unwrap();
-        let catalog = provenance_test_catalog();
-
-        let sql_config = SqlConfig {
-            name: "main".to_string(),
-            engine: "nosuchdb".to_string(),
-            schema: Vec::new(),
-            queries: Vec::new(),
-            output: Some(dir.path().to_string_lossy().into_owned()),
-            gen_config: None,
-            type_overrides: None,
-        };
-
-        // Guards the premise: if `rust-sqlx` ever accepts this engine, this
-        // test stops exercising the path it was written for, and should be
-        // repointed at another unsupported pair rather than quietly passing.
-        assert!(
-            get_backend("rust-sqlx", "nosuchdb").is_err(),
-            "test premise: rust-sqlx must not support nosuchdb"
-        );
-
-        let violations = verify_provenance(
-            &sql_config,
-            &catalog,
-            "q1:0000000000000000",
-            std::path::Path::new("."),
-            default_severities(),
-        );
-
-        assert_eq!(
-            violations.len(),
-            1,
-            "expected exactly one violation, got {violations:?}"
-        );
-        assert_eq!(violations[0].rule_id, "SC-PRV07");
-        assert_eq!(
-            violations[0].severity,
-            sqlkit_lint::Severity::Warn,
-            "an unverifiable target must never be able to fail a check run on its own"
-        );
-    }
-
-    /// A typo'd or removed `backend = "..."` is the same class of failure as
-    /// the engine mismatch above, reached through an explicit `[[sql.gen]]`
-    /// block rather than through the synthesized default target.
+    /// A typo'd or removed `backend = "..."` used to abort the whole run; it
+    /// must be an ordinary SC-PRV07 finding, so it cannot discard every lint
+    /// finding collected before it.
     #[test]
     fn verify_provenance_reports_unknown_backend_name_as_a_finding_not_a_failure() {
         let dir = tempfile::tempdir().unwrap();
@@ -5246,7 +4900,6 @@ backend = \"rust-sqlx\"
 
         let sql_config = SqlConfig {
             name: "main".to_string(),
-            engine: "postgresql".to_string(),
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5736,7 +5389,6 @@ backend = \"rust-sqlx\"
         let violations = validate_gen_targets_constructible(
             &SqlConfig {
                 name: "main".to_string(),
-                engine: "postgresql".to_string(),
                 schema: Vec::new(),
                 queries: Vec::new(),
                 output: None,
@@ -5780,7 +5432,6 @@ backend = \"rust-sqlx\"
         let violations = validate_gen_targets_constructible(
             &SqlConfig {
                 name: "main".to_string(),
-                engine: "postgresql".to_string(),
                 schema: Vec::new(),
                 queries: Vec::new(),
                 output: None,

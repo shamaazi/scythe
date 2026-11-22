@@ -50,7 +50,7 @@ fn generate(backend: &dyn CodegenBackend, sql: &str) -> GeneratedCode {
 }
 
 fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
-    let mut backend = get_backend(name, "postgresql").unwrap_or_else(|e| panic!("{name}: {e}"));
+    let mut backend = get_backend(name).unwrap_or_else(|e| panic!("{name}: {e}"));
     let options: HashMap<String, String> = options
         .iter()
         .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
@@ -208,7 +208,7 @@ fn positional_is_the_default_and_unchanged() {
 #[test]
 fn rejects_an_unknown_params_style() {
     for name in BACKENDS {
-        let mut backend = get_backend(name, "postgresql").unwrap();
+        let mut backend = get_backend(name).unwrap();
         let err = backend
             .apply_options(&HashMap::from([("params".to_string(), "named".to_string())]))
             .expect_err("`named` is not a params style");
@@ -222,7 +222,7 @@ fn rejects_an_unknown_params_style() {
 #[test]
 fn javascript_backends_reject_the_object_style() {
     for name in ["javascript-bun", "javascript-postgres"] {
-        let mut backend = get_backend(name, "postgresql").unwrap();
+        let mut backend = get_backend(name).unwrap();
         let err = backend
             .apply_options(&HashMap::from([("params".to_string(), "object".to_string())]))
             .expect_err("JSDoc mode has no object style");

@@ -17,7 +17,7 @@
 //! at runtime. The fix is emitting `#[sqlx(rename = "my col")]` directly
 //! ahead of any field whose generated name differs from its SQL column name.
 
-#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+#![cfg(feature = "lang-rust")]
 
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
@@ -30,7 +30,7 @@ const QUERY: &str = "-- @name FindItem\n-- @returns :one\n\
     SELECT id, \"my col\" FROM items WHERE id = $1;";
 
 fn generate_row_struct(backend_name: &str) -> String {
-    let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
+    let backend = get_backend(backend_name).expect("backend must support postgresql");
     let catalog = Catalog::from_ddl(&[SCHEMA]).expect("schema must parse");
     let parsed = parse_query(QUERY).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");

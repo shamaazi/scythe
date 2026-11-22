@@ -10,43 +10,11 @@ use std::path::PathBuf;
 /// The backend names probed for codegen verification.
 const CANDIDATE_BACKENDS: &[&str] = &["rust-sqlx", "rust-tokio-postgres", "typescript-postgres"];
 
-/// The engine string a fixture targets, defaulting to `"postgresql"` when unset -- the same
-/// default `catalog_expr` uses.
-fn fixture_engine_str(fixture: &Fixture) -> &'static str {
-    fixture
-        .config
-        .as_ref()
-        .and_then(|c| c.engine)
-        .map(fixture::Engine::as_str)
-        .unwrap_or("postgresql")
-}
-
-/// Ask the real `get_backend` registry which of `CANDIDATE_BACKENDS` accept `engine`, at
-/// generation time. Before this, the generated test embedded the *full* candidate list for
-/// every fixture regardless of engine and silently `continue`d past whichever ones didn't apply
-/// -- backends that did not apply contributed zero assertions to every fixture. Filtering here
-/// means the list embedded in a generated test is exactly the backends expected to construct,
-/// so a construction failure in the generated test is a real regression rather than an expected
-/// engine mismatch. See #156.
-fn applicable_backends(engine: &str) -> Vec<&'static str> {
-    CANDIDATE_BACKENDS
-        .iter()
-        .copied()
-        .filter(|name| sqlkit_codegen::get_backend(name, engine).is_ok())
-        .collect()
-}
-
 /// The `cfg` predicate under which `backend` (a canonical `{language}-{driver}` name) is
-/// compiled into sqlkit-codegen and accepts `engine`.
-fn backend_cfg(backend: &str, engine: &str) -> String {
-    let language = match backend.split('-').next().unwrap_or_default() {
-        "javascript" => "typescript",
-        language => language,
-    };
-    match sqlkit_codegen::engine_feature(engine) {
-        Some(engine) => format!("all(feature = \"lang-{language}\", feature = \"{engine}\")"),
-        None => format!("feature = \"lang-{language}\""),
-    }
+/// compiled into sqlkit-codegen.
+fn backend_cfg(backend: &str) -> String {
+    let language = backend.split('-').next().unwrap_or_default();
+    format!("feature = \"lang-{language}\"")
 }
 
 /// A fixture with `query_sql`, `expected.success == true`, and a row-returning command
@@ -273,30 +241,22 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
         .map(|q| q.command.to_string())
         .unwrap_or_default();
 
-    let engine = fixture_engine_str(fixture);
-    let applicable = applicable_backends(engine);
-
-    out.push_str("    // Codegen verification: every backend that supports this fixture's engine\n");
-    out.push_str("    // should produce valid output. The list below is derived at generation\n");
-    out.push_str("    // time from the fixture's engine via the real `get_backend` registry, so\n");
-    out.push_str("    // every entry here is expected to construct -- a construction failure\n");
-    out.push_str("    // below is a real regression, not an expected engine mismatch. See #156.\n");
-    let _ = writeln!(out, "    let engine = {:?};", engine);
+    out.push_str("    // Codegen verification: every backend should produce valid output.\n");
     // ~keep Each entry is gated on the Cargo features that compile its backend and
-    // accept the engine, so a build with fewer features still runs the analysis
+    // so a build with fewer features still runs the analysis
     // assertions above and checks the backends it has.
     out.push_str("    let all_backends: &[&str] = &[\n");
-    for name in &applicable {
-        let _ = writeln!(out, "        #[cfg({})]", backend_cfg(name, engine));
+    for name in CANDIDATE_BACKENDS {
+        let _ = writeln!(out, "        #[cfg({})]", backend_cfg(name));
         let _ = writeln!(out, "        {:?},", name);
     }
     out.push_str("    ];\n");
     out.push_str("    for backend_name in all_backends {\n");
-    out.push_str("        let backend = match sqlkit_codegen::get_backend(backend_name, engine) {\n");
+    out.push_str("        let backend = match sqlkit_codegen::get_backend(backend_name) {\n");
     out.push_str("            Ok(b) => b,\n");
     let _ = writeln!(
         out,
-        "            Err(e) => panic!(\"backend {{}} failed to construct for engine {{}} in fixture {{}}: {{}}\", backend_name, engine, {:?}, e),",
+        "            Err(e) => panic!(\"backend {{}} failed to construct in fixture {{}}: {{}}\", backend_name, {:?}, e),",
         fixture.name
     );
     out.push_str("        };\n");
@@ -351,7 +311,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                    &sqlkit_codegen::provenance::header_line(\n");
     out.push_str("                        &*backend,\n");
     out.push_str("                        env!(\"CARGO_PKG_VERSION\"),\n");
-    out.push_str("                        engine,\n");
+    out.push_str("                        sqlkit_codegen::provenance::ENGINE,\n");
     out.push_str("                        \"sch1:0123456789abcdef\",\n");
     out.push_str("                        \"q1:fedcba9876543210\",\n");
     out.push_str("                    ),\n");
@@ -420,7 +380,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                }\n");
     let _ = writeln!(
         out,
-        "                None => panic!(\"backend {{}} failed to generate code for engine {{}} in fixture {{}}: {{}}\", backend_name, engine, {:?}, e),",
+        "                None => panic!(\"backend {{}} failed to generate code in fixture {{}}: {{}}\", backend_name, {:?}, e),",
         fixture.name
     );
     out.push_str("            },\n");
@@ -1314,7 +1274,7 @@ mod tests {
     /// Ok(...)` guard, silently skipping every downstream assertion (including
     /// `generate_generated_code_assertions`, which #156 added specifically so assertions were
     /// not dropped). The emitted test must instead `match` the result and panic on an
-    /// undeclared failure, naming the backend, engine and fixture -- the same style as the
+    /// undeclared failure, naming the backend and fixture -- the same style as the
     /// existing backend-construction panic.
     #[test]
     fn generate_query_test_panics_on_an_undeclared_codegen_failure() {
@@ -1346,7 +1306,7 @@ mod tests {
         );
         assert!(
             code.contains(
-                "None => panic!(\"backend {} failed to generate code for engine {} in fixture {}: {}\", backend_name, engine, \"codegen_failure_test\", e),"
+                "None => panic!(\"backend {} failed to generate code in fixture {}: {}\", backend_name, \"codegen_failure_test\", e),"
             ),
             "an undeclared backend must panic naming the fixture on codegen failure, got:\n{code}"
         );

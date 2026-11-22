@@ -1,7 +1,6 @@
 {
   "category": "types/network",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

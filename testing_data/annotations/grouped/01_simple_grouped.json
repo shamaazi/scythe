@@ -1,8 +1,5 @@
 {
   "category": "annotations/grouped",
-  "config": {
-    "engine": "postgresql"
-  },
   "description": "Verify :grouped return annotation parses and populates group_by config",
   "expected": {
     "query": {

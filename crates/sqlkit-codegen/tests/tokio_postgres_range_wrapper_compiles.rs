@@ -36,7 +36,7 @@
 //! `BUILD_COMMANDS["rust-tokio-postgres"]`. Until then, this is the only
 //! thing that compiles `PG_RANGE_SUPPORT`.
 
-#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+#![cfg(feature = "lang-rust")]
 
 use std::fs;
 use std::path::PathBuf;
@@ -102,7 +102,7 @@ postgres-protocol = "0.6"
 /// compiles, surfacing the compiler's own output on failure.
 #[test]
 fn tokio_postgres_range_wrapper_compiles_with_a_real_toolchain() {
-    let backend = get_backend("rust-tokio-postgres", "postgresql").expect("rust-tokio-postgres/postgresql");
+    let backend = get_backend("rust-tokio-postgres").expect("rust-tokio-postgres/postgresql");
     let resolved = resolve_type("range<int32>", backend.manifest(), false).expect("range<int32> must resolve");
 
     let with_range = [GeneratedCode::build(|c| {

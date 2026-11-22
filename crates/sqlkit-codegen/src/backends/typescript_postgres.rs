@@ -552,17 +552,8 @@ pub struct TypescriptPostgresBackend {
 }
 
 impl TypescriptPostgresBackend {
-    pub fn new(engine: &str) -> Result<Self, SqlkitError> {
-        let default_toml = match engine {
-            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
-            _ => {
-                return Err(SqlkitError::new(
-                    ErrorCode::InvalidConfig,
-                    format!("typescript-postgres only supports PostgreSQL, got engine '{}'", engine),
-                ));
-            }
-        };
-        let mut manifest = super::parse_manifest(default_toml)?;
+    pub fn new() -> Result<Self, SqlkitError> {
+        let mut manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
         manifest
             .types
             .scalars
@@ -590,8 +581,8 @@ impl TypescriptPostgresBackend {
     }
 
     /// As [`Self::new`], but selecting the `javascript-postgres` JSDoc emit mode.
-    pub fn new_js(engine: &str) -> Result<Self, SqlkitError> {
-        let mut backend = Self::new(engine)?;
+    pub fn new_js() -> Result<Self, SqlkitError> {
+        let mut backend = Self::new()?;
         backend.js_mode = true;
         Ok(backend)
     }
@@ -599,13 +590,7 @@ impl TypescriptPostgresBackend {
     /// The `typescript-bun` backend: the same tagged-template codegen, driving
     /// Bun's built-in `SQL` client with Bun's own type mappings. PostgreSQL
     /// only.
-    pub fn new_bun(engine: &str) -> Result<Self, SqlkitError> {
-        if !matches!(engine, "postgresql" | "postgres" | "pg") {
-            return Err(SqlkitError::new(
-                ErrorCode::InvalidConfig,
-                format!("typescript-bun only supports PostgreSQL, got engine '{engine}'"),
-            ));
-        }
+    pub fn new_bun() -> Result<Self, SqlkitError> {
         Ok(Self {
             manifest: super::parse_manifest(BUN_MANIFEST_TOML)?,
             row_type: TsRowType::default(),
@@ -624,8 +609,8 @@ impl TypescriptPostgresBackend {
     }
 
     /// As [`Self::new_bun`], but selecting the `javascript-bun` JSDoc emit mode.
-    pub fn new_bun_js(engine: &str) -> Result<Self, SqlkitError> {
-        let mut backend = Self::new_bun(engine)?;
+    pub fn new_bun_js() -> Result<Self, SqlkitError> {
+        let mut backend = Self::new_bun()?;
         backend.js_mode = true;
         Ok(backend)
     }
@@ -798,13 +783,6 @@ impl CodegenBackend for TypescriptPostgresBackend {
         Some(generate_ts_schema_types(types, &self.manifest.naming, |enum_info| {
             self.generate_enum_def(enum_info)
         }))
-    }
-
-    fn supported_engines(&self) -> &[&str] {
-        match self.driver {
-            TemplateDriver::PostgresJs => &["postgresql"],
-            TemplateDriver::Bun => &["postgresql"],
-        }
     }
 
     fn file_header(&self) -> String {
@@ -1912,7 +1890,7 @@ mod tests {
 
     #[test]
     fn test_zod_row_type_combined_with_outer_join_unions_emits_a_real_union_schema() {
-        let mut backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TypescriptPostgresBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([
                 ("row_type".to_string(), "zod".to_string()),
@@ -1932,7 +1910,7 @@ mod tests {
 
     #[test]
     fn test_zod_row_type_without_outer_join_unions_is_unchanged() {
-        let mut backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TypescriptPostgresBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "row_type".to_string(),
@@ -1982,7 +1960,7 @@ mod tests {
     /// sqlkit's own binding for `$1` stays live.
     #[test]
     fn test_query_fn_escapes_user_dollar_brace_but_keeps_own_param_bindings_live() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_one_query(
             "SELECT id FROM users WHERE name = 'literal ${not_a_binding}' AND id = $1",
             vec![AnalyzedParam {
@@ -2012,7 +1990,7 @@ mod tests {
     /// single literal backslash in the generated JS template literal.
     #[test]
     fn test_query_fn_escapes_user_backslash_in_sql() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_one_query(r"SELECT id FROM users WHERE name = E'a\\b'", vec![]);
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -2027,7 +2005,7 @@ mod tests {
     /// tag's template literal early.
     #[test]
     fn test_query_fn_escapes_user_backtick_in_sql() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_one_query("SELECT id FROM users WHERE name = `oops`", vec![]);
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -2103,7 +2081,7 @@ mod tests {
 
     #[test]
     fn test_grouped_typescript_postgres_structs() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_grouped_query();
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let row_struct = result.row_struct.as_deref().unwrap();
@@ -2131,7 +2109,7 @@ mod tests {
 
     #[test]
     fn test_grouped_typescript_postgres_query_fn() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_grouped_query();
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -2161,7 +2139,7 @@ mod tests {
 
     #[test]
     fn test_structs_only_suppresses_query_fn_and_driver_import() {
-        let mut backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TypescriptPostgresBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "structs_only".to_string(),
@@ -2195,7 +2173,7 @@ mod tests {
 
     #[test]
     fn test_structs_only_unset_leaves_query_fn_present() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_one_query("SELECT id FROM users WHERE id = $1", vec![]);
         let result = crate::generate_with_backend(&query, &backend).unwrap();
 
@@ -2208,7 +2186,7 @@ mod tests {
 
     #[test]
     fn test_structs_only_rejects_invalid_value() {
-        let mut backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TypescriptPostgresBackend::new().unwrap();
         let result = backend.apply_options(&std::collections::HashMap::from([(
             "structs_only".to_string(),
             "maybe".to_string(),
@@ -2218,7 +2196,7 @@ mod tests {
 
     #[test]
     fn test_structs_only_combined_with_zod_row_type_keeps_zod_import_and_schema() {
-        let mut backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TypescriptPostgresBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([
                 ("structs_only".to_string(), "true".to_string()),
@@ -2266,7 +2244,7 @@ mod tests {
     /// references `items`). This must fail if that fallback is reinstated.
     #[test]
     fn test_batch_signature_wrap_declares_items_not_raw_columns() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_batch_query(
             "CreateUserAccountRecord",
             "INSERT INTO user_account_record (name, email) VALUES ($1, $2)",
@@ -2316,7 +2294,7 @@ mod tests {
     /// wrapped signature intact.
     #[test]
     fn test_batch_signature_wrap_preserves_type_with_internal_comma() {
-        let mut backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TypescriptPostgresBackend::new().unwrap();
         backend
             .manifest
             .types
@@ -2352,7 +2330,7 @@ mod tests {
 
     #[test]
     fn test_json_uses_postgres_driver_json_parameter_type() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         assert_eq!(
             backend.manifest.types.scalars.get("json").map(String::as_str),
             Some("PostgresJsonValue")
@@ -2402,7 +2380,7 @@ mod tests {
     /// `rewrite_pg_placeholders`, so only the real placeholder is live.
     #[test]
     fn test_batch_multi_param_does_not_rewrite_dollar_n_inside_sql_string_literal() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_batch_query(
             "UpdateItemPrice",
             "UPDATE prices SET a = $1, note = 'cost is $1 today' WHERE id = $2",
@@ -2452,7 +2430,7 @@ mod tests {
     /// `$N` placeholder.
     #[test]
     fn test_batch_single_param_does_not_rewrite_escaped_dollar_brace_inside_sql_string_literal() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_batch_query(
             "UpdateItemAmount",
             "UPDATE prices SET amount = $1 WHERE note = 'the ${amount} field'",
@@ -2518,7 +2496,7 @@ mod tests {
     /// while every field reads back `undefined` at runtime.
     #[test]
     fn test_one_query_fn_remaps_fields_under_camel_case() {
-        let mut backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TypescriptPostgresBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "field_case".to_string(),
@@ -2545,7 +2523,7 @@ mod tests {
 
     #[test]
     fn test_many_query_fn_remaps_fields_under_camel_case() {
-        let mut backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let mut backend = TypescriptPostgresBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "field_case".to_string(),
@@ -2573,8 +2551,8 @@ mod tests {
     #[test]
     fn test_camel_case_rows_keep_the_struct_generic_when_the_driver_transforms_keys() {
         for mut backend in [
-            TypescriptPostgresBackend::new("postgresql").unwrap(),
-            TypescriptPostgresBackend::new_bun("postgresql").unwrap(),
+            TypescriptPostgresBackend::new().unwrap(),
+            TypescriptPostgresBackend::new_bun().unwrap(),
         ] {
             backend
                 .apply_options(&std::collections::HashMap::from([
@@ -2605,7 +2583,7 @@ mod tests {
 
     #[test]
     fn test_row_keys_rejects_unknown_values() {
-        let mut backend = TypescriptPostgresBackend::new_bun("postgresql").unwrap();
+        let mut backend = TypescriptPostgresBackend::new_bun().unwrap();
         let error = backend
             .apply_options(&std::collections::HashMap::from([(
                 "row_keys".to_string(),
@@ -2617,7 +2595,7 @@ mod tests {
 
     #[test]
     fn test_one_query_fn_keeps_the_struct_generic_under_the_default_snake_case() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let query = make_query_with_snake_case_column(QueryCommand::One);
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -2635,7 +2613,7 @@ mod tests {
     // -- javascript-postgres (JSDoc emit mode, #81) --------------------------
 
     fn js_backend() -> TypescriptPostgresBackend {
-        TypescriptPostgresBackend::new_js("postgresql").unwrap()
+        TypescriptPostgresBackend::new_js().unwrap()
     }
 
     fn resolved_columns_with_a_nullable_and_a_non_nullable_field() -> Vec<crate::backend_trait::ResolvedColumn> {
@@ -2837,7 +2815,7 @@ mod tests {
 
     #[test]
     fn test_query_fn_doc_comes_from_the_query_description() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let mut query = make_one_query("SELECT id FROM users", vec![]);
         query.command = QueryCommand::Many;
         query.description = Some("The account a credential belongs to, as stored now.".to_string());
@@ -2853,7 +2831,7 @@ mod tests {
 
     #[test]
     fn test_query_fn_multi_line_description_renders_a_jsdoc_block() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let mut query = make_one_query("DELETE FROM users", vec![]);
         query.command = QueryCommand::Exec;
         query.description = Some("Forget every user.\n\nCannot be undone */ really.".to_string());
@@ -2870,7 +2848,7 @@ mod tests {
 
     #[test]
     fn test_query_fn_without_description_keeps_the_fallback() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new().unwrap();
         let mut query = make_one_query("DELETE FROM users", vec![]);
         query.command = QueryCommand::Exec;
         let result = crate::generate_with_backend(&query, &backend).unwrap();
@@ -2884,7 +2862,7 @@ mod tests {
 
     #[test]
     fn test_javascript_query_fn_description_leads_the_jsdoc_header() {
-        let backend = TypescriptPostgresBackend::new_js("postgresql").unwrap();
+        let backend = TypescriptPostgresBackend::new_js().unwrap();
         let mut query = make_one_query("SELECT id FROM users", vec![]);
         query.description = Some("The first user.\nOr the only one.".to_string());
         let result = crate::generate_with_backend(&query, &backend).unwrap();

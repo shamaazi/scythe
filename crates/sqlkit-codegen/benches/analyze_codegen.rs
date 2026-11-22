@@ -133,7 +133,7 @@ fn bench_analyze_only(c: &mut Criterion) {
 fn bench_codegen_sqlx(c: &mut Criterion) {
     let catalog = build_catalog();
     let analyzed = analyze_all(&catalog);
-    let backend = get_backend("sqlx", "postgresql").expect("sqlx backend");
+    let backend = get_backend("sqlx").expect("sqlx backend");
 
     c.bench_function("codegen_sqlx", |b| {
         b.iter(|| {
@@ -148,7 +148,7 @@ fn bench_codegen_sqlx(c: &mut Criterion) {
 fn bench_codegen_typescript_bun(c: &mut Criterion) {
     let catalog = build_catalog();
     let analyzed = analyze_all(&catalog);
-    let backend = get_backend("typescript-bun", "postgresql").expect("typescript-bun backend");
+    let backend = get_backend("typescript-bun").expect("typescript-bun backend");
 
     c.bench_function("codegen_typescript_bun", |b| {
         b.iter(|| {
@@ -162,8 +162,8 @@ fn bench_codegen_typescript_bun(c: &mut Criterion) {
 
 fn bench_end_to_end(c: &mut Criterion) {
     let catalog = build_catalog();
-    let sqlx_backend = get_backend("sqlx", "postgresql").expect("sqlx backend");
-    let bun_backend = get_backend("typescript-bun", "postgresql").expect("typescript-bun backend");
+    let sqlx_backend = get_backend("sqlx").expect("sqlx backend");
+    let bun_backend = get_backend("typescript-bun").expect("typescript-bun backend");
 
     c.bench_function("end_to_end_parse_analyze_generate", |b| {
         b.iter(|| {

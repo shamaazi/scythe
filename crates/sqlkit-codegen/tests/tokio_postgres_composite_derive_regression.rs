@@ -26,13 +26,13 @@
 //! `enum_def_still_hand_writes_fromsql_tosql_not_the_derive_macro` pins that so a future change
 //! to the enum path does not silently start relying on the composite fix's derive machinery.
 
-#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+#![cfg(feature = "lang-rust")]
 
 use sqlkit_codegen::{CodegenBackend, get_backend};
 use sqlkit_core::analyzer::{CompositeFieldInfo, CompositeInfo, EnumInfo};
 
 fn tokio_postgres_backend() -> Box<dyn CodegenBackend> {
-    get_backend("rust-tokio-postgres", "postgresql").expect("rust-tokio-postgres must support postgresql")
+    get_backend("rust-tokio-postgres").expect("rust-tokio-postgres must support postgresql")
 }
 
 /// `sql_name` deliberately differs from the PascalCase Rust identifier `TortureAddress` would

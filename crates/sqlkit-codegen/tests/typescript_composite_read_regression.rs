@@ -17,7 +17,7 @@
 //! already correct at runtime -- confirmed by inspecting `generate_enum_def` directly, not
 //! assumed.
 
-#![cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#![cfg(feature = "lang-typescript")]
 
 use sqlkit_codegen::validation::{ToolValidation, strict_mode_enabled, validate_with_tools};
 use sqlkit_codegen::{CodegenBackend, GeneratedCode, generate_with_backend, get_backend};
@@ -50,7 +50,7 @@ fn generate(backend: &dyn CodegenBackend, sql: &str) -> GeneratedCode {
 }
 
 fn backend_for(name: &str) -> Box<dyn CodegenBackend> {
-    get_backend(name, "postgresql").expect("backend must support postgresql")
+    get_backend(name).expect("backend must support postgresql")
 }
 
 fn generated_text(backend_name: &str, sql: &str) -> String {

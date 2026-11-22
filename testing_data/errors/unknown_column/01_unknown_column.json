@@ -6,7 +6,6 @@
   "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"],
   "query_sql": "-- @name GetNonexistent\n-- @returns :many\nSELECT nonexistent FROM users;",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

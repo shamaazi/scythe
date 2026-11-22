@@ -432,7 +432,7 @@ async fn evaluate_fixture<E: Executor>(
     }
 
     // Representative backend for computing G (rendered nullability).
-    let backend = sqlkit_codegen::get_backend(representative_backend(engine), engine.as_str()).map_err(|source| {
+    let backend = sqlkit_codegen::get_backend(representative_backend(engine)).map_err(|source| {
         let (fixture, engine) = err_ctx();
         RunnerError::Resolve {
             fixture,

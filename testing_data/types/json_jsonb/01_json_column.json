@@ -1,7 +1,6 @@
 {
   "category": "types/json_jsonb",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

@@ -6,7 +6,7 @@
 //! Pinned for every backend that offers the option: `typescript-bun`,
 //! `typescript-postgres` and `typescript-pg`.
 
-#![cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#![cfg(feature = "lang-typescript")]
 
 use std::collections::HashMap;
 
@@ -47,7 +47,7 @@ const MODULE: &str = "@app/database/columns";
 const BACKENDS: [&str; 2] = ["typescript-bun", "typescript-postgres"];
 
 fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
-    let mut backend = get_backend(name, "postgresql").unwrap_or_else(|e| panic!("{name}: {e}"));
+    let mut backend = get_backend(name).unwrap_or_else(|e| panic!("{name}: {e}"));
     let options: HashMap<String, String> = options
         .iter()
         .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
@@ -190,7 +190,7 @@ fn should_reject_invalid_modules_zod_and_js_mode() {
         vec![("row_type", "zod"), ("column_types", MODULE)],
     ] {
         for name in BACKENDS {
-            let mut backend = get_backend(name, "postgresql").unwrap();
+            let mut backend = get_backend(name).unwrap();
             let options: HashMap<String, String> = options
                 .iter()
                 .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
@@ -199,7 +199,7 @@ fn should_reject_invalid_modules_zod_and_js_mode() {
         }
     }
     for name in ["javascript-bun", "javascript-postgres"] {
-        let mut backend = get_backend(name, "postgresql").unwrap();
+        let mut backend = get_backend(name).unwrap();
         let options = HashMap::from([("column_types".to_string(), MODULE.to_string())]);
         assert!(backend.apply_options(&options).is_err(), "{name}");
     }

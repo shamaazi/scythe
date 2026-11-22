@@ -16,7 +16,7 @@
 //! show up as a regression instead of as the status quo.
 
 #![cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(
         dead_code,
         unused_imports,
@@ -48,15 +48,15 @@ fn one_column_query(command: QueryCommand) -> AnalyzedQuery {
     })
 }
 
-fn query_fn_for(backend_name: &str, engine: &str, command: QueryCommand) -> String {
-    let backend = get_backend(backend_name, engine)
-        .unwrap_or_else(|error| panic!("{backend_name}/{engine}: backend must support engine: {error}"));
+fn query_fn_for(backend_name: &str, command: QueryCommand) -> String {
+    let backend =
+        get_backend(backend_name).unwrap_or_else(|error| panic!("{backend_name}: backend must construct: {error}"));
     let query = one_column_query(command.clone());
     let generated = generate_with_backend(&query, &*backend)
-        .unwrap_or_else(|error| panic!("{backend_name}/{engine}: codegen failed for {command:?}: {error}"));
+        .unwrap_or_else(|error| panic!("{backend_name}: codegen failed for {command:?}: {error}"));
     generated
         .query_fn
-        .unwrap_or_else(|| panic!("{backend_name}/{engine}: {command:?} produced no query fn"))
+        .unwrap_or_else(|| panic!("{backend_name}: {command:?} produced no query fn"))
 }
 
 // ---------------------------------------------------------------------
@@ -75,21 +75,6 @@ const ALL_BACKEND_NAMES: &[&str] = &[
     "typescript-bun",
     "javascript-bun",
 ];
-
-/// Tried in order until one resolves the backend's manifest -- mirrors
-/// `sqlkit_codegen::lib::tests::backend_for_select_star`'s `ENGINES` list.
-/// This census cares whether `:one` and `:opt` diverge at all, not which
-/// engine it observes that on.
-const ENGINES: &[&str] = &["postgresql"];
-
-fn first_supported_engine(name: &str) -> &'static str {
-    for engine in ENGINES {
-        if get_backend(name, engine).is_ok() {
-            return engine;
-        }
-    }
-    panic!("no known engine works for backend '{name}' -- ALL_BACKEND_NAMES or ENGINES has gone stale");
-}
 
 /// One entry in [`KNOWN_UNDIFFERENTIATED_BACKENDS`]: a backend name paired
 /// with why its `:one` and `:opt` output is currently identical, so the list
@@ -135,16 +120,15 @@ const KNOWN_UNDIFFERENTIATED_BACKENDS: &[BackendNote] = &[];
 /// inheriting `:opt`'s permissiveness) -- both are silent downgrades of
 /// one command's contract into the other's, and both are exactly what
 /// "a backend silently downgrades :opt" (or, symmetrically, :one) means.
-#[cfg(all(feature = "lang-rust", feature = "lang-typescript", feature = "postgres"))]
+#[cfg(all(feature = "lang-rust", feature = "lang-typescript"))]
 #[test]
 fn one_and_opt_render_different_code_except_on_the_known_allowlist() {
     let mut regressions = Vec::new();
     let mut stale_entries = Vec::new();
 
     for &name in ALL_BACKEND_NAMES {
-        let engine = first_supported_engine(name);
-        let one_fn = query_fn_for(name, engine, QueryCommand::One);
-        let opt_fn = query_fn_for(name, engine, QueryCommand::Opt);
+        let one_fn = query_fn_for(name, QueryCommand::One);
+        let opt_fn = query_fn_for(name, QueryCommand::Opt);
         let differs = one_fn != opt_fn;
 
         let listed = KNOWN_UNDIFFERENTIATED_BACKENDS.iter().find(|n| n.backend == name);

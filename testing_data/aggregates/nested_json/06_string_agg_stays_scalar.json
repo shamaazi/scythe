@@ -1,6 +1,5 @@
 {
   "category": "aggregates/nested_json",
-  "config": { "engine": "postgresql" },
   "description": "Guardrail: string_agg stays a scalar string aggregate and must never be reinterpreted as a nested aggregate",
   "expected": {
     "query": {

@@ -6,7 +6,7 @@
 //! Pinned for every backend that offers the option: `typescript-bun`,
 //! `typescript-postgres` and `typescript-pg`.
 
-#![cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#![cfg(feature = "lang-typescript")]
 
 use std::collections::HashMap;
 
@@ -44,7 +44,7 @@ const NOTES: &str = "-- @name CauseNotes\n-- @returns :many\nSELECT notes, raise
 const BACKENDS: [&str; 2] = ["typescript-bun", "typescript-postgres"];
 
 fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
-    let mut backend = get_backend(name, "postgresql").unwrap_or_else(|e| panic!("{name}: {e}"));
+    let mut backend = get_backend(name).unwrap_or_else(|e| panic!("{name}: {e}"));
     let options: HashMap<String, String> = options
         .iter()
         .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
@@ -160,12 +160,12 @@ fn should_fail_on_untranslated_constraints_under_error() {
 #[test]
 fn should_reject_invalid_option_values_and_js_mode() {
     for (key, value) in [("validation", "zod"), ("constraints", "fail")] {
-        let mut backend = get_backend("typescript-bun", "postgresql").unwrap();
+        let mut backend = get_backend("typescript-bun").unwrap();
         let options = HashMap::from([(key.to_string(), value.to_string())]);
         assert!(backend.apply_options(&options).is_err(), "{key} = {value}");
     }
     for name in ["javascript-bun", "javascript-postgres"] {
-        let mut backend = get_backend(name, "postgresql").unwrap();
+        let mut backend = get_backend(name).unwrap();
         let options = HashMap::from([("validation".to_string(), "jsdoc".to_string())]);
         assert!(backend.apply_options(&options).is_err(), "{name}");
     }

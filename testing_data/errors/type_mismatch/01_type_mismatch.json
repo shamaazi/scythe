@@ -8,7 +8,6 @@
   ],
   "query_sql": "-- @name GetTypeMismatch\n-- @returns :many\nSELECT id, name FROM users WHERE id = name;",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

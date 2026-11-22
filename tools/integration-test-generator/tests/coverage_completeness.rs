@@ -7,7 +7,7 @@
 //!
 //! So this file never hand-writes either list. `manifests/` is enumerated from
 //! disk, the covered set is enumerated from the committed `sqlkit.toml` files,
-//! and — critically — a project's `(backend, engine)` is mapped onto the
+//! and — critically — a project's `backend` is mapped onto the
 //! manifest it actually selects by calling the *real* resolver,
 //! `sqlkit_codegen::backends::get_backend`. Re-deriving that mapping here would
 //! reintroduce exactly the "two derivations,
@@ -28,10 +28,10 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use sqlkit_codegen::backends::get_backend;
 
-/// A manifest's identity: the `[backend] name` and `[backend] engine` it
-/// declares. This is the unit of coverage — not the filename, because a
-/// project reaches a manifest through the resolver, which keys on this pair.
-type BackendPair = (String, String);
+/// A manifest's identity: the `[backend] name` it declares. This is the unit
+/// of coverage — not the filename, because a project reaches a manifest
+/// through the resolver, which keys on this name.
+type BackendName = String;
 
 #[derive(Debug, Deserialize)]
 struct ManifestFile {
@@ -41,7 +41,6 @@ struct ManifestFile {
 #[derive(Debug, Deserialize)]
 struct ManifestBackend {
     name: String,
-    engine: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,7 +51,6 @@ struct SqlkitConfig {
 
 #[derive(Debug, Deserialize)]
 struct SqlBlock {
-    engine: String,
     /// `gen` is a reserved keyword in edition 2024, hence the rename.
     #[serde(default, rename = "gen")]
     generators: Vec<GenBlock>,
@@ -87,9 +85,9 @@ fn toml_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Every backend manifest that ships, keyed by the pair the resolver uses.
+/// Every backend manifest that ships, keyed by the name the resolver uses.
 /// The value is the filename, so failure messages can name the file to edit.
-fn shipped_manifests() -> BTreeMap<BackendPair, String> {
+fn shipped_manifests() -> BTreeMap<BackendName, String> {
     let dir = repo_root().join("crates/sqlkit-codegen/manifests");
     let mut manifests = BTreeMap::new();
     for path in toml_files(&dir) {
@@ -100,10 +98,10 @@ fn shipped_manifests() -> BTreeMap<BackendPair, String> {
             .expect("manifest path has a filename")
             .to_string_lossy()
             .into_owned();
-        let previous = manifests.insert((parsed.backend.name, parsed.backend.engine), file.clone());
+        let previous = manifests.insert(parsed.backend.name, file.clone());
         assert!(
             previous.is_none(),
-            "two manifests declare the same (name, engine); {file} collides with {}",
+            "two manifests declare the same name; {file} collides with {}",
             previous.unwrap_or_default()
         );
     }
@@ -138,27 +136,26 @@ fn integration_projects() -> Vec<(String, PathBuf)> {
 
 /// The manifests actually exercised by a committed project, resolved through
 /// the same code path `sqlkit generate` takes.
-fn covered_manifests() -> BTreeMap<BackendPair, BTreeSet<String>> {
-    let mut covered: BTreeMap<BackendPair, BTreeSet<String>> = BTreeMap::new();
+fn covered_manifests() -> BTreeMap<BackendName, BTreeSet<String>> {
+    let mut covered: BTreeMap<BackendName, BTreeSet<String>> = BTreeMap::new();
     for (project, config_path) in integration_projects() {
         let config: SqlkitConfig = toml::from_str(&read_to_string(&config_path))
             .unwrap_or_else(|e| panic!("parsing {}: {e}", config_path.display()));
         for block in &config.sql {
             for generated in &block.generators {
-                // A project naming a backend/engine combination the resolver
+                // A project naming a backend the resolver
                 // rejects is itself a defect, and a silent one today: it would
                 // otherwise just fail to contribute coverage and read as an
                 // uncovered manifest somewhere else.
-                let backend = get_backend(&generated.backend, &block.engine).unwrap_or_else(|e| {
+                let backend = get_backend(&generated.backend).unwrap_or_else(|e| {
                     panic!(
-                        "integration project '{project}' requests backend '{}' on engine '{}', \
-                         which does not resolve to any manifest: {e}",
-                        generated.backend, block.engine
+                        "integration project '{project}' requests backend '{}', which does not \
+                         resolve to any manifest: {e}",
+                        generated.backend
                     )
                 });
-                let meta = &backend.manifest().backend;
                 covered
-                    .entry((meta.name.clone(), meta.engine.clone()))
+                    .entry(backend.manifest().backend.name.clone())
                     .or_default()
                     .insert(project.clone());
             }
@@ -252,19 +249,17 @@ fn every_backend_manifest_has_an_integration_project() {
     // Coverage that resolves to no shipped manifest is impossible by
     // construction (the resolver returned it), but assert it rather than
     // assume it: it is the invariant that makes the gap set below meaningful.
-    for pair in covered.keys() {
+    for name in covered.keys() {
         assert!(
-            shipped.contains_key(pair),
-            "resolver produced manifest ({}, {}) that is not a file under crates/sqlkit-codegen/manifests",
-            pair.0,
-            pair.1
+            shipped.contains_key(name),
+            "resolver produced manifest {name} that is not a file under crates/sqlkit-codegen/manifests"
         );
     }
 
     let gaps: BTreeMap<String, String> = shipped
         .iter()
-        .filter(|(pair, _)| !covered.contains_key(*pair))
-        .map(|((name, engine), file)| (format!("{name}|{engine}"), format!("manifest {file}")))
+        .filter(|(name, _)| !covered.contains_key(*name))
+        .map(|(name, file)| (name.clone(), format!("manifest {file}")))
         .collect();
 
     assert_ratchet(&gaps, &load_exemptions(&exemptions_path(), "manifests"), "manifests");

@@ -6,10 +6,9 @@
 //! `backends/<name>/manifest.toml` lookup — is covered by
 //! `manifest_determinism.rs`. That lookup was global, so one
 //! override applied to every target using the backend. The replacement is therefore keyed per
-//! `[[sql.gen]]` target — which already names a backend and inherits its
-//! engine from the enclosing `[[sql]]` block — and never globally by backend
-//! name. `override_is_per_target_not_global_across_engines` is the
-//! regression test for that specific property.
+//! `[[sql.gen]]` target, never globally by backend name.
+//! `override_is_per_target_not_global_across_blocks` is the regression test
+//! for that specific property.
 //!
 //! Every test drives the compiled binary via
 //! `Command::new(env!("CARGO_BIN_EXE_sqlkit"))` with `.current_dir(...)` set
@@ -236,12 +235,16 @@ fn unknown_section_errors_naming_backend_and_key() {
 }
 
 /// A `[backend]` table is not overridable: manifest selection stays a pure
-/// function of `(backend, engine)`, so an override may not rewrite the
-/// engine or the file extension out from under it.
+/// function of the backend, so an override may not rewrite the name or the
+/// file extension out from under it.
 #[test]
 fn backend_section_is_rejected() {
     let (dir, config_path) = project(&config_with_manifest(r#"manifest = "custom.toml""#));
-    std::fs::write(dir.path().join("custom.toml"), "[backend]\nengine = \"other\"\n").unwrap();
+    std::fs::write(
+        dir.path().join("custom.toml"),
+        "[backend]\nfile_extension = \"other\"\n",
+    )
+    .unwrap();
 
     let output = generate_from(&config_path, dir.path());
     assert!(!output.status.success(), "a [backend] override must fail the run");
@@ -305,13 +308,12 @@ fn missing_override_file_errors_naming_the_resolved_path() {
     );
 }
 
-/// Requirement 5: the engine-blindness guard. Two `[[sql]]` blocks use the
-/// *same* backend name (`rust-sqlx`) in two blocks, each with its
-/// own override. Each target must pick up its own file and only its own —
-/// the failure mode of the removed global, engine-blind lookup was handing
-/// one manifest to every engine.
+/// Requirement 5: two `[[sql]]` blocks use the *same* backend name
+/// (`rust-sqlx`), each with its own override. Each target must pick up its own
+/// file and only its own — the failure mode of the removed global lookup was
+/// handing one manifest to every block.
 #[test]
-fn override_is_per_target_not_global_across_engines() {
+fn override_is_per_target_not_global_across_blocks() {
     let dir = TempDir::new().unwrap();
     write_sources(dir.path());
     std::fs::write(dir.path().join("pg.toml"), int64_overlay("PostgresOnlySentinel")).unwrap();

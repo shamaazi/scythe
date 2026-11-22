@@ -1,6 +1,5 @@
 {
   "category": "aggregates/nested_json",
-  "config": { "engine": "postgresql" },
   "description": "Regression guard: array_agg shares json_agg's argument shape but aggregates into a SQL array and must never acquire a nested struct",
   "expected": {
     "query": {

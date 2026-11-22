@@ -1,7 +1,6 @@
 {
   "category": "annotations/name",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

@@ -15,7 +15,7 @@
 //! truthiness -- see `crates/sqlkit-codegen/src/backends/typescript_common.rs`'s
 //! `ts_row_not_found_throw` for the exact throw text every backend shares.
 
-#![cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#![cfg(feature = "lang-typescript")]
 
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::{AnalyzedColumn, AnalyzedQuery};
@@ -43,28 +43,28 @@ fn one_column_query(command: QueryCommand) -> AnalyzedQuery {
     })
 }
 
-fn query_fn_for(backend_name: &str, engine: &str, command: QueryCommand) -> String {
-    let backend = get_backend(backend_name, engine)
-        .unwrap_or_else(|error| panic!("{backend_name}/{engine}: backend must support engine: {error}"));
+fn query_fn_for(backend_name: &str, command: QueryCommand) -> String {
+    let backend =
+        get_backend(backend_name).unwrap_or_else(|error| panic!("{backend_name}: backend must construct: {error}"));
     let query = one_column_query(command.clone());
     let generated = generate_with_backend(&query, &*backend)
-        .unwrap_or_else(|error| panic!("{backend_name}/{engine}: codegen failed for {command:?}: {error}"));
+        .unwrap_or_else(|error| panic!("{backend_name}: codegen failed for {command:?}: {error}"));
     generated
         .query_fn
-        .unwrap_or_else(|| panic!("{backend_name}/{engine}: {command:?} produced no query fn"))
+        .unwrap_or_else(|| panic!("{backend_name}: {command:?} produced no query fn"))
 }
 
 /// Every `typescript-*`/`javascript-*` backend name registered in
-/// `get_backend`, paired with an engine it supports -- the same fifteen names
+/// `get_backend` -- the same fifteen names
 /// `opt_command_regression.rs`'s `KNOWN_UNDIFFERENTIATED_BACKENDS` lists under
 /// the shared-arm reason this fix removes. Kept as an independent copy for
 /// the same reason that file gives for its own `ALL_BACKEND_NAMES`: the
 /// authoritative list lives in another agent's owned `lib.rs`.
-const TS_JS_BACKENDS: &[(&str, &str)] = &[
-    ("typescript-postgres", "postgresql"),
-    ("javascript-postgres", "postgresql"),
-    ("typescript-bun", "postgresql"),
-    ("javascript-bun", "postgresql"),
+const TS_JS_BACKENDS: &[&str] = &[
+    "typescript-postgres",
+    "javascript-postgres",
+    "typescript-bun",
+    "javascript-bun",
 ];
 
 /// The exact text `ts_row_not_found_throw("GetItem")` renders -- pinned here
@@ -82,8 +82,8 @@ const EXPECTED_THROW: &str = "throw new Error(\"no row found for query: GetItem\
 fn one_never_renders_nullable_and_always_throws_on_a_missing_row() {
     let mut failures = Vec::new();
 
-    for &(name, engine) in TS_JS_BACKENDS {
-        let one_fn = query_fn_for(name, engine, QueryCommand::One);
+    for &name in TS_JS_BACKENDS {
+        let one_fn = query_fn_for(name, QueryCommand::One);
 
         if one_fn.contains(" | null") {
             failures.push(format!(
@@ -117,8 +117,8 @@ fn one_never_renders_nullable_and_always_throws_on_a_missing_row() {
 fn opt_still_renders_nullable_and_never_throws_on_a_missing_row() {
     let mut failures = Vec::new();
 
-    for &(name, engine) in TS_JS_BACKENDS {
-        let opt_fn = query_fn_for(name, engine, QueryCommand::Opt);
+    for &name in TS_JS_BACKENDS {
+        let opt_fn = query_fn_for(name, QueryCommand::Opt);
 
         if !opt_fn.contains(" | null") {
             failures.push(format!(
@@ -148,9 +148,9 @@ fn opt_still_renders_nullable_and_never_throws_on_a_missing_row() {
 fn one_and_opt_render_different_code_for_every_backend() {
     let mut failures = Vec::new();
 
-    for &(name, engine) in TS_JS_BACKENDS {
-        let one_fn = query_fn_for(name, engine, QueryCommand::One);
-        let opt_fn = query_fn_for(name, engine, QueryCommand::Opt);
+    for &name in TS_JS_BACKENDS {
+        let one_fn = query_fn_for(name, QueryCommand::One);
+        let opt_fn = query_fn_for(name, QueryCommand::Opt);
         if one_fn == opt_fn {
             failures.push(name.to_string());
         }

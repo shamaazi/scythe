@@ -1,7 +1,6 @@
 {
   "category": "codegen/sqlx_basic",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

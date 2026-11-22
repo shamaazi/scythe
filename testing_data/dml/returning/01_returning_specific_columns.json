@@ -1,7 +1,6 @@
 {
   "category": "dml/returning",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

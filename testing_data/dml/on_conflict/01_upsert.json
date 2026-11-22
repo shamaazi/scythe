@@ -1,7 +1,6 @@
 {
   "category": "dml/on_conflict",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

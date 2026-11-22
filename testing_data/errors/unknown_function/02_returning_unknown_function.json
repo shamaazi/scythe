@@ -6,7 +6,6 @@
   "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"],
   "query_sql": "-- @name InsertUserReturningWeird\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING my_weird_func(id);",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

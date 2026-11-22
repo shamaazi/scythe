@@ -1,7 +1,6 @@
 {
   "category": "params/explicit_cast",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

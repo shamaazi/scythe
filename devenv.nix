@@ -3,10 +3,10 @@
 # here builds --release.
 { pkgs, config, ... }:
 let
-  # What mygiving builds through Nix (its overlay pins this repository): the CLI with the
-  # PostgreSQL engine and the TypeScript backends only.
+  # What mygiving builds through Nix (its overlay pins this repository): the CLI with
+  # live-database support and the TypeScript backends only.
   minimalFeatures = "--no-default-features --features postgres,lang-typescript";
-  minimalCodegenFeatures = "--no-default-features --features sqlkit-codegen/postgres,sqlkit-codegen/lang-typescript";
+  minimalCodegenFeatures = "--no-default-features --features sqlkit-codegen/lang-typescript";
   pg = config.services.postgres;
   databaseUrl = "postgres://sqlkit:sqlkit@127.0.0.1:${toString pg.port}/sqlkit_test";
 in

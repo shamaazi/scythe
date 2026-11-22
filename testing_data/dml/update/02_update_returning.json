@@ -1,7 +1,6 @@
 {
   "category": "dml/update",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

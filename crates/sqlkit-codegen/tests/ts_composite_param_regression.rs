@@ -19,7 +19,7 @@
 //! spliced in as literal SQL text around them -- see `pg_composite_bind_expr`
 //! and `pg_bind_expr` in `typescript_postgres.rs`.
 
-#![cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#![cfg(feature = "lang-typescript")]
 
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::{AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, analyze};
@@ -77,7 +77,7 @@ const EXPECTED_ROW_LITERAL: &str = "ROW(${home_address.street}, ${home_address.z
 /// whole object as a single binding.
 #[test]
 fn typescript_postgres_binds_a_composite_param_as_a_row_constructor() {
-    let backend = get_backend("typescript-postgres", "postgresql").expect("typescript-postgres supports postgresql");
+    let backend = get_backend("typescript-postgres").expect("typescript-postgres supports postgresql");
     let query = composite_param_query();
     let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite param");
     let query_fn = result.query_fn.expect("Exec command must produce a query fn");
@@ -97,7 +97,7 @@ fn typescript_postgres_binds_a_composite_param_as_a_row_constructor() {
 /// functions go through the identical placeholder rewrite.
 #[test]
 fn javascript_postgres_binds_a_composite_param_as_a_row_constructor() {
-    let backend = get_backend("javascript-postgres", "postgresql").expect("javascript-postgres supports postgresql");
+    let backend = get_backend("javascript-postgres").expect("javascript-postgres supports postgresql");
     let query = composite_param_query();
     let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite param");
     let query_fn = result.query_fn.expect("Exec command must produce a query fn");
@@ -117,7 +117,7 @@ fn javascript_postgres_binds_a_composite_param_as_a_row_constructor() {
 /// composite is now the entire batch item rather than one field of it.
 #[test]
 fn typescript_postgres_binds_a_single_composite_batch_item_as_a_row_constructor() {
-    let backend = get_backend("typescript-postgres", "postgresql").expect("typescript-postgres supports postgresql");
+    let backend = get_backend("typescript-postgres").expect("typescript-postgres supports postgresql");
     let mut query = composite_param_query();
     query.command = QueryCommand::Batch;
     let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite batch item");
@@ -140,7 +140,7 @@ fn typescript_postgres_binds_a_single_composite_batch_item_as_a_row_constructor(
 /// field off `item.<field>` rather than the bare parameter name.
 #[test]
 fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
-    let backend = get_backend("typescript-postgres", "postgresql").expect("typescript-postgres supports postgresql");
+    let backend = get_backend("typescript-postgres").expect("typescript-postgres supports postgresql");
     let mut query = composite_param_query();
     query.command = QueryCommand::Batch;
     query.sql = "INSERT INTO widgets (kind, home_address) VALUES ($1, $2)".to_string();
@@ -213,7 +213,7 @@ fn analyzer_populates_composites_for_a_param_only_composite() {
         analyzed.composites
     );
 
-    let backend = get_backend("typescript-postgres", "postgresql").expect("typescript-postgres supports postgresql");
+    let backend = get_backend("typescript-postgres").expect("typescript-postgres supports postgresql");
     let result = generate_with_backend(&analyzed, &*backend).expect("codegen must not fail on a composite param");
     let query_fn = result
         .query_fn

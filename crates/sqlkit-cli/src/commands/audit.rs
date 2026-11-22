@@ -23,7 +23,7 @@ use sqlkit_lint::{
 };
 
 use super::shared::{
-    CatalogLoadRequest, LoadedCatalog, ParseSeverities, config_dir, deserialize_engine, load_catalog, resolve_globs,
+    CatalogLoadRequest, LoadedCatalog, ParseSeverities, PostgresEngine, config_dir, load_catalog, resolve_globs,
 };
 
 const TOOL_NAME: &str = "sqlkit-audit";
@@ -445,9 +445,8 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         name: String,
         schema: Vec<String>,
         queries: Vec<String>,
-        #[serde(default, deserialize_with = "deserialize_engine")]
-        #[allow(dead_code)]
-        engine: Option<String>,
+        #[serde(default, rename = "engine")]
+        _engine: PostgresEngine,
     }
 
     if !Path::new(config_path).exists() {

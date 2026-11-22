@@ -11,7 +11,7 @@
 //! `row.my_col` reads -- the `#[sqlx(rename = "...")]` fix for the FromRow
 //! path does not apply here, because there is no derive to attach it to.
 
-#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+#![cfg(feature = "lang-rust")]
 
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::analyze;
@@ -28,7 +28,7 @@ const QUERY: &str = "-- @name GetOwnersWithParts\n-- @returns :grouped\n-- @grou
     FROM owners o JOIN parts p ON p.owner_id = o.id;";
 
 fn generate_grouped_query_fn() -> String {
-    let backend = get_backend("rust-sqlx", "postgresql").expect("backend must support postgresql");
+    let backend = get_backend("rust-sqlx").expect("backend must support postgresql");
     let catalog = Catalog::from_ddl(&SCHEMA).expect("schema must parse");
     let parsed = parse_query(QUERY).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");

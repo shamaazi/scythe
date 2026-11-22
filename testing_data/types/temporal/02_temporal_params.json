@@ -1,7 +1,6 @@
 {
   "category": "types/temporal",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

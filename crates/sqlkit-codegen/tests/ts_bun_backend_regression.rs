@@ -56,7 +56,7 @@ fn generate(backend: &dyn CodegenBackend, sql: &str) -> GeneratedCode {
 }
 
 fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
-    let mut backend = get_backend(name, "postgresql").unwrap_or_else(|e| panic!("{name}: {e}"));
+    let mut backend = get_backend(name).unwrap_or_else(|e| panic!("{name}: {e}"));
     let options: HashMap<String, String> = options
         .iter()
         .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
@@ -75,18 +75,12 @@ fn row_struct(code: &GeneratedCode) -> &str {
 
 #[test]
 fn registry_names_and_engines() {
-    let ts = get_backend("typescript-bun", "postgresql").unwrap();
+    let ts = get_backend("typescript-bun").unwrap();
     assert_eq!(ts.name(), "typescript-bun");
     assert_eq!(ts.output_extension(), "ts");
-    let js = get_backend("javascript-bun", "postgresql").unwrap();
+    let js = get_backend("javascript-bun").unwrap();
     assert_eq!(js.name(), "javascript-bun");
     assert_eq!(js.output_extension(), "js");
-    for engine in ["nosuchdb", "other"] {
-        assert!(
-            get_backend("typescript-bun", engine).is_err(),
-            "{engine} must be rejected"
-        );
-    }
 }
 
 #[test]
@@ -311,7 +305,7 @@ fn javascript_bun_types_the_handle_through_jsdoc() {
         ("outer_join_unions", "true"),
         ("field_case", "camelCase"),
     ] {
-        let mut b = get_backend("javascript-bun", "postgresql").unwrap();
+        let mut b = get_backend("javascript-bun").unwrap();
         let options = HashMap::from([(key.to_string(), value.to_string())]);
         let err = b
             .apply_options(&options)

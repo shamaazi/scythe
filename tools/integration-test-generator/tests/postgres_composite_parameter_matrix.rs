@@ -27,7 +27,6 @@ struct SqlkitConfig {
 
 #[derive(Deserialize)]
 struct SqlBlock {
-    engine: String,
     #[serde(rename = "gen")]
     generators: Vec<Generator>,
 }
@@ -56,7 +55,7 @@ fn postgres_projects() -> BTreeMap<String, String> {
         }
         let config: SqlkitConfig =
             toml::from_str(&fs::read_to_string(&config_path).expect("read sqlkit.toml")).expect("parse sqlkit.toml");
-        for block in config.sql.iter().filter(|block| block.engine == "postgresql") {
+        for block in &config.sql {
             for generator in &block.generators {
                 let project = path
                     .file_name()

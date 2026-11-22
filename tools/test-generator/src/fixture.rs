@@ -44,25 +44,8 @@ pub struct Fixture {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FixtureConfig {
-    #[serde(default)]
-    pub engine: Option<Engine>,
     #[serde(default, rename = "gen")]
     pub generation: Option<GenConfig>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Engine {
-    Postgresql,
-}
-
-impl Engine {
-    /// The `sqlkit.toml` engine string this variant corresponds to.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Engine::Postgresql => "postgresql",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

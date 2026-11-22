@@ -1,5 +1,5 @@
 //! Regression test for #82: manifest selection must be a pure function of
-//! `(backend, engine)`, with no filesystem lookup that could pick up a
+//! the backend, with no filesystem lookup that could pick up a
 //! working-directory-relative `backends/<name>/manifest.toml` override.
 //! Generated code must not depend on the process's current working directory.
 //!
@@ -102,8 +102,8 @@ fn manifest_selection_ignores_cwd_backends_override() {
     let guard = CwdGuard::new();
     env::set_current_dir(temp.path()).expect("failed to chdir into temp dir");
 
-    let backend = sqlkit_codegen::get_backend("rust-sqlx", "postgresql")
-        .expect("get_backend should succeed regardless of CWD contents");
+    let backend =
+        sqlkit_codegen::get_backend("rust-sqlx").expect("get_backend should succeed regardless of CWD contents");
 
     let scalars = &backend.manifest().types.scalars;
     assert_eq!(

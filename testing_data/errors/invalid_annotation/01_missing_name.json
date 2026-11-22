@@ -6,7 +6,6 @@
   "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"],
   "query_sql": "-- @returns :many\nSELECT id, name FROM users;",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

@@ -1,6 +1,5 @@
 {
   "category": "aggregates/nested_json",
-  "config": { "engine": "postgresql" },
   "description": "json_agg over a LEFT JOIN yields [null] when nothing matched, so the array element is nullable while each field keeps its schema nullability",
   "expected": {
     "generated_code": {

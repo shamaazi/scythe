@@ -1,6 +1,5 @@
 {
   "category": "aggregates/nested_json",
-  "config": { "engine": "postgresql" },
   "description": "array_agg of a multi-field ROW() constructor must not silently collapse to the first field's type -- it has no single neutral type today, so it is rejected with an actionable error instead of reaching codegen as an unresolved element type (#223)",
   "expected": {
     "success": false,

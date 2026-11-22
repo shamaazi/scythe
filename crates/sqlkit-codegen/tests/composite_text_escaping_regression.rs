@@ -17,7 +17,7 @@
 //!
 
 #![cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(
         dead_code,
         unused_imports,
@@ -37,7 +37,7 @@ const SCHEMA: &str = "CREATE TYPE addr AS (street TEXT, city TEXT); \
 const QUERY: &str = "-- @name GetThing\n-- @returns :one\nSELECT id, home FROM things WHERE id = $1;";
 
 fn generated_text_for(schema: &str, query: &str, backend_name: &str) -> String {
-    let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
+    let backend = get_backend(backend_name).expect("backend must support postgresql");
     let catalog = Catalog::from_ddl(&[schema]).expect("schema must parse");
     let parsed = parse_query(query).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
@@ -69,7 +69,7 @@ fn generated_text(backend_name: &str) -> String {
 /// should be added here rather than getting its own bespoke assertion.
 const PARSER_BACKENDS: &[(&str, &str)] = &[("typescript-postgres", "inner[i + 1] === '\"'")];
 
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn every_generated_composite_parser_handles_a_doubled_quote() {
     for (backend, needle) in PARSER_BACKENDS {
@@ -90,7 +90,7 @@ const NULLABLE_SCHEMA: &str = "CREATE TYPE mood AS ENUM ('happy', 'sad'); \
 
 const NULLABLE_QUERY: &str = "-- @name GetProfile\n-- @returns :one\nSELECT id, details FROM profiles WHERE id = $1;";
 
-#[cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#[cfg(feature = "lang-typescript")]
 #[test]
 fn nullable_composite_fields_skip_scalar_and_static_decoders_for_sql_null() {
     let expectations = [(

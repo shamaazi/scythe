@@ -6,7 +6,6 @@
   "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"],
   "query_sql": "-- @name InsertUserReturningUnknown\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING nosuchcol;",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

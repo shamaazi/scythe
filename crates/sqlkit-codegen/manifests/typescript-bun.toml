@@ -2,7 +2,6 @@
 name = "typescript-bun"
 language = "typescript"
 file_extension = "ts"
-engine = "postgresql"
 description = "TypeScript code generation targeting Bun's built-in SQL client (Bun.SQL)"
 
 # What Bun's PostgreSQL adapter returns (https://bun.com/docs/runtime/sql), where

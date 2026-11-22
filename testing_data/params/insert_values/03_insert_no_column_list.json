@@ -1,7 +1,6 @@
 {
   "category": "params/insert_values",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

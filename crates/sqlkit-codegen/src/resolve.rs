@@ -422,7 +422,6 @@ mod tests {
                 name: "test".to_string(),
                 language: "rust".to_string(),
                 file_extension: "rs".to_string(),
-                engine: "postgresql".to_string(),
                 description: None,
             },
             types: TypeMappings {

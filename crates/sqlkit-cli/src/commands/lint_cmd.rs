@@ -9,7 +9,7 @@ use sqlkit_lint::{SuppressionSet, emit_findings};
 
 use super::inspect::{build_driver_with_config, build_registry};
 use super::shared::{
-    CatalogLoadRequest, ParseSeverities, config_dir, deserialize_engine, load_catalog, resolve_globs, split_query_file,
+    CatalogLoadRequest, ParseSeverities, PostgresEngine, config_dir, load_catalog, resolve_globs, split_query_file,
 };
 
 /// A combined lint violation that can come from either sqlkit rules, sqruff,
@@ -137,9 +137,8 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
     #[derive(Deserialize)]
     struct MinSqlConfig {
         name: String,
-        #[serde(default, deserialize_with = "deserialize_engine")]
-        #[allow(dead_code)]
-        engine: Option<String>,
+        #[serde(default, rename = "engine")]
+        _engine: PostgresEngine,
         #[serde(default)]
         schema: Vec<String>,
     }
@@ -495,9 +494,8 @@ fn lint_from_config(
         name: String,
         schema: Vec<String>,
         queries: Vec<String>,
-        #[allow(dead_code)]
-        #[serde(default, deserialize_with = "deserialize_engine")]
-        engine: Option<String>,
+        #[serde(default, rename = "engine")]
+        _engine: PostgresEngine,
     }
 
     let config_str =

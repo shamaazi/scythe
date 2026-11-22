@@ -1,4 +1,4 @@
-#![cfg(all(feature = "lang-rust", feature = "postgres"))]
+#![cfg(feature = "lang-rust")]
 
 use sqlkit_codegen::{generate_with_backend, get_backend};
 use sqlkit_core::analyzer::{AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo};
@@ -43,7 +43,7 @@ fn composite_query() -> AnalyzedQuery {
 #[test]
 fn rust_postgresql_backends_keep_native_composite_binding() {
     for backend_name in ["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = get_backend(backend_name, "postgresql").expect("backend must exist");
+        let backend = get_backend(backend_name).expect("backend must exist");
         let composite = backend
             .generate_composite_def(&address_composite())
             .expect("composite generation must succeed");

@@ -2,7 +2,6 @@
 name = "rust-tokio-postgres"
 language = "rust"
 file_extension = "rs"
-engine = "postgresql"
 description = "Rust code generation targeting tokio-postgres"
 
 [types.scalars]

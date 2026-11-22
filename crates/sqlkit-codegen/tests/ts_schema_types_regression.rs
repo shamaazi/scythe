@@ -36,7 +36,7 @@ fn catalog(schema: &str) -> Catalog {
 }
 
 fn backend(options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
-    let mut backend = get_backend("typescript-bun", "postgresql").unwrap();
+    let mut backend = get_backend("typescript-bun").unwrap();
     let options: HashMap<String, String> = options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     backend.apply_options(&options).unwrap();
     backend
@@ -180,19 +180,19 @@ fn an_untranslatable_domain_check_fails_under_constraints_error() {
 
 #[test]
 fn schema_types_options_are_validated() {
-    let mut backend = get_backend("typescript-bun", "postgresql").unwrap();
+    let mut backend = get_backend("typescript-bun").unwrap();
     let alone = HashMap::from([("schema_types".to_string(), "src/schema.ts".to_string())]);
     let err = backend.apply_options(&alone).unwrap_err();
     assert!(err.to_string().contains("schema_types_import"), "{err}");
 
-    let mut backend = get_backend("typescript-bun", "postgresql").unwrap();
+    let mut backend = get_backend("typescript-bun").unwrap();
     let zod = HashMap::from([
         ("row_type".to_string(), "zod".to_string()),
         ("schema_types_import".to_string(), "@app/schema".to_string()),
     ]);
     assert!(backend.apply_options(&zod).is_err());
 
-    let mut backend = get_backend("javascript-bun", "postgresql").unwrap();
+    let mut backend = get_backend("javascript-bun").unwrap();
     let js = HashMap::from([("schema_types_import".to_string(), "@app/schema".to_string())]);
     assert!(backend.apply_options(&js).is_err());
 }

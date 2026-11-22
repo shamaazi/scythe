@@ -8,9 +8,6 @@
     "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);"
   ],
   "query_sql": "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by u.id\nSELECT u.id, u.name, o.id AS order_id, o.total\nFROM users u\nJOIN orders o ON o.user_id = u.id;",
-  "config": {
-    "engine": "postgresql"
-  },
   "expected": {
     "success": false,
     "error": {

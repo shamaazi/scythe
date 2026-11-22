@@ -1,7 +1,6 @@
 {
   "category": "dml/insert",
   "config": {
-    "engine": "postgresql",
     "gen": {
       "target": "sqlx"
     }

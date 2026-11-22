@@ -14,7 +14,7 @@
 //! every backend's declaration call through it, so the `.` becomes `_` before casing runs.
 
 #![cfg_attr(
-    not(all(feature = "all-engines", feature = "all-languages")),
+    not(feature = "all-languages"),
     allow(
         dead_code,
         unused_imports,
@@ -30,7 +30,7 @@ use sqlkit_core::errors::SqlkitError;
 use sqlkit_core::parser::parse_query;
 
 fn generate(schema: &str, query: &str, backend_name: &str) -> Result<GeneratedCode, SqlkitError> {
-    let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
+    let backend = get_backend(backend_name).expect("backend must support postgresql");
     let catalog = Catalog::from_ddl(&[schema]).expect("schema must parse");
     let parsed = parse_query(query).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
@@ -50,7 +50,7 @@ const SIMPLE_QUERY: &str = "-- @name GetWidget\n-- @returns :one\n\
 
 /// Rust: before the fix this line read `pub struct Public.widgetShape {`, which does not parse
 /// -- a `.` is not a valid character inside a Rust identifier.
-#[cfg(all(feature = "lang-rust", feature = "postgres"))]
+#[cfg(feature = "lang-rust")]
 #[test]
 fn composite_declaration_sanitizes_schema_qualified_dot_in_rust() {
     let code = generate(SIMPLE_SCHEMA, SIMPLE_QUERY, "rust-sqlx").expect("codegen must succeed");

@@ -19,7 +19,7 @@
 //! Covers the TypeScript emit mode and the `javascript-postgres` JSDoc emit
 //! mode, which had a verbatim copy of the same loop.
 
-#![cfg(all(feature = "lang-typescript", feature = "postgres"))]
+#![cfg(feature = "lang-typescript")]
 
 use sqlkit_codegen::validation::{strict_mode_enabled, validate_with_tools};
 use sqlkit_codegen::{CodegenBackend, generate_with_backend, get_backend};
@@ -58,8 +58,7 @@ const SINGLE_PARAM_BATCH_QUERY_WITH_FIELD_NAME_IN_LITERAL: &str = "-- @name TagN
     UPDATE notes SET tag = $1 WHERE body = 'literal ${tag} here';";
 
 fn query_fn(backend_name: &str, sql: &str) -> String {
-    let backend: Box<dyn CodegenBackend> =
-        get_backend(backend_name, "postgresql").expect("backend must support postgresql");
+    let backend: Box<dyn CodegenBackend> = get_backend(backend_name).expect("backend must support postgresql");
     let catalog = Catalog::from_ddl(&[SCHEMA]).expect("schema must parse");
     let parsed = parse_query(sql).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
@@ -160,7 +159,7 @@ fn the_non_batch_paths_remain_literal_aware() {
 #[test]
 fn the_generated_batch_file_passes_tool_validation() {
     for backend_name in ["typescript-postgres", "javascript-postgres"] {
-        let backend = get_backend(backend_name, "postgresql").unwrap();
+        let backend = get_backend(backend_name).unwrap();
         let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
         let parsed = parse_query(BATCH_QUERY).unwrap();
         let analyzed = analyze(&catalog, &parsed).unwrap();
