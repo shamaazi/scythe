@@ -12,6 +12,7 @@ use crate::constraints::{
 
 /// A relation's column, by catalog key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ColumnOrigin {
     pub relation: String,
     pub column: String,

@@ -249,10 +249,7 @@ pub struct AnalyzedColumn {
     /// [`Self::origin`] followed through views to the table column it reads,
     /// or the view column itself where the view computes it: what a backend
     /// keys per-column types on, so serialized like [`Self::constraints`].
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none", with = "column_origin")
-    )]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub base_column: Option<ColumnOrigin>,
 }
 
@@ -317,10 +314,7 @@ pub struct AnalyzedParam {
     /// The table column this parameter is written into directly, resolved
     /// through views like [`AnalyzedColumn::base_column`]; `None` when it is
     /// written into none, or into several different ones.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none", with = "column_origin")
-    )]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub base_column: Option<ColumnOrigin>,
 }
 
@@ -625,38 +619,6 @@ impl<'a> Analyzer<'a> {
         self.next_nested_id += 1;
         self.pending_nested.push(PendingNestedStruct { id, fields });
         id
-    }
-}
-
-/// Serde for an optional [`ColumnOrigin`] as `{"relation": ..., "column":
-/// ...}`, kept here so the catalog type needs no serde of its own.
-#[cfg(feature = "serde")]
-mod column_origin {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    use crate::catalog::ColumnOrigin;
-
-    #[derive(Serialize, Deserialize)]
-    struct Wire {
-        relation: String,
-        column: String,
-    }
-
-    pub(super) fn serialize<S: Serializer>(origin: &Option<ColumnOrigin>, serializer: S) -> Result<S::Ok, S::Error> {
-        origin
-            .as_ref()
-            .map(|origin| Wire {
-                relation: origin.relation.clone(),
-                column: origin.column.clone(),
-            })
-            .serialize(serializer)
-    }
-
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<ColumnOrigin>, D::Error> {
-        Ok(Option::<Wire>::deserialize(deserializer)?.map(|wire| ColumnOrigin {
-            relation: wire.relation,
-            column: wire.column,
-        }))
     }
 }
 
