@@ -1,30 +1,21 @@
 //! Matcher `"cartesian_join"` — SC-SEC08 cartesian-join.
 //!
-//! No `matcher_args`.  Emits empty `MatcherHit` for each cartesian-product
-//! shape detected: two messages are possible (comma-FROM and
-//! ON-true/CROSS JOIN).  The message field in the TOML carries the
-//! comma-FROM variant; the ON-true/CROSS JOIN variant has its own message.
+//! No `matcher_args`.  Emits one `MatcherHit` per cartesian-product shape,
+//! with the full message in a `msg` binding (the TOML message is `{msg}`):
+//! a comma-separated FROM of two or more independent items and no WHERE, or
+//! an `ON true` / `CROSS JOIN` to an independent item.
 //!
-//! The baseline output includes only the comma-FROM message for the smoke
-//! fixture, so we emit two distinct MatcherHits for the two shapes — but the
-//! TOML message template is shared.  To keep output byte-identical we emit
-//! `MatcherHit`s with a `shape` binding that the message template can use,
-//! OR we keep both messages hard-coded by emitting pre-rendered strings.
-//!
-//! The existing rule emits two different message strings for the two cases.
-//! The smoke fixture only triggers the comma-FROM shape.  To keep output
-//! byte-identical while using a single message template, we need two separate
-//! TOML rules — or we include both messages inside one matcher by varying the
-//! binding.  The TOML approach uses a `msg` binding for the full text.
-//!
-//! Decision: emit `MatcherHit::with_binding("msg", <full_message>)` and use
-//! `{msg}` as the TOML message template.  This is the cleanest approach that
-//! doesn't require two separate TOML rules.
+//! A FROM item is *dependent* — evaluated once per row of the items before
+//! it, so joining it expands rows instead of multiplying two sets — when its
+//! expressions reference an earlier FROM item; see [`is_row_expansion`].
 
+use std::collections::HashSet;
 use std::ops::ControlFlow;
 
+use sqlkit_core::catalog::Catalog;
 use sqlparser::ast::{
-    Expr, JoinConstraint, JoinOperator, Query, SetExpr, Statement, TableFactor, Value, ValueWithSpan, visit_expressions,
+    Expr, Ident, JoinConstraint, JoinOperator, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableAlias,
+    TableFactor, TableWithJoins, Value, ValueWithSpan, Visit, Visitor, visit_expressions,
 };
 
 use crate::audit::registry::MatcherHit;
@@ -36,29 +27,30 @@ const MSG_UNCONSTRAINED_JOIN: &str = "unconstrained join (ON true / CROSS JOIN) 
 pub fn match_cartesian_join(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<MatcherHit> {
     let mut hits = Vec::new();
     if let Statement::Query(q) = ctx.stmt {
-        walk_set_expr(&q.body, &mut hits);
+        walk_set_expr(&q.body, ctx.catalog, &mut hits);
     }
     hits
 }
 
-fn walk_set_expr(set_expr: &SetExpr, hits: &mut Vec<MatcherHit>) {
+fn walk_set_expr(set_expr: &SetExpr, catalog: &Catalog, hits: &mut Vec<MatcherHit>) {
     match set_expr {
         SetExpr::Select(select) => {
-            // Names of the FROM items seen so far, which a later LATERAL item
-            // may reference.
-            let mut earlier: Vec<String> = Vec::new();
+            // The FROM items seen so far, which a later item may reference.
+            let mut earlier: Vec<Bound> = Vec::new();
             let mut independent_items = 0;
             let mut join_hits = Vec::new();
             for twj in &select.from {
-                if !is_row_expansion(&twj.relation, &earlier) {
+                if !is_row_expansion(&twj.relation, &earlier, catalog) {
                     independent_items += 1;
                 }
-                earlier.extend(relation_name(&twj.relation));
+                bind(&twj.relation, catalog, &mut earlier);
                 for join in &twj.joins {
-                    if join_is_unconstrained(&join.join_operator) && !is_row_expansion(&join.relation, &earlier) {
+                    if join_is_unconstrained(&join.join_operator)
+                        && !is_row_expansion(&join.relation, &earlier, catalog)
+                    {
                         join_hits.push(MatcherHit::with_binding("msg", MSG_UNCONSTRAINED_JOIN));
                     }
-                    earlier.extend(relation_name(&join.relation));
+                    bind(&join.relation, catalog, &mut earlier);
                 }
             }
             if independent_items > 1 && select.selection.is_none() {
@@ -66,21 +58,39 @@ fn walk_set_expr(set_expr: &SetExpr, hits: &mut Vec<MatcherHit>) {
             }
             hits.extend(join_hits);
         }
-        SetExpr::Query(q) => walk_set_expr(&q.body, hits),
+        SetExpr::Query(q) => walk_set_expr(&q.body, catalog, hits),
         SetExpr::SetOperation { left, right, .. } => {
-            walk_set_expr(left, hits);
-            walk_set_expr(right, hits);
+            walk_set_expr(left, catalog, hits);
+            walk_set_expr(right, catalog, hits);
         }
         _ => {}
     }
 }
 
+/// A FROM item as the items after it see it: the name it is referenced by
+/// (its alias, else its table name) and its column names, `None` when they
+/// are not known without running the query.
+struct Bound {
+    name: Option<String>,
+    columns: Option<Vec<String>>,
+}
+
 /// Whether a FROM item is evaluated per row of the items before it rather
 /// than joined to them as an independent set, so an `ON true`, `CROSS JOIN`
-/// or comma join to it expands rows instead of multiplying them. A function
-/// in FROM is implicitly LATERAL in PostgreSQL; a LATERAL subquery counts
-/// when it references an earlier FROM item.
-fn is_row_expansion(factor: &TableFactor, earlier: &[String]) -> bool {
+/// or comma join to it expands rows instead of multiplying them.
+///
+/// One rule covers every item that can see earlier items — a function call
+/// (`generate_series(…)`, `unnest(…)`, `jsonb_to_recordset(…)`, which
+/// PostgreSQL makes implicitly LATERAL), `JSON_TABLE`, `XMLTABLE` and a
+/// `LATERAL` subquery: it is row expansion iff one of its expressions (the
+/// function's arguments, or anywhere in the subquery) references an earlier
+/// FROM item. So `CROSS JOIN generate_series(1, 1000000)` is a cartesian
+/// product and `CROSS JOIN unnest(p.tags)` is not. A plain table, or a
+/// subquery without `LATERAL`, cannot see earlier items and is never one.
+///
+/// A reference is found without a full name resolver; see
+/// [`references_earlier`] for exactly what counts.
+fn is_row_expansion(factor: &TableFactor, earlier: &[Bound], catalog: &Catalog) -> bool {
     match factor {
         TableFactor::Table { args: Some(_), .. }
         | TableFactor::Function { .. }
@@ -88,46 +98,232 @@ fn is_row_expansion(factor: &TableFactor, earlier: &[String]) -> bool {
         | TableFactor::UNNEST { .. }
         | TableFactor::JsonTable { .. }
         | TableFactor::OpenJsonTable { .. }
-        | TableFactor::XmlTable { .. } => true,
+        | TableFactor::XmlTable { .. } => references_earlier(factor, &InnerScope::empty(), earlier),
         TableFactor::Derived {
             lateral: true,
             subquery,
             ..
-        } => references_any(subquery, earlier),
+        } => references_earlier(subquery.as_ref(), &InnerScope::of(subquery, catalog), earlier),
         _ => false,
     }
 }
 
-/// The name a FROM item is referenced by: its alias, else its table name.
-fn relation_name(factor: &TableFactor) -> Option<String> {
-    let alias = match factor {
-        TableFactor::Table { alias, name, .. } => {
-            return Some(match alias {
-                Some(alias) => alias.name.value.to_lowercase(),
-                None => name.0.last()?.as_ident()?.value.to_lowercase(),
-            });
-        }
-        TableFactor::Derived { alias, .. }
-        | TableFactor::Function { alias, .. }
-        | TableFactor::TableFunction { alias, .. }
-        | TableFactor::UNNEST { alias, .. }
-        | TableFactor::NestedJoin { alias, .. } => alias.as_ref(),
-        _ => None,
-    };
-    alias.map(|alias| alias.name.value.to_lowercase())
-}
-
-/// Whether `query` uses a column qualified by one of `names`.
-fn references_any(query: &Query, names: &[String]) -> bool {
-    let found = visit_expressions(query, |expr| match expr {
-        Expr::CompoundIdentifier(parts)
-            if parts.len() >= 2 && names.contains(&parts[parts.len() - 2].value.to_lowercase()) =>
-        {
+/// Whether `node` references one of the `earlier` FROM items, given the
+/// names `inner` binds within `node` itself (empty for a function call).
+///
+/// - A qualified column `q.col` references an earlier item named `q`,
+///   unless `inner` binds `q` too: in `LATERAL (SELECT u.id FROM users u)`
+///   the inner `u` shadows an outer `u`, so the subquery is not correlated.
+/// - An unqualified column `col` references an earlier item only when the
+///   catalog shows that `inner` cannot bind it — every inner FROM item has
+///   known columns, none is named `col`, and no select-list alias is — and
+///   some earlier item has a column `col`, or has columns the catalog does
+///   not know. An inner item with unknown columns (a CTE, a function without
+///   a column list) makes every unqualified column count as inner.
+///
+/// `inner` holds every name bound anywhere within the subquery, not only at
+/// the reference's own level, so a reference shadowed only in a sibling
+/// scope is treated as inner. Every approximation errs toward reporting a
+/// cartesian product rather than hiding one.
+fn references_earlier<V: Visit>(node: &V, inner: &InnerScope, earlier: &[Bound]) -> bool {
+    let found = visit_expressions(node, |expr| {
+        let outer = match expr {
+            Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
+                let qualifier = normalize(&parts[parts.len() - 2]);
+                !inner.names.contains(&qualifier) && earlier.iter().any(|b| b.name.as_deref() == Some(&qualifier))
+            }
+            Expr::Identifier(ident) => {
+                let column = normalize(ident);
+                !inner.may_bind(&column)
+                    && earlier
+                        .iter()
+                        .any(|b| b.columns.as_ref().is_none_or(|columns| columns.contains(&column)))
+            }
+            _ => false,
+        };
+        if outer {
             ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
         }
-        _ => ControlFlow::Continue(()),
     });
     found.is_break()
+}
+
+/// The names a subquery binds within itself: its FROM items, CTEs and
+/// select-list aliases, at any depth.
+struct InnerScope {
+    names: HashSet<String>,
+    /// Columns of every inner FROM item; `None` once one is unknown.
+    columns: Option<HashSet<String>>,
+    aliases: HashSet<String>,
+}
+
+impl InnerScope {
+    /// The scope of a function call, which binds nothing.
+    fn empty() -> Self {
+        Self {
+            names: HashSet::new(),
+            columns: Some(HashSet::new()),
+            aliases: HashSet::new(),
+        }
+    }
+
+    fn of(query: &Query, catalog: &Catalog) -> Self {
+        let mut collector = InnerScopeCollector {
+            catalog,
+            scope: Self::empty(),
+        };
+        let _ = query.visit(&mut collector);
+        collector.scope
+    }
+
+    /// Whether an unqualified `column` may resolve within the subquery.
+    fn may_bind(&self, column: &str) -> bool {
+        self.aliases.contains(column) || self.columns.as_ref().is_none_or(|columns| columns.contains(column))
+    }
+}
+
+struct InnerScopeCollector<'a> {
+    catalog: &'a Catalog,
+    scope: InnerScope,
+}
+
+impl Visitor for InnerScopeCollector<'_> {
+    type Break = ();
+
+    fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<()> {
+        if let Some(with) = &query.with {
+            for cte in &with.cte_tables {
+                self.scope.names.insert(normalize(&cte.alias.name));
+            }
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<()> {
+        for item in &select.projection {
+            if let SelectItem::ExprWithAlias { alias, .. } = item {
+                self.scope.aliases.insert(normalize(alias));
+            }
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_table_factor(&mut self, factor: &TableFactor) -> ControlFlow<()> {
+        // A nested join's own items are visited after it.
+        if let TableFactor::NestedJoin { alias, .. } = factor {
+            if let Some(alias) = alias {
+                self.scope.names.insert(normalize(&alias.name));
+            }
+            return ControlFlow::Continue(());
+        }
+        let mut bound = Vec::new();
+        bind(factor, self.catalog, &mut bound);
+        for b in bound {
+            self.scope.names.extend(b.name);
+            match (b.columns, &mut self.scope.columns) {
+                (Some(columns), Some(all)) => all.extend(columns),
+                _ => self.scope.columns = None,
+            }
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+/// Push the FROM items `factor` makes visible to the items after it.
+fn bind(factor: &TableFactor, catalog: &Catalog, out: &mut Vec<Bound>) {
+    let (alias, columns) = match factor {
+        TableFactor::Table { name, alias, args, .. } => {
+            let table_columns = || match args {
+                None => catalog
+                    .get_table(&object_name(name)?)
+                    .map(|table| table.columns.iter().map(|c| c.name.clone()).collect()),
+                Some(_) => None,
+            };
+            let Some(alias) = alias else {
+                let name = name.0.last().and_then(|part| part.as_ident()).map(normalize);
+                out.push(Bound {
+                    name,
+                    columns: table_columns(),
+                });
+                return;
+            };
+            (alias, alias_columns(alias).or_else(table_columns))
+        }
+        TableFactor::Derived {
+            alias: Some(alias),
+            subquery,
+            ..
+        } => (alias, alias_columns(alias).or_else(|| output_names(subquery))),
+        TableFactor::NestedJoin {
+            alias: None,
+            table_with_joins,
+        } => {
+            let TableWithJoins { relation, joins } = table_with_joins.as_ref();
+            bind(relation, catalog, out);
+            for join in joins {
+                bind(&join.relation, catalog, out);
+            }
+            return;
+        }
+        TableFactor::Function { alias: Some(alias), .. }
+        | TableFactor::TableFunction { alias: Some(alias), .. }
+        | TableFactor::UNNEST { alias: Some(alias), .. }
+        | TableFactor::JsonTable { alias: Some(alias), .. }
+        | TableFactor::OpenJsonTable { alias: Some(alias), .. }
+        | TableFactor::XmlTable { alias: Some(alias), .. }
+        | TableFactor::NestedJoin { alias: Some(alias), .. } => (alias, alias_columns(alias)),
+        _ => {
+            out.push(Bound {
+                name: None,
+                columns: None,
+            });
+            return;
+        }
+    };
+    out.push(Bound {
+        name: Some(normalize(&alias.name)),
+        columns,
+    });
+}
+
+/// The column list of `AS t(a, b)`, if it has one.
+fn alias_columns(alias: &TableAlias) -> Option<Vec<String>> {
+    (!alias.columns.is_empty()).then(|| alias.columns.iter().map(|c| normalize(&c.name)).collect())
+}
+
+/// The output column names of a simple `SELECT` whose every item is a
+/// column or has an alias.
+fn output_names(query: &Query) -> Option<Vec<String>> {
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        return None;
+    };
+    select
+        .projection
+        .iter()
+        .map(|item| match item {
+            SelectItem::ExprWithAlias { alias, .. } => Some(normalize(alias)),
+            SelectItem::UnnamedExpr(Expr::Identifier(ident)) => Some(normalize(ident)),
+            SelectItem::UnnamedExpr(Expr::CompoundIdentifier(parts)) => parts.last().map(normalize),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `name` as the catalog keys it (`schema.table`), when every part is a
+/// plain identifier.
+fn object_name(name: &ObjectName) -> Option<String> {
+    let parts: Option<Vec<String>> = name.0.iter().map(|part| part.as_ident().map(normalize)).collect();
+    Some(parts?.join("."))
+}
+
+/// An identifier as PostgreSQL folds it: unquoted lowercased, quoted as is.
+fn normalize(ident: &Ident) -> String {
+    match ident.quote_style {
+        Some(_) => ident.value.clone(),
+        None => ident.value.to_lowercase(),
+    }
 }
 
 fn join_is_unconstrained(op: &JoinOperator) -> bool {
@@ -180,7 +376,7 @@ mod tests {
             aq.group_by = None;
             aq.custom = vec![];
         });
-        let catalog = Catalog::from_ddl(&[]).unwrap();
+        let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
         let annotations = Annotations {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -293,5 +489,94 @@ mod tests {
         let hits = hits_for("SELECT 1 FROM users a, orders b, unnest(a.tags) AS t(tag)");
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].bindings.get("msg").map(|s| s.as_str()), Some(MSG_COMMA_FROM));
+    }
+
+    const SCHEMA: &str = "CREATE TABLE users (id integer PRIMARY KEY, email text, team_id integer);
+         CREATE TABLE orders (id integer PRIMARY KEY, user_id integer, total integer);
+         CREATE TABLE posts (id integer PRIMARY KEY, tags text[], count integer, body xml);";
+
+    fn assert_unconstrained_join(sql: &str) {
+        let hits = hits_for(sql);
+        assert_eq!(hits.len(), 1, "{sql}: {hits:?}");
+        assert_eq!(
+            hits[0].bindings.get("msg").map(|s| s.as_str()),
+            Some(MSG_UNCONSTRAINED_JOIN),
+            "{sql}"
+        );
+    }
+
+    /// A function whose arguments reference nothing earlier returns the same
+    /// set for every row: joining it is a real cartesian product.
+    #[test]
+    fn fires_on_join_to_an_independent_set_returning_function() {
+        assert_unconstrained_join("SELECT u.id, n FROM users u CROSS JOIN generate_series(1, 1000000) AS g(n)");
+        assert_unconstrained_join("SELECT u.id FROM users u JOIN unnest(ARRAY[1, 2, 3]) AS t(x) ON true");
+        let hits = hits_for("SELECT u.id, n FROM users u, generate_series(1, 1000000) AS g(n)");
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!(hits[0].bindings.get("msg").map(|s| s.as_str()), Some(MSG_COMMA_FROM));
+    }
+
+    /// An unqualified column in a function's arguments can only come from an
+    /// earlier item.
+    #[test]
+    fn no_match_on_function_with_an_unqualified_earlier_column() {
+        for sql in [
+            "SELECT id, tag FROM posts CROSS JOIN unnest(tags) AS t(tag)",
+            "SELECT id, n FROM posts, generate_series(1, count) AS g(n)",
+        ] {
+            assert!(hits_for(sql).is_empty(), "{sql}: {:?}", hits_for(sql));
+        }
+    }
+
+    #[test]
+    fn xmltable_follows_the_same_rule() {
+        assert!(
+            hits_for("SELECT x.a FROM posts p CROSS JOIN XMLTABLE('/r' PASSING p.body COLUMNS a integer PATH 'a') x")
+                .is_empty()
+        );
+        assert_unconstrained_join(
+            "SELECT x.a FROM posts p CROSS JOIN XMLTABLE('/r' PASSING '<r><a>1</a></r>' COLUMNS a integer PATH 'a') x",
+        );
+    }
+
+    /// `team_id` is not a column of `orders`, so it resolves to `users`.
+    #[test]
+    fn no_match_on_lateral_subquery_with_an_unqualified_earlier_column() {
+        let sql = "SELECT u.id, o.total FROM users u CROSS JOIN LATERAL \
+                   (SELECT total FROM orders WHERE user_id = team_id LIMIT 1) o";
+        assert!(hits_for(sql).is_empty(), "{:?}", hits_for(sql));
+    }
+
+    /// `id` is a column of `orders` itself, so it does not reach `users`.
+    #[test]
+    fn fires_on_lateral_subquery_whose_unqualified_column_resolves_inside() {
+        assert_unconstrained_join(
+            "SELECT u.id, o.total FROM users u CROSS JOIN LATERAL (SELECT total FROM orders WHERE id = 1) o",
+        );
+        // A select-list alias is not an outer column either.
+        assert_unconstrained_join(
+            "SELECT u.id, o.n FROM users u CROSS JOIN LATERAL (SELECT count(*) AS team_id FROM orders ORDER BY team_id) o",
+        );
+    }
+
+    /// With no catalog entry for the inner item, an unqualified column may be
+    /// its own, so it is not taken as a reference.
+    #[test]
+    fn fires_on_lateral_subquery_over_an_item_with_unknown_columns() {
+        assert_unconstrained_join(
+            "SELECT u.id FROM users u CROSS JOIN LATERAL (SELECT 1 FROM (VALUES (1)) v WHERE team_id = 1) o",
+        );
+    }
+
+    /// The subquery's own `u` shadows the outer `u`.
+    #[test]
+    fn fires_on_lateral_subquery_whose_alias_shadows_an_earlier_item() {
+        assert_unconstrained_join("SELECT x.id FROM users u CROSS JOIN LATERAL (SELECT u.id FROM users u) x");
+    }
+
+    #[test]
+    fn items_inside_an_unaliased_nested_join_are_visible_later() {
+        let sql = "SELECT t.tag FROM (posts p JOIN users u ON u.id = p.id) CROSS JOIN unnest(p.tags) AS t(tag)";
+        assert!(hits_for(sql).is_empty(), "{:?}", hits_for(sql));
     }
 }
