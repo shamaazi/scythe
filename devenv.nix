@@ -136,6 +136,15 @@ in
         sh scripts/test-cluster-scope-gate.sh target/debug/sqlkit target/pg-parser-helpers 18
       '';
     };
+    # The live nullability conformance suite (crates/sqlkit-conformance): runs every
+    # testing_data/nullability_live fixture against devenv's PostgreSQL and checks the
+    # analyzer and generated code against what the database actually returns.
+    "sqlkit:conformance" = {
+      description = "Run the live nullability conformance suite against PostgreSQL";
+      after = [ "devenv:processes:postgres@ready" ];
+      env.SQLKIT_CONFORMANCE_POSTGRES_URL = databaseUrl;
+      exec = "cargo test --locked -p sqlkit-conformance --features pg,live-tests --test live -- --nocapture";
+    };
     "sqlkit:integration" = {
       description = "Run the PostgreSQL and Bun integration projects";
       after = [ "devenv:processes:postgres@ready" ];
