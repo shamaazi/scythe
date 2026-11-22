@@ -17,7 +17,6 @@ include = [
     "/src/**",
     "/manifests/**",
     "/generated-code-poly.toml",
-    "/tests/js_mode_stubs/**",
     "!/src/backends/sql_text_characterization_tests.rs",
 ]
 
@@ -27,8 +26,7 @@ include = [
 # the build as an error naming the feature to enable.
 default = ["all-languages"]
 all-languages = ["lang-rust", "lang-typescript"]
-# Languages: which backend modules are compiled. `lang-typescript` includes
-# the JavaScript variants of every TypeScript backend.
+# Languages: which backend modules are compiled.
 lang-rust = []
 lang-typescript = []
 

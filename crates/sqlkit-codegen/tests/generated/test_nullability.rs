@@ -42,7 +42,7 @@ fn test_avg_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -184,7 +184,7 @@ fn test_count_column_non_null() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -326,7 +326,7 @@ fn test_count_star_non_null() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -475,7 +475,7 @@ fn test_count_with_group_by() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -626,7 +626,7 @@ fn test_min_max_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -771,7 +771,7 @@ fn test_sum_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -917,7 +917,7 @@ fn test_case_guard_wrong_table_not_narrowed() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1062,7 +1062,7 @@ fn test_case_mixed_branches() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1207,7 +1207,7 @@ fn test_case_nullable_branch() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1352,7 +1352,7 @@ fn test_case_with_else() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1497,7 +1497,7 @@ fn test_case_without_else() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1646,7 +1646,7 @@ fn test_coalesce_in_where() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1799,7 +1799,7 @@ fn test_coalesce_nullable_with_default() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1945,7 +1945,7 @@ fn test_coalesce_two_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2095,7 +2095,7 @@ fn test_coalesce_with_literal_last() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2241,7 +2241,7 @@ fn test_nested_coalesce() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2403,7 +2403,7 @@ fn test_mixed_nullability() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2556,7 +2556,7 @@ fn test_not_null_columns() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2709,7 +2709,7 @@ fn test_nullable_column() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2869,7 +2869,7 @@ fn test_lag_lead_default_narrows_non_null() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -3029,7 +3029,7 @@ fn test_lag_lead_default_with_nullable_source_stays_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -3189,7 +3189,7 @@ fn test_lag_lead_ignore_nulls_bails_out_to_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -3349,7 +3349,7 @@ fn test_lag_lead_null_default_stays_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -3509,7 +3509,7 @@ fn test_lag_lead_without_default_stays_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -3681,7 +3681,7 @@ fn test_chained_left_joins() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -3836,7 +3836,7 @@ fn test_left_side_stays_non_null() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -4000,7 +4000,7 @@ fn test_right_side_multiple_cols() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -4149,7 +4149,7 @@ fn test_right_side_not_null_becomes_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -4303,7 +4303,7 @@ fn test_force_nonnull() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -4457,7 +4457,7 @@ fn test_force_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -4606,7 +4606,7 @@ fn test_left_side_becomes_nullable() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -4770,7 +4770,7 @@ fn test_left_side_multiple_cols() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {

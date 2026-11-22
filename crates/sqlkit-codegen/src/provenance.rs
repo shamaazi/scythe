@@ -35,7 +35,7 @@ use crate::backend_trait::CodegenBackend;
 pub const HEADER_SENTINEL: &str = "sqlkit:provenance";
 
 /// Line-comment token to embed the provenance header behind: `//`, which every
-/// target language (Rust, TypeScript, JavaScript) shares.
+/// target language (Rust, TypeScript) shares.
 pub fn comment_prefix(_language: &str) -> &'static str {
     "//"
 }

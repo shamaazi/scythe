@@ -191,8 +191,4 @@ fn schema_types_options_are_validated() {
         ("schema_types_import".to_string(), "@app/schema".to_string()),
     ]);
     assert!(backend.apply_options(&zod).is_err());
-
-    let mut backend = get_backend("javascript-bun").unwrap();
-    let js = HashMap::from([("schema_types_import".to_string(), "@app/schema".to_string())]);
-    assert!(backend.apply_options(&js).is_err());
 }

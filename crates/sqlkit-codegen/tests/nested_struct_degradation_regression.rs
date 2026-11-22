@@ -48,41 +48,29 @@ fn generate(backend_name: &str) -> Result<GeneratedCode, SqlkitError> {
 
 #[cfg(feature = "lang-typescript")]
 #[test]
-fn typescript_postgresql_backends_emit_native_nested_structs() {
-    for backend in ["typescript-postgres", "typescript-bun"] {
-        let code = generate(backend).expect("TypeScript nested JSON codegen must succeed");
-        assert!(
-            code.degraded_nested_structs.is_empty(),
-            "{backend} must preserve nested JSON structure: {:?}",
-            code.degraded_nested_structs
-        );
-        assert_eq!(
-            code.nested_struct_defs.len(),
-            1,
-            "{backend} must emit one nested interface"
-        );
-        assert!(
-            code.nested_struct_defs[0].code.contains("status: OrderStatus;"),
-            "{backend} must preserve an enum inside the JSON object"
-        );
-        assert!(
-            code.row_struct
-                .as_deref()
-                .is_some_and(|row| row.contains("orders: Array<GetUserOrdersRowOrders> | null;")),
-            "{backend} must use Array<T> around the nested interface"
-        );
-    }
-}
-
-#[cfg(feature = "lang-typescript")]
-#[test]
-fn javascript_aliases_keep_the_plain_json_fallback() {
-    for backend in ["javascript-postgres", "javascript-bun"] {
-        let code = generate(backend).expect("JavaScript fallback codegen must succeed");
-        assert_eq!(code.degraded_nested_structs.len(), 1);
-        assert_eq!(code.degraded_nested_structs[0].fallback_type, "json_array");
-        assert!(code.nested_struct_defs.is_empty());
-    }
+fn typescript_emits_native_nested_structs() {
+    let backend = "typescript-bun";
+    let code = generate(backend).expect("TypeScript nested JSON codegen must succeed");
+    assert!(
+        code.degraded_nested_structs.is_empty(),
+        "{backend} must preserve nested JSON structure: {:?}",
+        code.degraded_nested_structs
+    );
+    assert_eq!(
+        code.nested_struct_defs.len(),
+        1,
+        "{backend} must emit one nested interface"
+    );
+    assert!(
+        code.nested_struct_defs[0].code.contains("status: OrderStatus;"),
+        "{backend} must preserve an enum inside the JSON object"
+    );
+    assert!(
+        code.row_struct
+            .as_deref()
+            .is_some_and(|row| row.contains("orders: Array<GetUserOrdersRowOrders> | null;")),
+        "{backend} must use Array<T> around the nested interface"
+    );
 }
 
 #[cfg(feature = "lang-typescript")]
@@ -96,16 +84,15 @@ fn unsupported_future_json_field_degrades_the_entire_nested_struct() {
             nullable: false,
         }],
     };
-    for backend_name in ["typescript-postgres", "typescript-bun"] {
-        let backend = get_backend(backend_name).expect("backend must support PostgreSQL");
-        assert!(
-            backend
-                .generate_nested_struct_def(&nested)
-                .expect("unsupported nested field must not be a hard error")
-                .is_none(),
-            "{backend_name} must request deterministic plain-JSON degradation"
-        );
-    }
+    let backend_name = "typescript-bun";
+    let backend = get_backend(backend_name).expect("backend must support PostgreSQL");
+    assert!(
+        backend
+            .generate_nested_struct_def(&nested)
+            .expect("unsupported nested field must not be a hard error")
+            .is_none(),
+        "{backend_name} must request deterministic plain-JSON degradation"
+    );
 }
 
 /// `rust-sqlx` implements `generate_nested_struct_def`, so nothing here was

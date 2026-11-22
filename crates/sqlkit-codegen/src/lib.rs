@@ -2253,14 +2253,7 @@ mod tests {
 
     /// Every backend `get_backend` recognizes, keyed by its canonical
     /// (first-listed) name in `backends::get_backend`'s match arms.
-    const ALL_BACKEND_NAMES: &[&str] = &[
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "typescript-postgres",
-        "javascript-postgres",
-        "typescript-bun",
-        "javascript-bun",
-    ];
+    const ALL_BACKEND_NAMES: &[&str] = &["rust-sqlx", "rust-tokio-postgres", "typescript-bun"];
 
     /// `None` when the backend was left out of this build by its Cargo features.
     fn backend_for_select_star(name: &str) -> Option<Box<dyn CodegenBackend>> {
@@ -2330,39 +2323,9 @@ mod tests {
     /// It is now empty.
     const KNOWN_DIVERGENT_BACKENDS: &[BackendNote] = &[];
 
-    /// Backends this check cannot render a verdict on at all -- distinct
-    /// from [`KNOWN_DIVERGENT_BACKENDS`], which lists backends the check
-    /// *did* run and found broken. The `javascript-*` backends type
-    /// their generated functions entirely through JSDoc comments (see
-    /// `generate_js_typedef_row_struct` / the `js_mode` branches in
-    /// `backends/typescript_*.rs`): both the struct name they declare and
-    /// the one they reference live only inside comment text, which
-    /// [`strip_comments`] deliberately removes before matching (see its own
-    /// doc comment for why -- otherwise unrelated prose like "Fetch all User
-    /// rows" reads as a match). After stripping there is no runtime
-    /// identifier left to check either way, so this check always reports
-    /// both sides as absent regardless of whether the row_suffix bug is
-    /// fixed. Excluding these from the pass/fail logic entirely, but
-    /// listing them here by name and reason, is what keeps that exclusion
-    /// visible instead of reading as a quiet, unexplained pass -- the same
-    /// defect shape (a skip that looks like a pass) this whole effort exists
-    /// to catch.
-    const NOT_APPLICABLE_BACKENDS: &[BackendNote] = &[
-        BackendNote {
-            backend: "javascript-postgres",
-            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
-                      the check to find once comments are stripped",
-        },
-        BackendNote {
-            backend: "javascript-bun",
-            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
-                      the check to find once comments are stripped",
-        },
-    ];
-
     /// Ratcheting guard for #164: `SELECT *` must declare and reference the
     /// same struct name. Every backend not in [`KNOWN_DIVERGENT_BACKENDS`]
-    /// or [`NOT_APPLICABLE_BACKENDS`] must agree; every backend in
+    /// must agree; every backend in
     /// `KNOWN_DIVERGENT_BACKENDS` must currently disagree (a stale entry
     /// fails the test exactly as loudly as a regression does -- see that
     /// const's doc comment). This makes the list impossible to forget about:
@@ -2373,14 +2336,8 @@ mod tests {
 
         let mut regressions = Vec::new();
         let mut stale_entries = Vec::new();
-        let mut seen_not_applicable: Vec<&str> = Vec::new();
 
         for &name in ALL_BACKEND_NAMES {
-            if let Some(note) = NOT_APPLICABLE_BACKENDS.iter().find(|n| n.backend == name) {
-                seen_not_applicable.push(note.backend);
-                continue;
-            }
-
             let Some(backend) = backend_for_select_star(name) else {
                 continue;
             };
@@ -2410,17 +2367,6 @@ mod tests {
             }
         }
 
-        // NOT_APPLICABLE_BACKENDS naming a backend ALL_BACKEND_NAMES doesn't
-        // know about would silently exclude nothing (the `if let` above
-        // never matches it) -- catch that the same way a stale
-        // KNOWN_DIVERGENT_BACKENDS entry is caught, rather than let the
-        // exclusion quietly fail to apply.
-        let unknown_not_applicable: Vec<&str> = NOT_APPLICABLE_BACKENDS
-            .iter()
-            .map(|n| n.backend)
-            .filter(|b| !seen_not_applicable.contains(b))
-            .collect();
-
         let mut failures = Vec::new();
         for name in &regressions {
             let reason = "diverges on SELECT * struct naming and is not in KNOWN_DIVERGENT_BACKENDS";
@@ -2431,11 +2377,6 @@ mod tests {
         for name in &stale_entries {
             failures.push(format!(
                 "STALE ALLOWLIST: {name}: listed in KNOWN_DIVERGENT_BACKENDS but now agrees -- delete its entry"
-            ));
-        }
-        for name in &unknown_not_applicable {
-            failures.push(format!(
-                "STALE ALLOWLIST: {name}: listed in NOT_APPLICABLE_BACKENDS but is not in ALL_BACKEND_NAMES"
             ));
         }
 

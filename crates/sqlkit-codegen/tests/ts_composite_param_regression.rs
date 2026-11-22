@@ -1,11 +1,10 @@
-//! Regression tests for board #179: `typescript-postgres`/`javascript-postgres`
-//! could not bind a composite-typed parameter.
+//! Regression tests for board #179: the TypeScript backend could not bind a composite-typed parameter.
 //!
 //! Root cause chain: a query parameter whose neutral type is `composite::{name}`
 //! reached `generate_query_fn`'s placeholder rewrite
-//! (`crates/sqlkit-codegen/src/backends/typescript_postgres.rs`), which used to
+//! (`crates/sqlkit-codegen/src/backends/typescript_bun.rs`), which used to
 //! splice every parameter the same way -- `${field_name}` -- straight into the
-//! postgres.js tagged template. postgres.js's `sql` tag only binds values it has
+//! tagged template. The `sql` tag only binds values it has
 //! a serializer for (scalars, arrays, `sql.json`, ...); a plain object typed as
 //! a Postgres composite is not one of them, so `tsc` rejected the argument as
 //! not assignable to `ParameterOrFragment<never>` (TS2345), cascading into a
@@ -14,10 +13,10 @@
 //!
 //! The fix builds a Postgres row-constructor literal instead of binding the
 //! whole object: `ROW(${value.field1}, ${value.field2})::composite_name`, one
-//! `${}` binding per *scalar* field (each of which postgres.js already knows
+//! `${}` binding per *scalar* field (each of which the driver already knows
 //! how to serialize), with `ROW(`, the separators, and `)::composite_name`
 //! spliced in as literal SQL text around them -- see `pg_composite_bind_expr`
-//! and `pg_bind_expr` in `typescript_postgres.rs`.
+//! and `pg_bind_expr` in `typescript_bun.rs`.
 
 #![cfg(feature = "lang-typescript")]
 
@@ -72,12 +71,12 @@ fn composite_param_query() -> AnalyzedQuery {
 
 const EXPECTED_ROW_LITERAL: &str = "ROW(${home_address.street}, ${home_address.zipCode})::address";
 
-/// The regression itself: `typescript-postgres` must bind the composite
+/// The regression itself: `typescript-bun` must bind the composite
 /// through a row-constructor literal, one `${}` per scalar field, never the
 /// whole object as a single binding.
 #[test]
-fn typescript_postgres_binds_a_composite_param_as_a_row_constructor() {
-    let backend = get_backend("typescript-postgres").expect("typescript-postgres supports postgresql");
+fn typescript_binds_a_composite_param_as_a_row_constructor() {
+    let backend = get_backend("typescript-bun").expect("typescript-bun must construct");
     let query = composite_param_query();
     let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite param");
     let query_fn = result.query_fn.expect("Exec command must produce a query fn");
@@ -88,27 +87,8 @@ fn typescript_postgres_binds_a_composite_param_as_a_row_constructor() {
     );
     assert!(
         !query_fn.contains("${home_address}"),
-        "must not bind the whole composite object as a single postgres.js parameter -- that is \
+        "must not bind the whole composite object as a single driver parameter -- that is \
          exactly #179 (TS2345, not assignable to ParameterOrFragment<never>); got:\n{query_fn}"
-    );
-}
-
-/// Same fix, `javascript-postgres` (js_mode) side: the JSDoc-typed query
-/// functions go through the identical placeholder rewrite.
-#[test]
-fn javascript_postgres_binds_a_composite_param_as_a_row_constructor() {
-    let backend = get_backend("javascript-postgres").expect("javascript-postgres supports postgresql");
-    let query = composite_param_query();
-    let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite param");
-    let query_fn = result.query_fn.expect("Exec command must produce a query fn");
-
-    assert!(
-        query_fn.contains(EXPECTED_ROW_LITERAL),
-        "expected the row-constructor literal `{EXPECTED_ROW_LITERAL}`; got:\n{query_fn}"
-    );
-    assert!(
-        !query_fn.contains("${home_address}"),
-        "must not bind the whole composite object as a single postgres.js parameter; got:\n{query_fn}"
     );
 }
 
@@ -116,8 +96,8 @@ fn javascript_postgres_binds_a_composite_param_as_a_row_constructor() {
 /// as a whole (`${item}` today) -- the same defect one level up, since the
 /// composite is now the entire batch item rather than one field of it.
 #[test]
-fn typescript_postgres_binds_a_single_composite_batch_item_as_a_row_constructor() {
-    let backend = get_backend("typescript-postgres").expect("typescript-postgres supports postgresql");
+fn typescript_binds_a_single_composite_batch_item_as_a_row_constructor() {
+    let backend = get_backend("typescript-bun").expect("typescript-bun must construct");
     let mut query = composite_param_query();
     query.command = QueryCommand::Batch;
     let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite batch item");
@@ -130,7 +110,7 @@ fn typescript_postgres_binds_a_single_composite_batch_item_as_a_row_constructor(
     );
     assert!(
         !query_fn.contains("${item}"),
-        "must not bind the whole composite item as a single postgres.js parameter -- the pre-fix \
+        "must not bind the whole composite item as a single driver parameter -- the pre-fix \
          `${{item}}` binding; got:\n{query_fn}"
     );
 }
@@ -139,8 +119,8 @@ fn typescript_postgres_binds_a_single_composite_batch_item_as_a_row_constructor(
 /// the multi-parameter batch path (`batch_item_sql`), which reads each
 /// field off `item.<field>` rather than the bare parameter name.
 #[test]
-fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
-    let backend = get_backend("typescript-postgres").expect("typescript-postgres supports postgresql");
+fn typescript_binds_a_composite_field_in_a_multi_param_batch_item() {
+    let backend = get_backend("typescript-bun").expect("typescript-bun must construct");
     let mut query = composite_param_query();
     query.command = QueryCommand::Batch;
     query.sql = "INSERT INTO widgets (kind, home_address) VALUES ($1, $2)".to_string();
@@ -175,7 +155,7 @@ fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
     );
     assert!(
         !query_fn.contains("${item.home_address}"),
-        "must not bind the whole composite field as a single postgres.js parameter; got:\n{query_fn}"
+        "must not bind the whole composite field as a single driver parameter; got:\n{query_fn}"
     );
 }
 
@@ -213,7 +193,7 @@ fn analyzer_populates_composites_for_a_param_only_composite() {
         analyzed.composites
     );
 
-    let backend = get_backend("typescript-postgres").expect("typescript-postgres supports postgresql");
+    let backend = get_backend("typescript-bun").expect("typescript-bun must construct");
     let result = generate_with_backend(&analyzed, &*backend).expect("codegen must not fail on a composite param");
     let query_fn = result
         .query_fn
@@ -226,7 +206,7 @@ fn analyzer_populates_composites_for_a_param_only_composite() {
     );
     assert!(
         !query_fn.contains("${home_address}"),
-        "must not bind the whole composite object as a single postgres.js parameter -- that is \
+        "must not bind the whole composite object as a single driver parameter -- that is \
          the #225 fallback firing because analyzed.composites was empty; got:\n{query_fn}"
     );
 }

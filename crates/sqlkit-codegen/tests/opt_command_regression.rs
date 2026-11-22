@@ -67,14 +67,7 @@ fn query_fn_for(backend_name: &str, command: QueryCommand) -> String {
 /// primary (non-alias) name, mirroring `sqlkit_codegen::lib::tests::
 /// ALL_BACKEND_NAMES` (an independent copy, since that list lives
 /// in a private `#[cfg(test)] mod tests`).
-const ALL_BACKEND_NAMES: &[&str] = &[
-    "rust-sqlx",
-    "rust-tokio-postgres",
-    "typescript-postgres",
-    "javascript-postgres",
-    "typescript-bun",
-    "javascript-bun",
-];
+const ALL_BACKEND_NAMES: &[&str] = &["rust-sqlx", "rust-tokio-postgres", "typescript-bun"];
 
 /// One entry in [`KNOWN_UNDIFFERENTIATED_BACKENDS`]: a backend name paired
 /// with why its `:one` and `:opt` output is currently identical, so the list

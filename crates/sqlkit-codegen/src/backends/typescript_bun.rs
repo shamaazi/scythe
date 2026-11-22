@@ -12,94 +12,22 @@ use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsFieldCase, TsParamStyle, TsQueryParams, TsRowShape, TsRowType, TsValidation, escape_ts_template_literal,
-    generate_grouped_interface_structs, generate_js_grouped_typedef_structs, generate_js_typedef,
-    generate_js_typedef_row_struct, generate_jsdoc_fn_header, generate_ts_grouped_fold_body,
-    generate_ts_interface_row_struct, generate_ts_json_composite_interface, generate_ts_many_row_remap,
-    generate_ts_nested_interface, generate_ts_one_row_remap, generate_ts_schema_types, generate_ts_union_row_struct,
-    generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct,
-    js_fn_signature_line, js_type_cast, parse_bool_option, ts_column_type, ts_column_types_import,
-    ts_column_types_option, ts_constrained_type, ts_index_access, ts_inexpressible_rules, ts_member_access,
-    ts_own_type, ts_property_key, ts_query_doc, ts_row_not_found_throw, ts_schema_type, ts_schema_types_import,
-    ts_schema_types_options, ts_with_own_type,
+    generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
+    generate_ts_json_composite_interface, generate_ts_many_row_remap, generate_ts_nested_interface,
+    generate_ts_one_row_remap, generate_ts_schema_types, generate_ts_union_row_struct, generate_zod_enum,
+    generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
+    ts_column_type, ts_column_types_import, ts_column_types_option, ts_constrained_type, ts_index_access,
+    ts_inexpressible_rules, ts_member_access, ts_own_type, ts_property_key, ts_query_doc, ts_row_not_found_throw,
+    ts_schema_type, ts_schema_types_import, ts_schema_types_options, ts_with_own_type,
 };
 use crate::constraints::ConstraintPolicy;
 use sqlkit_core::constraints::{Rules, ValueConstraints};
 
-const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
-const BUN_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-bun.toml");
+const MANIFEST_TOML: &str = include_str!("../../manifests/typescript-bun.toml");
 
 /// The JSON value alias the Bun header declares: what Bun's adapter parses a
 /// `json`/`jsonb` column into, and what `sql.json(...)` accepts back.
 const BUN_JSON_VALUE_TS: &str = "type SqlJsonValue = null | string | number | boolean | readonly SqlJsonValue[] | { readonly [key: string]: undefined | SqlJsonValue };\n";
-const BUN_JSON_VALUE_JS: &str = "/** @typedef {null | string | number | boolean | readonly SqlJsonValue[] | {[key: string]: undefined | SqlJsonValue}} SqlJsonValue */\n";
-
-/// The client a generated module drives through PostgreSQL's tagged-template
-/// query API.
-///
-/// Bun's built-in `SQL` client copies postgres.js's surface -- `` sql`...${v}` ``
-/// binds `v` as a parameter, `sql.json`, `sql.begin`, `result.count`, nested
-/// `` sql`...` `` fragments -- so both share this backend. What differs is the
-/// handle type, the manifest (Bun returns `int8` as a string and `date` as a
-/// `Date`), how a few parameter kinds must be wrapped, and how `:batch` opens
-/// its transaction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TemplateDriver {
-    /// postgres.js (`import type { Sql } from "postgres"`).
-    PostgresJs,
-    /// Bun's built-in client (`import type { SQL } from "bun"`).
-    Bun,
-}
-
-impl TemplateDriver {
-    /// The handle's type in a TypeScript signature.
-    fn ts_handle_type(self) -> &'static str {
-        match self {
-            Self::PostgresJs => "Sql",
-            Self::Bun => "SQL",
-        }
-    }
-
-    /// What a `:many` function returns from the driver's `rows`. Bun's result array carries
-    /// `count` and `command`; a plain copy is what callers pass on and compare like any other.
-    fn many_rows(self) -> &'static str {
-        match self {
-            Self::PostgresJs => "rows",
-            Self::Bun => "[...rows]",
-        }
-    }
-
-    /// The handle's type in a JSDoc `@param` tag.
-    fn js_handle_type(self) -> &'static str {
-        match self {
-            Self::PostgresJs => "import(\"postgres\").Sql",
-            Self::Bun => "import(\"bun\").SQL",
-        }
-    }
-
-    /// The registry name of the TypeScript emit mode.
-    fn ts_name(self) -> &'static str {
-        match self {
-            Self::PostgresJs => "typescript-postgres",
-            Self::Bun => "typescript-bun",
-        }
-    }
-
-    /// The registry name of the JSDoc emit mode.
-    fn js_name(self) -> &'static str {
-        match self {
-            Self::PostgresJs => "javascript-postgres",
-            Self::Bun => "javascript-bun",
-        }
-    }
-
-    /// How the driver names itself in generated comments.
-    fn label(self) -> &'static str {
-        match self {
-            Self::PostgresJs => "postgres.js",
-            Self::Bun => "Bun SQL",
-        }
-    }
-}
 
 /// Bun reads an `integer[]` or `real[]` column in binary as an `Int32Array` /
 /// `Float32Array` -- unless the array holds a `NULL` or has more than one
@@ -187,14 +115,10 @@ fn bun_params(params: &[ResolvedParam]) -> std::borrow::Cow<'_, [ResolvedParam]>
     std::borrow::Cow::Owned(widened)
 }
 
-/// Board #204: postgres.js registers no parser for a user-defined composite type either
-/// (verified by reading the vendored driver's own source -- `postgres/src/types.js` has no
-/// `record`/`typtype`/composite handling at all, not from memory), so a composite column
-/// arrives as PostgreSQL's raw composite *text form* (`"(a,b,c)"`), a plain `string` -- not the
-/// generated `interface`. See `typescript_pg.rs`'s identical fix (`ts_parse_composite_fields_helper`
-/// and friends) for the full rationale and the escaping rules; this is that same fix targeting
-/// postgres.js's bracket-access row shape (`row['field']`, via `ts_index_access`) instead of
-/// `pg`'s dot access.
+/// Board #204: Bun SQL registers no parser for a user-defined composite type, so a
+/// composite column arrives as PostgreSQL's raw composite *text form* (`"(a,b,c)"`), a plain
+/// `string` -- not the generated `interface`. These helpers parse that text form, reading rows
+/// through bracket access (`row['field']`, via `ts_index_access`).
 fn ts_parse_composite_fields_helper(name: &str) -> String {
     format!(
         "function parse{name}Fields(text: string): (string | null)[] {{\n\
@@ -306,7 +230,7 @@ fn ts_composite_field_from_text(
         format!("{raw} as {field_type}")
     } else {
         // ~keep The manifest decides the declared type: Bun declares `int64` as
-        // `string` and `date` as `Date`, postgres.js the other way round.
+        // `string` and `date` as `Date`.
         match neutral_type {
             "bool" => format!("{raw} === \"t\""),
             "int16" | "int32" | "int64" | "float32" | "float64" if field_type == "number" => format!("Number({raw})"),
@@ -327,7 +251,7 @@ fn ts_composite_field_from_text(
 /// The `field: value` overrides a composite-column read path must splice into an otherwise
 /// spread-through row object, for every `composite::` column in `columns`. Empty when the
 /// query selects no composite column, so a caller can skip the spread rewrite entirely in the
-/// common case. Uses `ts_index_access` (`row['field']`), postgres.js's row shape.
+/// common case. Uses `ts_index_access` (`row['field']`).
 fn ts_composite_field_overrides(columns: &[ResolvedColumn], var: &str) -> Vec<(String, String)> {
     columns
         .iter()
@@ -360,7 +284,7 @@ fn ts_composite_aware_row_access(columns: &[ResolvedColumn]) -> impl Fn(&str, &s
 }
 
 /// Rewrite the `$N` placeholders of an escaped `:batch` statement into
-/// postgres.js `${item.field}` interpolations.
+/// `${item.field}` interpolations.
 ///
 /// `sql` must already have been through [`escape_ts_template_literal`], and
 /// `param_map` maps a 1-based placeholder position to the batch item's
@@ -372,11 +296,10 @@ fn ts_composite_aware_row_access(columns: &[ResolvedColumn]) -> impl Fn(&str, &s
 /// (#219). It previously ran `sql.replace("$1", "${item.a}")` over the raw
 /// text, which does not know what a SQL string literal is: given
 /// `VALUES ($1, 'lit $1 end')` it rewrote *both* occurrences, so the inert
-/// text inside the literal became a second live postgres.js binding. That
+/// text inside the literal became a second live binding. That
 /// silently changes what the statement inserts -- and, unlike a syntax
 /// error, nothing downstream notices.
 fn batch_item_sql(
-    driver: TemplateDriver,
     sql: &str,
     param_map: &std::collections::HashMap<u32, &ResolvedParam>,
     composites: &[CompositeInfo],
@@ -386,7 +309,7 @@ fn batch_item_sql(
             || "${item.?}".to_string(),
             |rp| {
                 let access = ts_member_access("item", &rp.field_name);
-                pg_bind_expr(driver, &access, &rp.neutral_type, rp.nullable, composites)
+                pg_bind_expr(&access, &rp.neutral_type, rp.nullable, composites)
             },
         )
     })
@@ -407,51 +330,38 @@ fn batch_item_sql(
 /// from the escaped-but-not-yet-placeholder-rewritten SQL, through the same
 /// span-aware [`super::rewrite_pg_placeholders`] the multi-parameter branch
 /// uses, closes that gap the same way #219 closed it there.
-fn batch_item_sql_single(
-    driver: TemplateDriver,
-    sql: &str,
-    param: &ResolvedParam,
-    composites: &[CompositeInfo],
-) -> String {
+fn batch_item_sql_single(sql: &str, param: &ResolvedParam, composites: &[CompositeInfo]) -> String {
     super::rewrite_pg_placeholders(sql, |_| {
-        pg_bind_expr(driver, "item", &param.neutral_type, param.nullable, composites)
+        pg_bind_expr("item", &param.neutral_type, param.nullable, composites)
     })
 }
 
-/// Render the postgres.js binding text for a parameter read through
+/// Render the binding text for a parameter read through
 /// `access_expr` (a TS/JS expression, e.g. a field name or `item.field`).
 ///
 /// Delegates to [`pg_composite_bind_expr`] when `neutral_type` is a
 /// composite; every other type keeps the plain `${access_expr}`
 /// substitution every param used before #179.
 ///
-/// Bun needs three further wrappers, each guarded so a `null` stays SQL
-/// `NULL` (`sql.json(null)` is the JSON value `null`, and `sql.array(null)`
-/// is not an array):
-/// - `json` goes through `sql.json`, as on postgres.js: a bare JS string or
-///   number would otherwise bind as itself, not as JSON.
+/// Three types need a wrapper, each guarded so a `null` stays SQL `NULL`
+/// (`sql.json(null)` is the JSON value `null`, and `sql.array(null)` is not
+/// an array):
+/// - `json` goes through `sql.json`: a bare JS string or number would
+///   otherwise bind as itself, not as JSON.
 /// - an array of an enum goes through `sql.array`: Bun binds a JS array as an
 ///   array literal only when it knows the parameter is an array, and it
 ///   cannot tell that of a user-defined type's array.
 /// - an array of `json` goes through `sql.array(..., "JSONB")`, so each
 ///   element is encoded as JSON rather than stringified.
-fn pg_bind_expr(
-    driver: TemplateDriver,
-    access_expr: &str,
-    neutral_type: &str,
-    nullable: bool,
-    composites: &[CompositeInfo],
-) -> String {
+fn pg_bind_expr(access_expr: &str, neutral_type: &str, nullable: bool, composites: &[CompositeInfo]) -> String {
     if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
-        return pg_composite_bind_expr(driver, access_expr, sql_name, composites);
+        return pg_composite_bind_expr(access_expr, sql_name, composites);
     }
-    let wrapped = match driver {
-        TemplateDriver::PostgresJs if neutral_type == "json" => return format!("${{sql.json({access_expr})}}"),
-        TemplateDriver::PostgresJs => return format!("${{{access_expr}}}"),
-        TemplateDriver::Bun if neutral_type == "json" => format!("sql.json({access_expr})"),
-        TemplateDriver::Bun if neutral_type == "array<json>" => format!("sql.array({access_expr}, \"JSONB\")"),
-        TemplateDriver::Bun if neutral_type.starts_with("array<enum::") => format!("sql.array({access_expr})"),
-        TemplateDriver::Bun => return format!("${{{access_expr}}}"),
+    let wrapped = match neutral_type {
+        "json" => format!("sql.json({access_expr})"),
+        "array<json>" => format!("sql.array({access_expr}, \"JSONB\")"),
+        _ if neutral_type.starts_with("array<enum::") => format!("sql.array({access_expr})"),
+        _ => return format!("${{{access_expr}}}"),
     };
     if nullable {
         format!("${{{access_expr} === null ? null : {wrapped}}}")
@@ -460,20 +370,17 @@ fn pg_bind_expr(
     }
 }
 
-/// Render `access_expr` (a TS/JS expression reading a whole composite
-/// value) as postgres.js binding text for the Postgres composite type
-/// `sql_name`.
+/// Render `access_expr` (a TypeScript expression reading a whole composite
+/// value) as binding text for the Postgres composite type `sql_name`.
 ///
-/// (#179) postgres.js's tagged-template `${}` binds one scalar/array/json
-/// value at a time; its type declarations reject a plain object typed as a
-/// Postgres composite (`ParameterOrFragment<never>`, a TS2345 the caller
-/// cannot work around), and it has no runtime serializer that could accept
-/// one either -- unlike scalars, a composite has no fixed OID postgres.js
-/// could dispatch a serializer on without a live catalog lookup, which
-/// codegen has no access to. Postgres itself accepts a composite value
+/// (#179) The tagged-template `${}` binds one scalar/array/json value at a
+/// time, and the driver has no runtime serializer for a composite -- unlike
+/// scalars, a composite has no fixed OID the driver could dispatch a
+/// serializer on without a live catalog lookup, which codegen has no access
+/// to. Postgres itself accepts a composite value
 /// spelled as a row constructor cast to the type name (`ROW(a, b)::address`),
 /// built here from one `${}` binding per scalar field -- each field is a
-/// value postgres.js already knows how to bind, so the composite as a whole
+/// value the driver already knows how to bind, so the composite as a whole
 /// never has to be. `ROW(`, the field separators, and `)::sql_name` are
 /// literal SQL text spliced around those per-field bindings; they do not
 /// themselves flow through `${}`.
@@ -484,12 +391,7 @@ fn pg_bind_expr(
 /// query's params and columns reference) falls back to binding the whole
 /// object directly: that fails exactly the way every composite param failed
 /// before this fix, not worse.
-fn pg_composite_bind_expr(
-    driver: TemplateDriver,
-    access_expr: &str,
-    sql_name: &str,
-    composites: &[CompositeInfo],
-) -> String {
+fn pg_composite_bind_expr(access_expr: &str, sql_name: &str, composites: &[CompositeInfo]) -> String {
     let Some(info) = composites.iter().find(|c| c.sql_name == sql_name) else {
         return format!("${{{access_expr}}}");
     };
@@ -498,14 +400,14 @@ fn pg_composite_bind_expr(
         .iter()
         .map(|field| {
             let field_access = ts_member_access(access_expr, &to_camel_case(&field.name));
-            pg_bind_expr(driver, &field_access, &field.neutral_type, field.nullable, composites)
+            pg_bind_expr(&field_access, &field.neutral_type, field.nullable, composites)
         })
         .collect();
     let row = format!("ROW({})::{sql_name}", fields.join(", "));
     format!("${{{access_expr} === null ? sql`NULL::{sql_name}` : sql`{row}`}}")
 }
 
-pub struct TypescriptPostgresBackend {
+pub struct TypescriptBunBackend {
     manifest: BackendManifest,
     row_type: TsRowType,
     /// Emit outer-join nullability as a discriminated union instead of
@@ -528,8 +430,8 @@ pub struct TypescriptPostgresBackend {
     /// [`TsValidation`] -- and how one they cannot carry is reported.
     validation: TsValidation,
     constraint_policy: ConstraintPolicy,
-    /// `row_keys = "driver"`: the client already returns keys in `field_case`, as postgres.js
-    /// with `transform: postgres.camel` or Bun with `transform: SQL.camel` does, so rows keep
+    /// `row_keys = "driver"`: the client already returns keys in `field_case`, as Bun with
+    /// `transform: SQL.camel` does, so rows keep
     /// the `sql<StructName[]>` generic instead of being rebuilt field by field. `false`
     /// (`"remap"`, the default) rebuilds camelCase rows from raw snake_case keys.
     driver_keys: bool,
@@ -540,26 +442,14 @@ pub struct TypescriptPostgresBackend {
     /// (see [`crate::schema_types`]), which query modules import instead of
     /// declaring enums themselves and inlining a domain's base type.
     schema_types_import: Option<String>,
-    /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
-    /// `javascript-postgres` registry name (#81). See
-    /// `TypescriptPgBackend::js_mode` for the shared rationale, including why
-    /// `row_type = "zod"`, `outer_join_unions`, and `field_case =
-    /// "camelCase"` are rejected outright in this mode.
-    js_mode: bool,
-    /// Which tagged-template client the generated code drives: postgres.js
-    /// (`typescript-postgres`) or Bun's built-in `SQL` (`typescript-bun`).
-    driver: TemplateDriver,
 }
 
-impl TypescriptPostgresBackend {
+impl TypescriptBunBackend {
+    /// The `typescript-bun` backend: tagged-template code driving Bun's built-in
+    /// `SQL` client, with Bun's own type mappings.
     pub fn new() -> Result<Self, SqlkitError> {
-        let mut manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
-        manifest
-            .types
-            .scalars
-            .insert("json".to_string(), "PostgresJsonValue".to_string());
         Ok(Self {
-            manifest,
+            manifest: super::parse_manifest(MANIFEST_TOML)?,
             row_type: TsRowType::default(),
             outer_join_unions: false,
             structs_only: false,
@@ -570,49 +460,12 @@ impl TypescriptPostgresBackend {
             driver_keys: false,
             column_types: None,
             schema_types_import: None,
-            js_mode: false,
-            driver: TemplateDriver::PostgresJs,
         })
     }
 
     /// Whether camelCase rows are rebuilt from the driver's raw snake_case keys.
     fn remaps_rows(&self) -> bool {
         self.field_case == TsFieldCase::Camel && !self.driver_keys
-    }
-
-    /// As [`Self::new`], but selecting the `javascript-postgres` JSDoc emit mode.
-    pub fn new_js() -> Result<Self, SqlkitError> {
-        let mut backend = Self::new()?;
-        backend.js_mode = true;
-        Ok(backend)
-    }
-
-    /// The `typescript-bun` backend: the same tagged-template codegen, driving
-    /// Bun's built-in `SQL` client with Bun's own type mappings. PostgreSQL
-    /// only.
-    pub fn new_bun() -> Result<Self, SqlkitError> {
-        Ok(Self {
-            manifest: super::parse_manifest(BUN_MANIFEST_TOML)?,
-            row_type: TsRowType::default(),
-            outer_join_unions: false,
-            structs_only: false,
-            field_case: TsFieldCase::default(),
-            params_style: TsParamStyle::default(),
-            validation: TsValidation::default(),
-            constraint_policy: ConstraintPolicy::default(),
-            driver_keys: false,
-            column_types: None,
-            schema_types_import: None,
-            js_mode: false,
-            driver: TemplateDriver::Bun,
-        })
-    }
-
-    /// As [`Self::new_bun`], but selecting the `javascript-bun` JSDoc emit mode.
-    pub fn new_bun_js() -> Result<Self, SqlkitError> {
-        let mut backend = Self::new_bun()?;
-        backend.js_mode = true;
-        Ok(backend)
     }
 
     /// The TypeScript header for Bun: the handle import, plus the JSON alias
@@ -658,83 +511,33 @@ impl TypescriptPostgresBackend {
         self.bun_ts_header(needs_json_value, needs_transaction)
     }
 
-    /// The columns as this driver returns them -- see [`bun_columns`].
-    fn driver_columns<'a>(&self, columns: &'a [ResolvedColumn]) -> std::borrow::Cow<'a, [ResolvedColumn]> {
-        match self.driver {
-            TemplateDriver::PostgresJs => std::borrow::Cow::Borrowed(columns),
-            TemplateDriver::Bun => bun_columns(columns),
-        }
-    }
-
-    /// The parameters as this driver binds them -- see [`bun_params`].
-    fn driver_params<'a>(&self, params: &'a [ResolvedParam]) -> std::borrow::Cow<'a, [ResolvedParam]> {
-        match self.driver {
-            TemplateDriver::PostgresJs => std::borrow::Cow::Borrowed(params),
-            TemplateDriver::Bun => bun_params(params),
-        }
-    }
-
     /// Write a `:batch` function's body: run `statement` once per
     /// `loop_header` iteration inside one transaction, leaving the closing
     /// brace to the caller.
     ///
-    /// postgres.js opens it with `sql.begin`. Bun rejects `begin()` on a
-    /// transaction's own client (`ERR_POSTGRES_INVALID_TRANSACTION_STATE`),
-    /// and the handle may be one -- `TransactionSQL` extends `SQL` -- so Bun
-    /// nests the batch in a savepoint there instead. Only a transaction
+    /// Bun rejects `begin()` on a transaction's own client
+    /// (`ERR_POSTGRES_INVALID_TRANSACTION_STATE`), and the handle may be one --
+    /// `TransactionSQL` extends `SQL` -- so the batch nests in a savepoint
+    /// there instead. Only a transaction
     /// client has `savepoint`, which is what the `in` check reads.
     fn write_batch_body(&self, out: &mut String, loop_header: &str, statement: &str) {
-        if self.driver == TemplateDriver::PostgresJs {
-            let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
-            let _ = writeln!(out, "\t\t{loop_header} {{");
-            let _ = writeln!(out, "\t\t\tawait tx`");
-            let _ = writeln!(out, "    {statement}");
-            let _ = writeln!(out, "  `;");
-            let _ = writeln!(out, "\t\t}}");
-            let _ = writeln!(out, "\t}});");
-            return;
-        }
-        if self.js_mode {
-            let _ = writeln!(out, "\t/** @param {{{}}} tx */", self.driver.js_handle_type());
-            let _ = writeln!(out, "\tconst run = async (tx) => {{");
-        } else {
-            let _ = writeln!(out, "\tconst run = async (tx: SQL) => {{");
-        }
+        let _ = writeln!(out, "\tconst run = async (tx: SQL) => {{");
         let _ = writeln!(out, "\t\t{loop_header} {{");
         let _ = writeln!(out, "\t\t\tawait tx`");
         let _ = writeln!(out, "    {statement}");
         let _ = writeln!(out, "  `;");
         let _ = writeln!(out, "\t\t}}");
         let _ = writeln!(out, "\t}};");
-        let savepoint_client = if self.js_mode {
-            js_type_cast("import(\"bun\").TransactionSQL", "sql")
-        } else {
-            "(sql as TransactionSQL)".to_string()
-        };
         let _ = writeln!(
             out,
-            "\tawait (\"savepoint\" in sql ? {savepoint_client}.savepoint(run) : sql.begin(run));"
+            "\tawait (\"savepoint\" in sql ? (sql as TransactionSQL).savepoint(run) : sql.begin(run));"
         );
     }
 }
 
-impl CodegenBackend for TypescriptPostgresBackend {
+impl CodegenBackend for TypescriptBunBackend {
     fn name(&self) -> &str {
-        if self.js_mode {
-            self.driver.js_name()
-        } else {
-            self.driver.ts_name()
-        }
-    }
-
-    /// The manifest is shared with the TypeScript emit mode and says `ts`; JSDoc
-    /// output is plain JavaScript and must land in a `.js` file to be runnable.
-    fn output_extension(&self) -> &str {
-        if self.js_mode {
-            "js"
-        } else {
-            &self.manifest.backend.file_extension
-        }
+        "typescript-bun"
     }
 
     fn manifest(&self) -> &sqlkit_backend::manifest::BackendManifest {
@@ -777,7 +580,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
     }
 
     fn generate_schema_types(&self, types: &crate::schema_types::SchemaTypes) -> Option<Result<String, SqlkitError>> {
-        if self.js_mode || self.row_type == TsRowType::Zod {
+        if self.row_type == TsRowType::Zod {
             return None;
         }
         Some(generate_ts_schema_types(types, &self.manifest.naming, |enum_info| {
@@ -786,45 +589,15 @@ impl CodegenBackend for TypescriptPostgresBackend {
     }
 
     fn file_header(&self) -> String {
-        // ~keep See `TypescriptPgBackend::file_header` for why `.js` output needs
-        // no import at all: the driver type goes straight into the JSDoc
-        // `@param` tag as `import("postgres").Sql`, and Zod is rejected in
-        // this mode.
-        if self.driver == TemplateDriver::Bun {
-            if self.js_mode {
-                return BUN_JSON_VALUE_JS.to_string();
-            }
-            return self.bun_ts_header(true, false);
-        }
-        if self.js_mode {
-            // Nothing left for this header to carry: the "do not edit"
-            // notice lives in the sqlkit:provenance line every backend emits.
-            return "/** @typedef {null | string | number | boolean | Date | readonly PostgresJsonValue[] | {[key: string]: undefined | PostgresJsonValue}} PostgresJsonValue */\n".to_string();
-        }
-        if self.structs_only {
-            if self.row_type == TsRowType::Zod {
-                return "import { z } from \"zod\";\n".to_string();
-            }
-            return String::new();
-        }
-        let mut header = "type PostgresJsonValue = null | string | number | boolean | Date | readonly PostgresJsonValue[] | { readonly [key: string]: undefined | PostgresJsonValue };\nimport type { Sql } from \"postgres\";\n".to_string();
-        if self.row_type == TsRowType::Zod {
-            header.push_str("import { z } from \"zod\";\n");
-        }
-        header
+        self.bun_ts_header(true, false)
     }
 
-    /// Bun's TypeScript header declares `SqlJsonValue` and imports
-    /// `TransactionSQL` only when some generated fragment names them, so a
-    /// file without JSON columns or `:batch` queries carries no unused
-    /// binding. postgres.js keeps its unconditional header. Either imports the
+    /// The header declares `SqlJsonValue` and imports `TransactionSQL` only
+    /// when some generated fragment names them, so a file without JSON columns
+    /// or `:batch` queries carries no unused binding. It imports the
     /// `column_types` module's `Column` when a declaration names it.
     fn file_header_for_results(&self, generated: &[crate::GeneratedCode]) -> String {
-        let mut header = if self.driver != TemplateDriver::Bun || self.js_mode {
-            self.file_header()
-        } else {
-            self.bun_header_for_results(generated)
-        };
+        let mut header = self.bun_header_for_results(generated);
         header.push_str(&ts_column_types_import(self.column_types.as_deref(), generated));
         header.push_str(&ts_schema_types_import(self.schema_types_import.as_deref(), generated));
         header
@@ -836,11 +609,8 @@ impl CodegenBackend for TypescriptPostgresBackend {
         query_name: &str,
         columns: &[ResolvedColumn],
     ) -> Result<String, SqlkitError> {
-        let columns = self.driver_columns(columns);
+        let columns = bun_columns(columns);
         let columns = &*columns;
-        if self.js_mode {
-            return Ok(generate_js_typedef_row_struct(struct_name, query_name, columns));
-        }
         if self.row_type == TsRowType::Zod {
             if self.outer_join_unions {
                 return Ok(generate_zod_union_row_struct(struct_name, query_name, columns));
@@ -860,24 +630,21 @@ impl CodegenBackend for TypescriptPostgresBackend {
         columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, SqlkitError> {
-        let params = self.driver_params(params);
+        let params = bun_params(params);
         let params = &*params;
-        if self.js_mode {
-            return self.generate_query_fn_js(analyzed, struct_name, params);
-        }
         let query_params = TsQueryParams::new(self.params_style, &analyzed.name, params, &self.manifest.naming);
         if self.structs_only {
             return Ok(query_params.declaration(&analyzed.name).trim_end().to_string());
         }
         let params = &query_params.params[..];
-        let columns = self.driver_columns(columns);
+        let columns = bun_columns(columns);
         let columns = &*columns;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = query_params.declaration(&analyzed.name);
 
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        // Escape the user's SQL before postgres.js's own `${}` interpolations
+        // Escape the user's SQL before the driver's own `${}` interpolations
         // are inserted below — otherwise a literal `${` in the user's SQL
         // becomes a live binding, and escaping afterwards would also mangle
         // the interpolations this pass is about to add.
@@ -893,7 +660,6 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 || "${?}".to_string(),
                 |rp| {
                     pg_bind_expr(
-                        self.driver,
                         &query_params.access(rp),
                         &rp.neutral_type,
                         rp.nullable,
@@ -921,10 +687,9 @@ impl CodegenBackend for TypescriptPostgresBackend {
             }
         };
 
-        let query_sig_params: Vec<(String, String)> =
-            std::iter::once(("sql".to_string(), self.driver.ts_handle_type().to_string()))
-                .chain(query_params.signature())
-                .collect();
+        let query_sig_params: Vec<(String, String)> = std::iter::once(("sql".to_string(), "SQL".to_string()))
+            .chain(query_params.signature())
+            .collect();
 
         match &analyzed.command {
             QueryCommand::One => {
@@ -1031,11 +796,11 @@ impl CodegenBackend for TypescriptPostgresBackend {
                         analyzed.name
                     );
                     let batch_sig_params = vec![
-                        ("sql".to_string(), self.driver.ts_handle_type().to_string()),
+                        ("sql".to_string(), "SQL".to_string()),
                         ("items".to_string(), format!("{}[]", params_type_name)),
                     ];
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "Promise<void>");
-                    let batch_sql = batch_item_sql(self.driver, &sql_clean, &param_map, &analyzed.composites);
+                    let batch_sql = batch_item_sql(&sql_clean, &param_map, &analyzed.composites);
                     self.write_batch_body(&mut out, "for (const item of items)", &batch_sql);
                     let _ = write!(out, "}}");
                 } else if params.len() == 1 {
@@ -1045,11 +810,11 @@ impl CodegenBackend for TypescriptPostgresBackend {
                         analyzed.name
                     );
                     let batch_sig_params = vec![
-                        ("sql".to_string(), self.driver.ts_handle_type().to_string()),
+                        ("sql".to_string(), "SQL".to_string()),
                         ("items".to_string(), format!("{}[]", params[0].full_type)),
                     ];
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "Promise<void>");
-                    let batch_sql = batch_item_sql_single(self.driver, &sql_clean, &params[0], &analyzed.composites);
+                    let batch_sql = batch_item_sql_single(&sql_clean, &params[0], &analyzed.composites);
                     self.write_batch_body(&mut out, "for (const item of items)", &batch_sql);
                     let _ = write!(out, "}}");
                 } else {
@@ -1059,7 +824,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                         analyzed.name
                     );
                     let batch_sig_params = vec![
-                        ("sql".to_string(), self.driver.ts_handle_type().to_string()),
+                        ("sql".to_string(), "SQL".to_string()),
                         ("count".to_string(), "number".to_string()),
                     ];
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "Promise<void>");
@@ -1086,7 +851,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     let _ = writeln!(out, "  `;");
                     let overrides = ts_composite_field_overrides(columns, "row");
                     if overrides.is_empty() {
-                        let _ = writeln!(out, "\treturn {};", self.driver.many_rows());
+                        let _ = writeln!(out, "\treturn [...rows];");
                     } else {
                         let _ = writeln!(out, "\treturn rows.map((row) => ({{");
                         let _ = writeln!(out, "\t\t...row,");
@@ -1134,18 +899,10 @@ impl CodegenBackend for TypescriptPostgresBackend {
         child_columns: &[ResolvedColumn],
         _key_column: &str,
     ) -> Result<String, SqlkitError> {
-        let parent_columns = self.driver_columns(parent_columns);
+        let parent_columns = bun_columns(parent_columns);
         let parent_columns = &*parent_columns;
-        let child_columns = self.driver_columns(child_columns);
+        let child_columns = bun_columns(child_columns);
         let child_columns = &*child_columns;
-        if self.js_mode {
-            return Ok(generate_js_grouped_typedef_structs(
-                child_struct_name,
-                parent_struct_name,
-                parent_columns,
-                child_columns,
-            ));
-        }
         if self.row_type == TsRowType::Zod {
             return Ok(generate_zod_grouped_structs(
                 child_struct_name,
@@ -1163,18 +920,15 @@ impl CodegenBackend for TypescriptPostgresBackend {
     }
 
     fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, SqlkitError> {
-        if self.js_mode {
-            return self.generate_grouped_query_fn_js(request);
-        }
         let analyzed = request.analyzed;
         let parent_struct_name = request.parent_struct_name;
         let child_struct_name = request.child_struct_name;
-        let parent_columns = self.driver_columns(request.parent_columns);
+        let parent_columns = bun_columns(request.parent_columns);
         let parent_columns = &*parent_columns;
-        let child_columns = self.driver_columns(request.child_columns);
+        let child_columns = bun_columns(request.child_columns);
         let child_columns = &*child_columns;
         let key_column = request.key_column;
-        let params = self.driver_params(request.params);
+        let params = bun_params(request.params);
         let query_params = TsQueryParams::new(self.params_style, &analyzed.name, &params, &self.manifest.naming);
 
         if self.structs_only {
@@ -1196,7 +950,6 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 || "${?}".to_string(),
                 |rp| {
                     pg_bind_expr(
-                        self.driver,
                         &query_params.access(rp),
                         &rp.neutral_type,
                         rp.nullable,
@@ -1207,7 +960,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
         });
 
         let signature = query_params.signature();
-        let inline_params = std::iter::once(format!("sql: {}", self.driver.ts_handle_type()))
+        let inline_params = std::iter::once("sql: SQL".to_string())
             .chain(signature.iter().map(|(n, t)| format!("{n}: {t}")))
             .collect::<Vec<_>>()
             .join(", ");
@@ -1227,7 +980,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 &format!("Fetch grouped {} rows.", analyzed.name),
             ));
             let _ = writeln!(out, "export async function {func_name}(");
-            let _ = writeln!(out, "\tsql: {},", self.driver.ts_handle_type());
+            let _ = writeln!(out, "\tsql: SQL,");
             for (n, t) in &signature {
                 let _ = writeln!(out, "\t{n}: {t},");
             }
@@ -1245,7 +998,6 @@ impl CodegenBackend for TypescriptPostgresBackend {
             parent_columns,
             child_columns,
             key_column,
-            false,
             ts_composite_aware_row_access(&all_columns),
         );
         out.push_str(&fold);
@@ -1254,46 +1006,31 @@ impl CodegenBackend for TypescriptPostgresBackend {
     }
 
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, SqlkitError> {
-        if self.js_mode {
-            return self.generate_enum_def_js(enum_info);
-        }
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
             return Ok(generate_zod_enum(&type_name, &enum_info.values, &self.manifest.naming));
         }
         let mut out = String::new();
-        // ~keep Bun takes the `const` object plus string-union form of
-        // `typescript-pg`: the driver hands back plain strings, which a union
-        // accepts as-is, and the output stays erasable TypeScript (no runtime
-        // `enum`), as `erasableSyntaxOnly` and Node's type stripping require.
-        if self.driver == TemplateDriver::Bun {
-            let values_name = format!("{type_name}Values");
-            let _ = writeln!(out, "export const {values_name} = {{");
-            for value in &enum_info.values {
-                let variant = enum_variant_name(value, &self.manifest.naming);
-                let _ = writeln!(out, "\t{variant}: \"{value}\",");
-            }
-            let _ = writeln!(out, "}} as const;");
-            let _ = writeln!(out);
-            let _ = write!(
-                out,
-                "export type {type_name} = typeof {values_name}[keyof typeof {values_name}];"
-            );
-            return Ok(out);
-        }
-        let _ = writeln!(out, "export enum {} {{", type_name);
+        // ~keep A `const` object plus a string union: the driver hands back plain
+        // strings, which a union accepts as-is, and the output stays erasable
+        // TypeScript (no runtime `enum`), as `erasableSyntaxOnly` and Node's type
+        // stripping require.
+        let values_name = format!("{type_name}Values");
+        let _ = writeln!(out, "export const {values_name} = {{");
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(out, "\t{} = \"{}\",", variant, value);
+            let _ = writeln!(out, "\t{variant}: \"{value}\",");
         }
-        let _ = write!(out, "}}");
+        let _ = writeln!(out, "}} as const;");
+        let _ = writeln!(out);
+        let _ = write!(
+            out,
+            "export type {type_name} = typeof {values_name}[keyof typeof {values_name}];"
+        );
         Ok(out)
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, SqlkitError> {
-        if self.js_mode {
-            return self.generate_composite_def_js(composite);
-        }
         let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
@@ -1320,8 +1057,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
         let _ = writeln!(out);
         let _ = writeln!(
             out,
-            "// ~keep board #204: {} has no adapter for a user-defined composite -- it",
-            self.driver.label()
+            "// ~keep board #204: Bun SQL has no adapter for a user-defined composite -- it"
         );
         let _ = writeln!(
             out,
@@ -1369,7 +1105,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
         &self,
         nested: &sqlkit_core::analyzer::NestedStructInfo,
     ) -> Result<Option<String>, SqlkitError> {
-        if self.js_mode || !self.manifest.types.containers.contains_key("json_nested") {
+        if !self.manifest.types.containers.contains_key("json_nested") {
             return Ok(None);
         }
         Ok(generate_ts_nested_interface(nested, &self.manifest).ok())
@@ -1377,7 +1113,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
     fn generate_composite_def_for_nested(&self, composite: &CompositeInfo) -> Result<String, SqlkitError> {
         let mut out = self.generate_composite_def(composite)?;
-        if !self.js_mode && self.manifest.types.containers.contains_key("json_nested") {
+        if self.manifest.types.containers.contains_key("json_nested") {
             out.push_str("\n\n");
             out.push_str(&generate_ts_json_composite_interface(composite, &self.manifest)?);
         }
@@ -1442,417 +1178,15 @@ impl CodegenBackend for TypescriptPostgresBackend {
         if let Some(value) = options.get("column_types") {
             self.column_types = Some(ts_column_types_option(value, self.row_type)?);
         }
-        self.schema_types_import = ts_schema_types_options(options, self.row_type, self.js_mode)?;
+        self.schema_types_import = ts_schema_types_options(options, self.row_type)?;
 
-        // ~keep See `TypescriptPgBackend::apply_options` for why these are
-        // rejected outright in JSDoc mode rather than silently ignored.
-        if self.js_mode {
-            if self.params_style == TsParamStyle::Object {
-                return Err(SqlkitError::new(
-                    ErrorCode::InvalidConfig,
-                    format!(
-                        "{} does not support params = \"object\" -- use {}",
-                        self.driver.js_name(),
-                        self.driver.ts_name()
-                    ),
-                ));
-            }
-            if self.validation != TsValidation::None {
-                return Err(SqlkitError::new(
-                    ErrorCode::InvalidConfig,
-                    format!(
-                        "{} does not support validation -- use {}",
-                        self.driver.js_name(),
-                        self.driver.ts_name()
-                    ),
-                ));
-            }
-            if self.column_types.is_some() {
-                return Err(SqlkitError::new(
-                    ErrorCode::InvalidConfig,
-                    format!(
-                        "{} does not support column_types -- use {}",
-                        self.driver.js_name(),
-                        self.driver.ts_name()
-                    ),
-                ));
-            }
-            if self.row_type == TsRowType::Zod {
-                return Err(SqlkitError::new(
-                    ErrorCode::InternalError,
-                    format!(
-                        "{} does not support row_type = \"zod\": the inferred `export type X = \
-                         z.infer<...>` alias is TypeScript-only syntax a plain .js file cannot carry -- use \
-                         {} for Zod row types",
-                        self.driver.js_name(),
-                        self.driver.ts_name()
-                    ),
-                ));
-            }
-            if self.outer_join_unions {
-                return Err(SqlkitError::new(
-                    ErrorCode::InternalError,
-                    format!(
-                        "{} does not support outer_join_unions: the discriminated union is a \
-                         TypeScript `type X = A & (B | C)` alias, which plain .js cannot carry -- use {}",
-                        self.driver.js_name(),
-                        self.driver.ts_name()
-                    ),
-                ));
-            }
-            if self.field_case == TsFieldCase::Camel {
-                return Err(SqlkitError::new(
-                    ErrorCode::InternalError,
-                    format!(
-                        "{} does not support field_case = \"camelCase\": the field remap needs a \
-                         TypeScript `as T` assertion, which plain .js cannot carry -- use {}",
-                        self.driver.js_name(),
-                        self.driver.ts_name()
-                    ),
-                ));
-            }
-        }
         Ok(())
-    }
-}
-
-impl TypescriptPostgresBackend {
-    /// JSDoc-mode counterpart of `generate_query_fn` -- see
-    /// `TypescriptPgBackend::generate_query_fn_js` for why `field_case =
-    /// "camelCase"` needs no handling here.
-    fn generate_query_fn_js(
-        &self,
-        analyzed: &AnalyzedQuery,
-        struct_name: &str,
-        params: &[ResolvedParam],
-    ) -> Result<String, SqlkitError> {
-        if self.structs_only {
-            return Ok(String::new());
-        }
-
-        let sql_type = self.driver.js_handle_type();
-
-        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let mut out = String::new();
-
-        let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql_clean = escape_ts_template_literal(&sql_clean);
-        let param_map: std::collections::HashMap<u32, &ResolvedParam> = analyzed
-            .params
-            .iter()
-            .zip(params.iter())
-            .map(|(ap, rp)| (ap.position as u32, rp))
-            .collect();
-        let sql_template = super::rewrite_pg_placeholders(&sql_clean, |n| {
-            param_map.get(&n).map_or_else(
-                || "${?}".to_string(),
-                |rp| {
-                    pg_bind_expr(
-                        self.driver,
-                        &rp.field_name,
-                        &rp.neutral_type,
-                        rp.nullable,
-                        &analyzed.composites,
-                    )
-                },
-            )
-        });
-
-        let query_sig_params: Vec<(String, String)> = std::iter::once(("sql".to_string(), sql_type.to_string()))
-            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
-            .collect();
-
-        let write_signature = |out: &mut String, description: &str, sig_params: &[(String, String)], ret: &str| {
-            out.push_str(&generate_jsdoc_fn_header(description, sig_params, ret));
-            let _ = writeln!(out);
-            let _ = writeln!(out, "{}", js_fn_signature_line(true, &func_name, sig_params));
-        };
-
-        match &analyzed.command {
-            QueryCommand::One => {
-                write_signature(
-                    &mut out,
-                    super::query_doc_text(analyzed, &format!("Fetch a single {}.", struct_name)),
-                    &query_sig_params,
-                    &format!("Promise<{}>", struct_name),
-                );
-                // ~keep postgres.js's `sql` tag defaults to its own untyped `Row`
-                // shape without a type argument -- and
-                // that default is a *concrete* type, not `any`, so `rows[0]`
-                // does not structurally match `StructName` and `tsc
-                // --strict` rejects the assignment on `return`. The TS path
-                // supplies `sql<StructName[]>` to fix this; JS mode has no
-                // generic call syntax, so the JSDoc inline cast substitutes.
-                let query_expr = format!("await sql`\n    {sql_template}\n  `");
-                let _ = writeln!(
-                    out,
-                    "\tconst rows = {};",
-                    js_type_cast(&format!("Array<{struct_name}>"), &query_expr)
-                );
-                let _ = writeln!(out, "\tconst row = rows[0];");
-                let _ = writeln!(
-                    out,
-                    "\tif (row === undefined) {}",
-                    ts_row_not_found_throw(&analyzed.name)
-                );
-                let _ = writeln!(out, "\treturn row;");
-                let _ = write!(out, "}}");
-            }
-            QueryCommand::Opt => {
-                write_signature(
-                    &mut out,
-                    super::query_doc_text(analyzed, &format!("Fetch a single {} or null.", struct_name)),
-                    &query_sig_params,
-                    &format!("Promise<{} | null>", struct_name),
-                );
-                // ~keep postgres.js's `sql` tag defaults to its own untyped `Row`
-                // shape without a type argument -- and
-                // that default is a *concrete* type, not `any`, so `rows[0]`
-                // does not structurally match `StructName` and `tsc
-                // --strict` rejects the assignment on `return`. The TS path
-                // supplies `sql<StructName[]>` to fix this; JS mode has no
-                // generic call syntax, so the JSDoc inline cast substitutes.
-                let query_expr = format!("await sql`\n    {sql_template}\n  `");
-                let _ = writeln!(
-                    out,
-                    "\tconst rows = {};",
-                    js_type_cast(&format!("Array<{struct_name}>"), &query_expr)
-                );
-                let _ = writeln!(out, "\treturn rows[0] ?? null;");
-                let _ = write!(out, "}}");
-            }
-            QueryCommand::Many => {
-                write_signature(
-                    &mut out,
-                    super::query_doc_text(analyzed, &format!("Fetch all {} rows.", struct_name)),
-                    &query_sig_params,
-                    &format!("Promise<{}[]>", struct_name),
-                );
-                let query_expr = format!("await sql`\n    {sql_template}\n  `");
-                let _ = writeln!(
-                    out,
-                    "\tconst rows = {};",
-                    js_type_cast(&format!("Array<{struct_name}>"), &query_expr)
-                );
-                let _ = writeln!(out, "\treturn {};", self.driver.many_rows());
-                let _ = write!(out, "}}");
-            }
-            QueryCommand::Exec => {
-                write_signature(
-                    &mut out,
-                    super::query_doc_text(analyzed, "Execute a query returning no rows."),
-                    &query_sig_params,
-                    "Promise<void>",
-                );
-                let _ = writeln!(out, "\tawait sql`");
-                let _ = writeln!(out, "    {}", sql_template);
-                let _ = writeln!(out, "  `;");
-                let _ = write!(out, "}}");
-            }
-            QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                write_signature(
-                    &mut out,
-                    super::query_doc_text(analyzed, "Execute a query and return the number of affected rows."),
-                    &query_sig_params,
-                    "Promise<number>",
-                );
-                let _ = writeln!(out, "\tconst result = await sql`");
-                let _ = writeln!(out, "    {}", sql_template);
-                let _ = writeln!(out, "  `;");
-                let _ = writeln!(out, "\treturn result.count;");
-                let _ = write!(out, "}}");
-            }
-            QueryCommand::Batch => {
-                let batch_fn_name = format!("{}Batch", func_name);
-                if params.len() > 1 {
-                    let params_type_name = format!("{}BatchParams", struct_name);
-                    let fields: Vec<(String, String)> = params
-                        .iter()
-                        .map(|p| (p.field_name.clone(), p.full_type.clone()))
-                        .collect();
-                    out.push_str(&generate_js_typedef(
-                        &params_type_name,
-                        &format!("Params for {} batch operation.", struct_name),
-                        &fields,
-                    ));
-                    let _ = writeln!(out);
-                    let _ = writeln!(out);
-                    let batch_sig_params = vec![
-                        ("sql".to_string(), sql_type.to_string()),
-                        ("items".to_string(), format!("Array<{}>", params_type_name)),
-                    ];
-                    out.push_str(&generate_jsdoc_fn_header(
-                        &format!(
-                            "Execute {} for each item in the batch within a transaction.",
-                            analyzed.name
-                        ),
-                        &batch_sig_params,
-                        "Promise<void>",
-                    ));
-                    let _ = writeln!(out);
-                    let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
-                    let batch_sql = batch_item_sql(self.driver, &sql_clean, &param_map, &analyzed.composites);
-                    self.write_batch_body(&mut out, "for (const item of items)", &batch_sql);
-                    let _ = write!(out, "}}");
-                } else if params.len() == 1 {
-                    let batch_sig_params = vec![
-                        ("sql".to_string(), sql_type.to_string()),
-                        ("items".to_string(), format!("Array<{}>", params[0].full_type)),
-                    ];
-                    out.push_str(&generate_jsdoc_fn_header(
-                        &format!(
-                            "Execute {} for each item in the batch within a transaction.",
-                            analyzed.name
-                        ),
-                        &batch_sig_params,
-                        "Promise<void>",
-                    ));
-                    let _ = writeln!(out);
-                    let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
-                    let batch_sql = batch_item_sql_single(self.driver, &sql_clean, &params[0], &analyzed.composites);
-                    self.write_batch_body(&mut out, "for (const item of items)", &batch_sql);
-                    let _ = write!(out, "}}");
-                } else {
-                    let batch_sig_params = vec![
-                        ("sql".to_string(), sql_type.to_string()),
-                        ("count".to_string(), "number".to_string()),
-                    ];
-                    out.push_str(&generate_jsdoc_fn_header(
-                        &format!(
-                            "Execute {} for each item in the batch within a transaction.",
-                            analyzed.name
-                        ),
-                        &batch_sig_params,
-                        "Promise<void>",
-                    ));
-                    let _ = writeln!(out);
-                    let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
-                    self.write_batch_body(&mut out, "for (let i = 0; i < count; i++)", &sql_template);
-                    let _ = write!(out, "}}");
-                }
-            }
-            QueryCommand::Grouped => {
-                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
-            }
-        }
-
-        Ok(out)
-    }
-
-    /// JSDoc-mode counterpart of `generate_grouped_query_fn`.
-    fn generate_grouped_query_fn_js(&self, request: &GroupedQueryFn<'_>) -> Result<String, SqlkitError> {
-        let analyzed = request.analyzed;
-        let parent_struct_name = request.parent_struct_name;
-        let child_struct_name = request.child_struct_name;
-        let parent_columns = self.driver_columns(request.parent_columns);
-        let parent_columns = &*parent_columns;
-        let child_columns = self.driver_columns(request.child_columns);
-        let child_columns = &*child_columns;
-        let params = self.driver_params(request.params);
-        let params = &*params;
-        let key_column = request.key_column;
-
-        if self.structs_only {
-            return Ok(String::new());
-        }
-
-        let sql_type = self.driver.js_handle_type();
-
-        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql_clean = escape_ts_template_literal(&sql_clean);
-        let param_map: std::collections::HashMap<u32, &ResolvedParam> = analyzed
-            .params
-            .iter()
-            .zip(params.iter())
-            .map(|(ap, rp)| (ap.position as u32, rp))
-            .collect();
-        let sql_template = super::rewrite_pg_placeholders(&sql_clean, |n| {
-            param_map.get(&n).map_or_else(
-                || "${?}".to_string(),
-                |rp| {
-                    pg_bind_expr(
-                        self.driver,
-                        &rp.field_name,
-                        &rp.neutral_type,
-                        rp.nullable,
-                        &analyzed.composites,
-                    )
-                },
-            )
-        });
-
-        let sig_params: Vec<(String, String)> = std::iter::once(("sql".to_string(), sql_type.to_string()))
-            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
-            .collect();
-        let ret = format!("Promise<{parent_struct_name}[]>");
-
-        let mut out = String::new();
-        out.push_str(&generate_jsdoc_fn_header(
-            super::query_doc_text(analyzed, &format!("Fetch grouped {} rows.", analyzed.name)),
-            &sig_params,
-            &ret,
-        ));
-        let _ = writeln!(out);
-        let _ = writeln!(out, "{}", js_fn_signature_line(true, &func_name, &sig_params));
-
-        let _ = writeln!(out, "\tconst flatRows = await sql`");
-        let _ = writeln!(out, "    {sql_template}");
-        let _ = writeln!(out, "  `;");
-
-        let fold = generate_ts_grouped_fold_body(
-            parent_struct_name,
-            child_struct_name,
-            parent_columns,
-            child_columns,
-            key_column,
-            true,
-            |name, _ty| ts_index_access("row", name),
-        );
-        out.push_str(&fold);
-        let _ = write!(out, "}}");
-        Ok(out)
-    }
-
-    /// JSDoc-mode counterpart of `generate_enum_def`.
-    fn generate_enum_def_js(&self, enum_info: &EnumInfo) -> Result<String, SqlkitError> {
-        let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
-        let variants: Vec<(String, String)> = enum_info
-            .values
-            .iter()
-            .map(|value| {
-                (
-                    enum_variant_name(value, &self.manifest.naming).to_string(),
-                    value.clone(),
-                )
-            })
-            .collect();
-        Ok(super::typescript_common::generate_js_enum_def(&type_name, &variants))
-    }
-
-    /// JSDoc-mode counterpart of `generate_composite_def`.
-    fn generate_composite_def_js(&self, composite: &CompositeInfo) -> Result<String, SqlkitError> {
-        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
-        let mut fields = Vec::with_capacity(composite.fields.len());
-        for field in &composite.fields {
-            let ts_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
-                .map(|t| t.into_owned())
-                .map_err(|e| {
-                    SqlkitError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
-                })?;
-            fields.push((to_camel_case(&field.name).into_owned(), ts_type));
-        }
-        Ok(generate_js_typedef(
-            &name,
-            &format!("Composite type {}.", composite.sql_name),
-            &fields,
-        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{TemplateDriver, TypescriptPostgresBackend, pg_bind_expr};
+    use super::{TypescriptBunBackend, pg_bind_expr};
     use crate::backend_trait::CodegenBackend;
     use sqlkit_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig};
     use sqlkit_core::analyzer::{CompositeFieldInfo, CompositeInfo};
@@ -1890,7 +1224,7 @@ mod tests {
 
     #[test]
     fn test_zod_row_type_combined_with_outer_join_unions_emits_a_real_union_schema() {
-        let mut backend = TypescriptPostgresBackend::new().unwrap();
+        let mut backend = TypescriptBunBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([
                 ("row_type".to_string(), "zod".to_string()),
@@ -1910,7 +1244,7 @@ mod tests {
 
     #[test]
     fn test_zod_row_type_without_outer_join_unions_is_unchanged() {
-        let mut backend = TypescriptPostgresBackend::new().unwrap();
+        let mut backend = TypescriptBunBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "row_type".to_string(),
@@ -1954,13 +1288,13 @@ mod tests {
         })
     }
 
-    /// postgres.js's `sql` tag turns every `${}` into a live parameter
+    /// The `sql` tag turns every `${}` into a live parameter
     /// binding, so a literal `${` surviving from the user's SQL would be
     /// misread as one. It must come out as inert escaped text while
     /// sqlkit's own binding for `$1` stays live.
     #[test]
     fn test_query_fn_escapes_user_dollar_brace_but_keeps_own_param_bindings_live() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_one_query(
             "SELECT id FROM users WHERE name = 'literal ${not_a_binding}' AND id = $1",
             vec![AnalyzedParam {
@@ -1990,7 +1324,7 @@ mod tests {
     /// single literal backslash in the generated JS template literal.
     #[test]
     fn test_query_fn_escapes_user_backslash_in_sql() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_one_query(r"SELECT id FROM users WHERE name = E'a\\b'", vec![]);
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -2005,7 +1339,7 @@ mod tests {
     /// tag's template literal early.
     #[test]
     fn test_query_fn_escapes_user_backtick_in_sql() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_one_query("SELECT id FROM users WHERE name = `oops`", vec![]);
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -2081,7 +1415,7 @@ mod tests {
 
     #[test]
     fn test_grouped_typescript_postgres_structs() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_grouped_query();
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let row_struct = result.row_struct.as_deref().unwrap();
@@ -2109,7 +1443,7 @@ mod tests {
 
     #[test]
     fn test_grouped_typescript_postgres_query_fn() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_grouped_query();
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -2139,7 +1473,7 @@ mod tests {
 
     #[test]
     fn test_structs_only_suppresses_query_fn_and_driver_import() {
-        let mut backend = TypescriptPostgresBackend::new().unwrap();
+        let mut backend = TypescriptBunBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "structs_only".to_string(),
@@ -2166,14 +1500,14 @@ mod tests {
 
         let header = backend.file_header();
         assert!(
-            !header.contains("postgres"),
-            "the unused postgres driver import must be dropped; got:\n{header}"
+            !header.contains("from \"bun\""),
+            "the unused driver import must be dropped; got:\n{header}"
         );
     }
 
     #[test]
     fn test_structs_only_unset_leaves_query_fn_present() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_one_query("SELECT id FROM users WHERE id = $1", vec![]);
         let result = crate::generate_with_backend(&query, &backend).unwrap();
 
@@ -2181,12 +1515,12 @@ mod tests {
             !result.query_fn.as_deref().unwrap().is_empty(),
             "without structs_only the query function must still be generated"
         );
-        assert!(backend.file_header().contains("import type { Sql } from \"postgres\";"));
+        assert!(backend.file_header().contains("import type { SQL } from \"bun\";"));
     }
 
     #[test]
     fn test_structs_only_rejects_invalid_value() {
-        let mut backend = TypescriptPostgresBackend::new().unwrap();
+        let mut backend = TypescriptBunBackend::new().unwrap();
         let result = backend.apply_options(&std::collections::HashMap::from([(
             "structs_only".to_string(),
             "maybe".to_string(),
@@ -2196,7 +1530,7 @@ mod tests {
 
     #[test]
     fn test_structs_only_combined_with_zod_row_type_keeps_zod_import_and_schema() {
-        let mut backend = TypescriptPostgresBackend::new().unwrap();
+        let mut backend = TypescriptBunBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([
                 ("structs_only".to_string(), "true".to_string()),
@@ -2215,7 +1549,7 @@ mod tests {
 
         let header = backend.file_header();
         assert!(header.contains("import { z } from \"zod\";"), "got:\n{header}");
-        assert!(!header.contains("postgres"), "got:\n{header}");
+        assert!(!header.contains("from \"bun\""), "got:\n{header}");
     }
 
     fn make_batch_query(name: &str, sql: &str, params: Vec<AnalyzedParam>) -> AnalyzedQuery {
@@ -2244,7 +1578,7 @@ mod tests {
     /// references `items`). This must fail if that fallback is reinstated.
     #[test]
     fn test_batch_signature_wrap_declares_items_not_raw_columns() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_batch_query(
             "CreateUserAccountRecord",
             "INSERT INTO user_account_record (name, email) VALUES ($1, $2)",
@@ -2294,7 +1628,7 @@ mod tests {
     /// wrapped signature intact.
     #[test]
     fn test_batch_signature_wrap_preserves_type_with_internal_comma() {
-        let mut backend = TypescriptPostgresBackend::new().unwrap();
+        let mut backend = TypescriptBunBackend::new().unwrap();
         backend
             .manifest
             .types
@@ -2329,11 +1663,11 @@ mod tests {
     }
 
     #[test]
-    fn test_json_uses_postgres_driver_json_parameter_type() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+    fn test_json_uses_the_bun_json_value_type() {
+        let backend = TypescriptBunBackend::new().unwrap();
         assert_eq!(
             backend.manifest.types.scalars.get("json").map(String::as_str),
-            Some("PostgresJsonValue")
+            Some("SqlJsonValue")
         );
     }
 
@@ -2356,17 +1690,11 @@ mod tests {
         }];
 
         assert_eq!(
-            pg_bind_expr(TemplateDriver::PostgresJs, "metadata", "json", false, &composites),
+            pg_bind_expr("metadata", "json", false, &composites),
             "${sql.json(metadata)}"
         );
         assert_eq!(
-            pg_bind_expr(
-                TemplateDriver::PostgresJs,
-                "home_address",
-                "composite::address",
-                true,
-                &composites
-            ),
+            pg_bind_expr("home_address", "composite::address", true, &composites),
             "${home_address === null ? sql`NULL::address` : sql`ROW(${home_address.street}, ${sql.json(home_address.metadata)})::address`}"
         );
     }
@@ -2375,12 +1703,12 @@ mod tests {
     /// `sql.replace("$1", "${item.a}")` over the whole statement, which does
     /// not know a SQL string literal from live code -- `'cost is $1 today'`
     /// got rewritten right alongside the real `$1` placeholder, so
-    /// postgres.js sent one extra live binding for text that was never meant
+    /// the driver sent one extra live binding for text that was never meant
     /// to be one. `batch_item_sql` now routes through the literal-aware
     /// `rewrite_pg_placeholders`, so only the real placeholder is live.
     #[test]
     fn test_batch_multi_param_does_not_rewrite_dollar_n_inside_sql_string_literal() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_batch_query(
             "UpdateItemPrice",
             "UPDATE prices SET a = $1, note = 'cost is $1 today' WHERE id = $2",
@@ -2430,7 +1758,7 @@ mod tests {
     /// `$N` placeholder.
     #[test]
     fn test_batch_single_param_does_not_rewrite_escaped_dollar_brace_inside_sql_string_literal() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_batch_query(
             "UpdateItemAmount",
             "UPDATE prices SET amount = $1 WHERE note = 'the ${amount} field'",
@@ -2490,13 +1818,13 @@ mod tests {
     }
 
     /// This must fail before the fix: the `sql<StructName[]>` tag's generic
-    /// is a type-level trust boundary only -- postgres.js still returns the
+    /// is a type-level trust boundary only -- the driver still returns the
     /// driver's raw (snake_case) keys, so `field_case = "camelCase"`
     /// renaming the declared fields makes `tsc` believe the shape changed
     /// while every field reads back `undefined` at runtime.
     #[test]
     fn test_one_query_fn_remaps_fields_under_camel_case() {
-        let mut backend = TypescriptPostgresBackend::new().unwrap();
+        let mut backend = TypescriptBunBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "field_case".to_string(),
@@ -2523,7 +1851,7 @@ mod tests {
 
     #[test]
     fn test_many_query_fn_remaps_fields_under_camel_case() {
-        let mut backend = TypescriptPostgresBackend::new().unwrap();
+        let mut backend = TypescriptBunBackend::new().unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([(
                 "field_case".to_string(),
@@ -2550,10 +1878,8 @@ mod tests {
 
     #[test]
     fn test_camel_case_rows_keep_the_struct_generic_when_the_driver_transforms_keys() {
-        for mut backend in [
-            TypescriptPostgresBackend::new().unwrap(),
-            TypescriptPostgresBackend::new_bun().unwrap(),
-        ] {
+        {
+            let mut backend = TypescriptBunBackend::new().unwrap();
             backend
                 .apply_options(&std::collections::HashMap::from([
                     ("field_case".to_string(), "camelCase".to_string()),
@@ -2583,7 +1909,7 @@ mod tests {
 
     #[test]
     fn test_row_keys_rejects_unknown_values() {
-        let mut backend = TypescriptPostgresBackend::new_bun().unwrap();
+        let mut backend = TypescriptBunBackend::new().unwrap();
         let error = backend
             .apply_options(&std::collections::HashMap::from([(
                 "row_keys".to_string(),
@@ -2595,7 +1921,7 @@ mod tests {
 
     #[test]
     fn test_one_query_fn_keeps_the_struct_generic_under_the_default_snake_case() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let query = make_query_with_snake_case_column(QueryCommand::One);
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -2610,212 +1936,9 @@ mod tests {
         );
     }
 
-    // -- javascript-postgres (JSDoc emit mode, #81) --------------------------
-
-    fn js_backend() -> TypescriptPostgresBackend {
-        TypescriptPostgresBackend::new_js().unwrap()
-    }
-
-    fn resolved_columns_with_a_nullable_and_a_non_nullable_field() -> Vec<crate::backend_trait::ResolvedColumn> {
-        use crate::backend_trait::ResolvedColumn;
-        vec![
-            ResolvedColumn {
-                constraints: None,
-                name: "id".to_string(),
-                field_name: "id".to_string(),
-                lang_type: "number".to_string(),
-                full_type: "number".to_string(),
-                neutral_type: "int32".to_string(),
-                sql_type: "int4".to_string(),
-                nullable: false,
-                join_group: None,
-                nullable_before_join: false,
-            },
-            ResolvedColumn {
-                constraints: None,
-                name: "bio".to_string(),
-                field_name: "bio".to_string(),
-                lang_type: "string".to_string(),
-                full_type: "string | null".to_string(),
-                neutral_type: "string".to_string(),
-                sql_type: "text".to_string(),
-                nullable: true,
-                join_group: None,
-                nullable_before_join: false,
-            },
-        ]
-    }
-
-    fn query_with_nullable_and_non_nullable_columns(command: QueryCommand) -> AnalyzedQuery {
-        AnalyzedQuery::build(|q| {
-            q.name = "GetUserById".to_string();
-            q.command = command;
-            q.sql = "SELECT id, bio FROM users WHERE id = $1".to_string();
-            q.columns = vec![
-                AnalyzedColumn {
-                    name: "id".to_string(),
-                    neutral_type: "int32".to_string(),
-                    nullable: false,
-                    ..Default::default()
-                },
-                AnalyzedColumn {
-                    name: "bio".to_string(),
-                    neutral_type: "string".to_string(),
-                    nullable: true,
-                    ..Default::default()
-                },
-            ];
-            q.params = vec![AnalyzedParam {
-                constraints: None,
-                base_column: None,
-                name: "id".to_string(),
-                neutral_type: "int32".to_string(),
-                nullable: false,
-                position: 1,
-                source_relation: None,
-            }];
-            q.deprecated = None;
-            q.source_table = None;
-            q.composites = vec![];
-            q.enums = vec![];
-            q.optional_params = vec![];
-            q.group_by = None;
-            q.custom = vec![];
-        })
-    }
-
-    #[test]
-    fn test_js_mode_name_is_javascript_postgres() {
-        assert_eq!(js_backend().name(), "javascript-postgres");
-    }
-
-    #[test]
-    fn test_js_mode_file_header_has_no_ts_only_imports() {
-        let header = js_backend().file_header();
-        assert!(header.contains("@typedef"), "got:\n{header}");
-        assert!(!header.contains("import type"), "got:\n{header}");
-    }
-
-    #[test]
-    fn test_js_mode_row_struct_emits_nullable_column_as_type_or_null() {
-        let backend = js_backend();
-        let row_struct = backend
-            .generate_row_struct(
-                "GetUserById",
-                &resolved_columns_with_a_nullable_and_a_non_nullable_field(),
-            )
-            .unwrap();
-
-        assert!(
-            row_struct.contains(" * @property {string | null} bio"),
-            "nullable column must be `{{T | null}}`, never optional; got:\n{row_struct}"
-        );
-        assert!(row_struct.contains(" * @property {number} id"), "got:\n{row_struct}");
-        assert!(!row_struct.contains("[bio]"), "{row_struct}");
-        assert!(!row_struct.contains("bio?"), "{row_struct}");
-    }
-
-    #[test]
-    fn test_js_mode_one_query_fn_is_plain_js_with_jsdoc_types() {
-        let backend = js_backend();
-        let query = query_with_nullable_and_non_nullable_columns(QueryCommand::One);
-        let result = crate::generate_with_backend(&query, &backend).unwrap();
-        let query_fn = result.query_fn.as_deref().unwrap();
-
-        assert!(
-            query_fn.contains("@param {import(\"postgres\").Sql} sql"),
-            "got:\n{query_fn}"
-        );
-        assert!(query_fn.contains("@param {number} id"), "got:\n{query_fn}");
-        assert!(
-            query_fn.contains("@returns {Promise<GetUserByIdRow>}"),
-            "`:one` must not be nullable; got:\n{query_fn}"
-        );
-        assert!(
-            query_fn.contains("export async function getUserById(sql, id) {"),
-            "signature must have no type annotations; got:\n{query_fn}"
-        );
-        assert!(
-            !query_fn.contains("sql<"),
-            "must not use a TS generic type argument; got:\n{query_fn}"
-        );
-        assert!(
-            !query_fn.contains(" as "),
-            "must not use a TS `as` assertion; got:\n{query_fn}"
-        );
-        assert!(
-            query_fn.contains("SELECT id, bio FROM users WHERE id = ${id}"),
-            "got:\n{query_fn}"
-        );
-        // Regression: postgres.js's `sql` tag defaults to its own untyped
-        // `Row` shape without a type argument -- that default is concrete,
-        // not `any`, so `rows[0]` fails to structurally match
-        // `GetUserByIdRow` under `tsc --strict` without this cast (verified
-        // against real `tsc --checkJs --strict`).
-        assert!(
-            query_fn.contains("const rows = /** @type {Array<GetUserByIdRow>} */ (await sql`"),
-            "got:\n{query_fn}"
-        );
-        assert!(
-            query_fn.contains(
-                "const row = rows[0];\n\tif (row === undefined) throw new Error(\"no row found for query: GetUserById\");\n\treturn row;"
-            ),
-            "`:one` must throw on a missing row, not return null; got:\n{query_fn}"
-        );
-        assert!(
-            !query_fn.contains("?? null"),
-            "`:one` must not return null; got:\n{query_fn}"
-        );
-    }
-
-    #[test]
-    fn test_js_mode_many_query_fn_returns_promise_array() {
-        let backend = js_backend();
-        let query = query_with_nullable_and_non_nullable_columns(QueryCommand::Many);
-        let result = crate::generate_with_backend(&query, &backend).unwrap();
-        let query_fn = result.query_fn.as_deref().unwrap();
-
-        assert!(
-            query_fn.contains("@returns {Promise<GetUserByIdRow[]>}"),
-            "got:\n{query_fn}"
-        );
-        assert!(query_fn.contains("return rows;"), "got:\n{query_fn}");
-        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
-    }
-
-    #[test]
-    fn test_js_mode_exec_query_fn_returns_promise_void() {
-        let backend = js_backend();
-        let mut query = query_with_nullable_and_non_nullable_columns(QueryCommand::Exec);
-        query.sql = "DELETE FROM users WHERE id = $1".to_string();
-        let result = crate::generate_with_backend(&query, &backend).unwrap();
-        let query_fn = result.query_fn.as_deref().unwrap();
-
-        assert!(query_fn.contains("@returns {Promise<void>}"), "got:\n{query_fn}");
-        assert!(
-            query_fn.contains("export async function getUserById(sql, id) {"),
-            "got:\n{query_fn}"
-        );
-    }
-
-    #[test]
-    fn test_js_mode_rejects_zod_row_type_and_camel_case_and_outer_join_unions() {
-        for (key, value) in [
-            ("row_type", "zod"),
-            ("field_case", "camelCase"),
-            ("outer_join_unions", "true"),
-        ] {
-            let mut backend = js_backend();
-            let err = backend
-                .apply_options(&std::collections::HashMap::from([(key.to_string(), value.to_string())]))
-                .expect_err(&format!("javascript-postgres must reject {key} = {value}"));
-            assert!(err.to_string().contains("javascript-postgres"), "{err}");
-        }
-    }
-
     #[test]
     fn test_query_fn_doc_comes_from_the_query_description() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let mut query = make_one_query("SELECT id FROM users", vec![]);
         query.command = QueryCommand::Many;
         query.description = Some("The account a credential belongs to, as stored now.".to_string());
@@ -2831,7 +1954,7 @@ mod tests {
 
     #[test]
     fn test_query_fn_multi_line_description_renders_a_jsdoc_block() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let mut query = make_one_query("DELETE FROM users", vec![]);
         query.command = QueryCommand::Exec;
         query.description = Some("Forget every user.\n\nCannot be undone */ really.".to_string());
@@ -2848,7 +1971,7 @@ mod tests {
 
     #[test]
     fn test_query_fn_without_description_keeps_the_fallback() {
-        let backend = TypescriptPostgresBackend::new().unwrap();
+        let backend = TypescriptBunBackend::new().unwrap();
         let mut query = make_one_query("DELETE FROM users", vec![]);
         query.command = QueryCommand::Exec;
         let result = crate::generate_with_backend(&query, &backend).unwrap();
@@ -2856,20 +1979,6 @@ mod tests {
 
         assert!(
             query_fn.contains("/** Execute a query returning no rows. */"),
-            "got:\n{query_fn}"
-        );
-    }
-
-    #[test]
-    fn test_javascript_query_fn_description_leads_the_jsdoc_header() {
-        let backend = TypescriptPostgresBackend::new_js().unwrap();
-        let mut query = make_one_query("SELECT id FROM users", vec![]);
-        query.description = Some("The first user.\nOr the only one.".to_string());
-        let result = crate::generate_with_backend(&query, &backend).unwrap();
-        let query_fn = result.query_fn.as_deref().unwrap();
-
-        assert!(
-            query_fn.contains("/**\n * The first user.\n * Or the only one.\n * @param"),
             "got:\n{query_fn}"
         );
     }

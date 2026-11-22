@@ -3,8 +3,7 @@
 //! unions, and `constraints = "ignore" | "warn" | "error"` deciding what
 //! happens to a constraint the output cannot carry.
 //!
-//! Pinned for every backend that offers the option: `typescript-bun`,
-//! `typescript-postgres` and `typescript-pg`.
+//! Pinned for `typescript-bun`.
 
 #![cfg(feature = "lang-typescript")]
 
@@ -41,7 +40,7 @@ const ADD: &str = "-- @name AddCause\n-- @returns :exec\n\
 
 const NOTES: &str = "-- @name CauseNotes\n-- @returns :many\nSELECT notes, raised FROM causes;";
 
-const BACKENDS: [&str; 2] = ["typescript-bun", "typescript-postgres"];
+const BACKENDS: [&str; 1] = ["typescript-bun"];
 
 fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
     let mut backend = get_backend(name).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -158,15 +157,10 @@ fn should_fail_on_untranslated_constraints_under_error() {
 }
 
 #[test]
-fn should_reject_invalid_option_values_and_js_mode() {
+fn should_reject_invalid_option_values() {
     for (key, value) in [("validation", "zod"), ("constraints", "fail")] {
         let mut backend = get_backend("typescript-bun").unwrap();
         let options = HashMap::from([(key.to_string(), value.to_string())]);
         assert!(backend.apply_options(&options).is_err(), "{key} = {value}");
-    }
-    for name in ["javascript-bun", "javascript-postgres"] {
-        let mut backend = get_backend(name).unwrap();
-        let options = HashMap::from([("validation".to_string(), "jsdoc".to_string())]);
-        assert!(backend.apply_options(&options).is_err(), "{name}");
     }
 }

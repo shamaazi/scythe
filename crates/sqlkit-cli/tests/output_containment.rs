@@ -145,12 +145,12 @@ fn generate_rejects_two_targets_that_would_clobber_each_other() {
     std::fs::write(dir.path().join("schema.sql"), SCHEMA_SQL).unwrap();
     std::fs::write(dir.path().join("queries.sql"), QUERY_SQL).unwrap();
 
-    // typescript-postgres and typescript-bun are both TypeScript backends, so both
-    // emit "queries.ts" -- sharing `output = "o"` makes them collide.
+    // `typescript` is an alias of typescript-bun, so both emit "queries.ts" --
+    // sharing `output = "o"` makes them collide.
     let config = "[sqlkit]\nversion = \"1\"\n\n\
         [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
         schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
-        [[sql.gen]]\nbackend = \"typescript-postgres\"\noutput = \"o\"\n\n\
+        [[sql.gen]]\nbackend = \"typescript\"\noutput = \"o\"\n\n\
         [[sql.gen]]\nbackend = \"typescript-bun\"\noutput = \"o\"\n";
     let config_path = dir.path().join("sqlkit.toml");
     std::fs::write(&config_path, config).unwrap();
@@ -167,7 +167,7 @@ fn generate_rejects_two_targets_that_would_clobber_each_other() {
         "two targets writing the same file must be rejected, not silently clobber each other; stderr: {err}"
     );
     assert!(
-        err.contains("typescript-postgres") && err.contains("typescript-bun"),
+        err.contains("'typescript'") && err.contains("'typescript-bun'"),
         "the error must name both colliding targets; stderr: {err}"
     );
     assert!(

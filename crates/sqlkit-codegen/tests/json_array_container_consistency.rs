@@ -25,16 +25,10 @@ use std::path::{Path, PathBuf};
 use sqlkit_backend::manifest::load_manifest;
 
 /// Manifests allowed to declare `json_array`, each with why it is honest.
-const JSON_ARRAY_ALLOWLIST: &[(&str, &str)] = &[
-    (
-        "typescript-postgres",
-        "postgres.js parses json/jsonb by default, giving the same shape guarantee as node-postgres.",
-    ),
-    (
-        "typescript-bun",
-        "Bun's built-in SQL client parses json/jsonb by default, giving the same shape guarantee as node-postgres.",
-    ),
-];
+const JSON_ARRAY_ALLOWLIST: &[(&str, &str)] = &[(
+    "typescript-bun",
+    "Bun's built-in SQL client parses json/jsonb by default, so the declared array shape holds.",
+)];
 
 /// The only manifests whose backend implements `generate_nested_struct_def`.
 ///
@@ -43,12 +37,7 @@ const JSON_ARRAY_ALLOWLIST: &[(&str, &str)] = &[
 /// returns, never on this key. Adding one without the matching backend override
 /// would be a declaration that does nothing at all, which is why this list is
 /// pinned rather than left to drift.
-const JSON_NESTED_BACKENDS: &[&str] = &[
-    "rust-sqlx",
-    "rust-tokio-postgres",
-    "typescript-bun",
-    "typescript-postgres",
-];
+const JSON_NESTED_BACKENDS: &[&str] = &["rust-sqlx", "rust-tokio-postgres", "typescript-bun"];
 
 fn manifest_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("manifests")

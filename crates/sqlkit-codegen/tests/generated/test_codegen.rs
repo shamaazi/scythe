@@ -57,7 +57,7 @@ fn test_select_all_reuses_model() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -221,7 +221,7 @@ fn test_pascal_case_structs() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -396,7 +396,7 @@ fn test_snake_case_fields() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -544,7 +544,7 @@ fn test_exec_query_fn() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -702,7 +702,7 @@ fn test_one_query_fn() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -876,7 +876,7 @@ fn test_simple_query_fn() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {

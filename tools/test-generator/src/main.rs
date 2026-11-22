@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// The backend names probed for codegen verification.
-const CANDIDATE_BACKENDS: &[&str] = &["rust-sqlx", "rust-tokio-postgres", "typescript-postgres"];
+const CANDIDATE_BACKENDS: &[&str] = &["rust-sqlx", "rust-tokio-postgres", "typescript-bun"];
 
 /// The `cfg` predicate under which `backend` (a canonical `{language}-{driver}` name) is
 /// compiled into sqlkit-codegen.

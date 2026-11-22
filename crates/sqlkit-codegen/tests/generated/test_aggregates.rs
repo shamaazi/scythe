@@ -45,7 +45,7 @@ fn test_group_by_count() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -201,7 +201,7 @@ fn test_group_by_having() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -361,7 +361,7 @@ fn test_group_by_multiple_aggregates() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -570,7 +570,7 @@ fn test_array_agg_stays_scalar() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -759,7 +759,7 @@ fn test_json_agg_left_join_nullable_elements() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -875,7 +875,7 @@ fn test_json_agg_left_join_nullable_elements() {
                         generated.degraded_nested_structs
                     );
                 }
-                if *backend_name == "typescript-postgres" {
+                if *backend_name == "typescript-bun" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
@@ -1006,7 +1006,7 @@ fn test_json_agg_wildcard_nested_struct() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1122,7 +1122,7 @@ fn test_json_agg_wildcard_nested_struct() {
                         generated.degraded_nested_structs
                     );
                 }
-                if *backend_name == "typescript-postgres" {
+                if *backend_name == "typescript-bun" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
@@ -1240,7 +1240,7 @@ fn test_jsonb_agg_wildcard_nested_struct() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1332,7 +1332,7 @@ fn test_jsonb_agg_wildcard_nested_struct() {
                     backend_name,
                     "jsonb_agg_wildcard_nested_struct"
                 );
-                if *backend_name == "typescript-postgres" {
+                if *backend_name == "typescript-bun" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
@@ -1435,7 +1435,7 @@ fn test_row_to_json_wildcard_nested_struct() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1551,7 +1551,7 @@ fn test_row_to_json_wildcard_nested_struct() {
                         generated.degraded_nested_structs
                     );
                 }
-                if *backend_name == "typescript-postgres" {
+                if *backend_name == "typescript-bun" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
@@ -1616,7 +1616,7 @@ fn test_string_agg_stays_scalar() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1761,7 +1761,7 @@ fn test_avg_float64_stays_float64() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -1906,7 +1906,7 @@ fn test_sum_float32_stays_float32() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2051,7 +2051,7 @@ fn test_sum_float64_stays_float64() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2196,7 +2196,7 @@ fn test_sum_int32_widens_to_int64() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2341,7 +2341,7 @@ fn test_sum_int64_widens_to_decimal() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2501,7 +2501,7 @@ fn test_window_lag_lead() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2655,7 +2655,7 @@ fn test_window_ntile() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2815,7 +2815,7 @@ fn test_window_partition_by() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -2972,7 +2972,7 @@ fn test_window_rank_dense_rank() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -3123,7 +3123,7 @@ fn test_window_row_number() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {
@@ -3283,7 +3283,7 @@ fn test_window_sum_over_partition() {
         #[cfg(feature = "lang-rust")]
         "rust-tokio-postgres",
         #[cfg(feature = "lang-typescript")]
-        "typescript-postgres",
+        "typescript-bun",
     ];
     for backend_name in all_backends {
         let backend = match sqlkit_codegen::get_backend(backend_name) {

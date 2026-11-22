@@ -1,9 +1,8 @@
-//! Regression tests for board #204: `typescript-postgres` declared a nullable composite column on the generated row `interface`
+//! Regression tests for board #204: the TypeScript backend declared a nullable composite column on the generated row `interface`
 //! (e.g. `homeAddress: WidgetAddress | null`), but read it with nothing more than a
 //! compile-time cast (`row.home_address as WidgetAddress | null`, or the driver's own generic
-//! type parameter, e.g. `client.query<GetWidgetRow>(...)`). postgres.js registers no
-//! decoder for a user-defined composite type (its `src/types.js` has no
-//! `record`/`typtype`/composite handling at all) and hands back PostgreSQL's raw composite
+//! type parameter, e.g. `client.query<GetWidgetRow>(...)`). the driver registers no
+//! decoder for a user-defined composite type and hands back PostgreSQL's raw composite
 //! *text form* (`"(a,b,c)"`), a plain `string`. A TypeScript `as T` cast is compile-time only,
 //! so at runtime `row.home_address` is still that string, and `row.home_address.street` reads
 //! `undefined` -- silently, with no thrown error.
@@ -101,21 +100,19 @@ fn assert_contains(backend: &str, code: &str, needle: &str, why: &str) {
     );
 }
 
-// -- pg: composite columns route through parse{Name}, never a bare cast -----------------------
-
-// -- postgres.js: same defect, bracket-access row shape -----------------------------------------
+// -- composite columns route through parse{Name}, never a bare cast --------------------------
 
 #[test]
-fn postgres_reads_composite_columns_through_parse_fn_not_bare_cast() {
-    let code = generated_text("typescript-postgres", QUERY);
+fn typescript_reads_composite_columns_through_parse_fn_not_bare_cast() {
+    let code = generated_text("typescript-bun", QUERY);
     assert_contains(
-        "typescript-postgres",
+        "typescript-bun",
         &code,
         "home_address: parseWidgetAddress(row['home_address']) as WidgetAddress | null,",
-        "postgres.js hands back the composite's raw text form as a string; it must be parsed",
+        "Bun hands back the composite's raw text form as a string; it must be parsed",
     );
     assert_contains(
-        "typescript-postgres",
+        "typescript-bun",
         &code,
         "tag_only: parseInnerThing(row['tag_only']) as InnerThing,",
         "a composite selected directly, not only nested, must read the same way",
@@ -123,16 +120,16 @@ fn postgres_reads_composite_columns_through_parse_fn_not_bare_cast() {
 }
 
 #[test]
-fn postgres_composite_parse_fn_returns_null_for_a_null_column() {
-    let code = generated_text("typescript-postgres", QUERY);
+fn typescript_composite_parse_fn_returns_null_for_a_null_column() {
+    let code = generated_text("typescript-bun", QUERY);
     assert_contains(
-        "typescript-postgres",
+        "typescript-bun",
         &code,
         "export function parseWidgetAddress(raw: unknown): WidgetAddress | null {",
         "the function must accept the driver's untyped value and be able to return null",
     );
     assert_contains(
-        "typescript-postgres",
+        "typescript-bun",
         &code,
         "if (raw === null || raw === undefined) {\n\t\treturn null;\n\t}",
         "a SQL NULL composite column must produce null",
@@ -167,6 +164,6 @@ fn assert_file_compiles(backend_name: &str, file: String) {
 }
 
 #[test]
-fn postgres_composite_read_file_compiles() {
-    assert_file_compiles("typescript-postgres", generated_file("typescript-postgres", QUERY));
+fn typescript_composite_read_file_compiles() {
+    assert_file_compiles("typescript-bun", generated_file("typescript-bun", QUERY));
 }

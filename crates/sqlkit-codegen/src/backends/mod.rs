@@ -8,9 +8,9 @@ pub(crate) mod sqlx;
 #[cfg(feature = "lang-rust")]
 pub(crate) mod tokio_postgres;
 #[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_common;
+pub(crate) mod typescript_bun;
 #[cfg(feature = "lang-typescript")]
-pub(crate) mod typescript_postgres;
+pub(crate) mod typescript_common;
 
 use sqlkit_backend::manifest::BackendManifest;
 use sqlkit_core::analyzer::AnalyzedParam;
@@ -647,21 +647,9 @@ pub fn get_backend(name: &str) -> Result<Box<dyn CodegenBackend>, SqlkitError> {
         "rust-tokio-postgres" | "tokio-postgres" => {
             backend!("lang-rust", tokio_postgres::TokioPostgresBackend::new())
         }
-        "typescript-postgres" | "ts" | "typescript" => {
-            backend!("lang-typescript", typescript_postgres::TypescriptPostgresBackend::new())
+        "typescript-bun" | "typescript" | "ts" => {
+            backend!("lang-typescript", typescript_bun::TypescriptBunBackend::new())
         }
-        "javascript-postgres" => backend!(
-            "lang-typescript",
-            typescript_postgres::TypescriptPostgresBackend::new_js()
-        ),
-        "typescript-bun" => backend!(
-            "lang-typescript",
-            typescript_postgres::TypescriptPostgresBackend::new_bun()
-        ),
-        "javascript-bun" => backend!(
-            "lang-typescript",
-            typescript_postgres::TypescriptPostgresBackend::new_bun_js()
-        ),
         _ => {
             return Err(SqlkitError::new(
                 ErrorCode::InvalidConfig,

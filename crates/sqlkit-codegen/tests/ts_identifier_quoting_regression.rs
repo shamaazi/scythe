@@ -42,7 +42,7 @@ use sqlkit_core::catalog::Catalog;
 use sqlkit_core::parser::parse_query;
 
 /// Every TypeScript backend.
-const TS_BACKENDS: [&str; 2] = ["typescript-postgres", "typescript-bun"];
+const TS_BACKENDS: [&str; 1] = ["typescript-bun"];
 
 /// A schema/query pair whose column names need quoting.
 fn fixture() -> (&'static str, [&'static str; 3]) {
@@ -63,9 +63,6 @@ fn fixture() -> (&'static str, [&'static str; 3]) {
         ],
     )
 }
-
-/// The `javascript-*` (JSDoc emit mode, #81) counterpart of [`TS_BACKENDS`].
-const JS_BACKENDS: [&str; 2] = ["javascript-postgres", "javascript-bun"];
 
 /// The three keys every fixture projects, spelled as they must appear in the
 /// generated file: quoted.
@@ -179,67 +176,6 @@ fn every_typescript_backend_quotes_non_identifier_column_names() {
     }
 }
 
-/// JSDoc has no quoted or bracketed name form for `@property`/`@param`, so
-/// neither of #215's TypeScript fixes (quoting the declared key, bracket-
-/// accessing the read) apply to the `javascript-*` (JSDoc emit mode, #81)
-/// backends. This must fail before the fix: `with-dash`, `my col` and `2fa`
-/// reached `@property {string} with-dash` etc. verbatim, which is not a
-/// parseable JSDoc name token (a whitespace-containing one splits into a
-/// name and a bogus description; a leading digit is not a valid identifier
-/// start either).
-#[cfg(feature = "lang-typescript")]
-#[test]
-fn every_javascript_backend_describes_non_identifier_columns_with_a_quoted_typedef_key() {
-    for backend_name in JS_BACKENDS {
-        let backend = build(backend_name, &HashMap::new());
-        let codes = generate_all(&*backend);
-        let file = assemble(&*backend, &codes);
-
-        // The row typedef must keep the driver's own key spelling. A
-        // `javascript-*` query fn ends in `return rows;`, so the runtime keys
-        // are the SQL column names -- a JSDoc name that mangled them would
-        // tell `tsc --checkJs` the row has a `my_col` property, making
-        // `row["my col"]` an error and `row.my_col` a silent `undefined`.
-        for quoted in ["\"with-dash\":", "\"my col\":", "\"2fa\":"] {
-            assert!(
-                file.contains(quoted),
-                "{backend_name}: expected the row typedef to carry the quoted key `{quoted}`; got:\n{file}"
-            );
-        }
-
-        // `@property` cannot hold a quoted name -- TypeScript's JSDoc parser
-        // rejects it with `TS1003: Identifier expected` -- so a hostile column
-        // must never reach a bare JSDoc name position. Anchored on the `}`
-        // that closes a `{type}` capture, which is the JSDoc name position, so
-        // this cannot match the raw SQL text quoted elsewhere in the file.
-        //
-        // Only the *unmangled* spellings are banned. A mangled `with_dash` is
-        // legitimate and expected in `@param`: a function parameter is a
-        // binding, the emitted signature already mangles it via
-        // `naming::param_name`, and the JSDoc name has to match the binding it
-        // documents. It is the row *key* that must stay the column's own
-        // spelling, because that object comes straight from the driver.
-        for bare in ["with-dash", "my col", "2fa"] {
-            assert!(
-                !file.contains(&format!("}} {bare}\n")),
-                "{backend_name}: `{bare}` must not appear as a bare JSDoc name -- a row key \
-                 belongs in the quoted type-literal form, a binding belongs mangled; got:\n{file}"
-            );
-        }
-
-        // The row typedef must not fall back to the `@typedef {object}` +
-        // `@property` form for this row at all, since that form cannot spell
-        // any of the three keys above.
-        assert!(
-            !file.contains("@typedef {object} FindWeirdRow"),
-            "{backend_name}: a row with non-identifier keys must use the type-literal \
-             `@typedef {{{{ ... }}}}` form, not `@typedef {{object}}`; got:\n{file}"
-        );
-
-        tool_check(backend_name, &file);
-    }
-}
-
 /// This must fail before the fix: the bracket-access read paths spliced the
 /// column name into a single-quoted JS string without escaping, so a column
 /// named `it's` produced `row['it's']` -- the literal closes after `it`.
@@ -250,7 +186,7 @@ fn an_apostrophe_in_a_column_name_is_escaped_in_bracket_reads() {
     const QUERY: &str = "-- @name FindWeird\n-- @returns :many\nSELECT id, \"it's\" FROM weird;";
 
     let options = HashMap::from([("field_case".to_string(), "camelCase".to_string())]);
-    for backend_name in ["typescript-postgres", "typescript-bun"] {
+    for backend_name in TS_BACKENDS {
         let backend = build(backend_name, &options);
         let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
         let parsed = parse_query(QUERY).unwrap();

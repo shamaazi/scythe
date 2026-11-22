@@ -4,50 +4,10 @@ use std::process::Command;
 /// Returns a list of errors (empty = passed).
 pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
     match backend_name {
-        "typescript-postgres" | "typescript-bun" => validate_typescript(code),
-        "javascript-postgres" | "javascript-bun" => validate_javascript(code),
+        "typescript-bun" => validate_typescript(code),
         "rust-sqlx" | "rust-tokio-postgres" => vec![],
         _ => vec![format!("unknown backend: {}", backend_name)],
     }
-}
-
-/// Structurally validate the `javascript-*` (JSDoc emit mode, #81) backends.
-///
-/// Unlike [`validate_typescript`], this rejects the TypeScript-only
-/// declaration forms those backends' generated `.ts` output legitimately
-/// uses (`export interface`, `export enum`) -- a plain `.js` file can never
-/// contain them, so their presence here means a `js_mode` branch fell
-/// through to the TypeScript path by mistake.
-fn validate_javascript(code: &str) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    let has_function = code.contains("export async function") || code.contains("export function");
-    let has_typedef = code.contains("@typedef");
-    if !has_typedef && !has_function {
-        errors.push("missing `@typedef` (for DTOs) and `export function`/`export async function`".into());
-    }
-    if !has_function {
-        errors.push("missing `export async function` or `export function`".into());
-    }
-    if code.contains("export interface") {
-        errors.push("contains `export interface` -- TypeScript-only syntax, invalid in plain .js".into());
-    }
-    if code.contains("export enum") {
-        errors.push("contains `export enum` -- TypeScript-only syntax, invalid in plain .js".into());
-    }
-
-    for line in code.lines() {
-        let trimmed = line.trim();
-        if find_disallowed_any_usage(trimmed).is_some() {
-            errors.push(format!(
-                "contains `any` type (should use `unknown` or specific): {}",
-                trimmed
-            ));
-            break;
-        }
-    }
-
-    errors
 }
 
 fn validate_typescript(code: &str) -> Vec<String> {
@@ -313,21 +273,12 @@ fn tool_present(tool: &str, probe_arg: &str) -> bool {
     Command::new(tool).arg(probe_arg).output().is_ok()
 }
 
-/// Which of a process's streams a checker writes its diagnostics to.
-#[derive(Clone, Copy)]
-enum Stream {
-    Stdout,
-    Stderr,
-    /// Both, concatenated. `poly` splits its report across the two, so
-    /// picking either one alone drops half the diagnostic.
-    Both,
-}
-
-/// Run `tool` with `args` and turn a non-zero exit into findings.
+/// Run `tool` with `args` and turn a non-zero exit into findings, read from
+/// stdout and stderr concatenated (`poly` splits its report across the two).
 ///
 /// `max_lines` caps how much of the diagnostic output is kept; a syntax error
 /// can produce hundreds of cascading lines and only the first few locate it.
-fn run_tool(tool: &'static str, args: &[&str], stream: Stream, max_lines: usize) -> Result<Vec<String>, ToolOutcome> {
+fn run_tool(tool: &'static str, args: &[&str], max_lines: usize) -> Result<Vec<String>, ToolOutcome> {
     let output = Command::new(tool)
         .args(args)
         .output()
@@ -340,15 +291,11 @@ fn run_tool(tool: &'static str, args: &[&str], stream: Stream, max_lines: usize)
         return Ok(vec![]);
     }
 
-    let raw = match stream {
-        Stream::Stdout => String::from_utf8_lossy(&output.stdout),
-        Stream::Stderr => String::from_utf8_lossy(&output.stderr),
-        Stream::Both => std::borrow::Cow::Owned(format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        )),
-    };
+    let raw = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     Ok(raw
         .lines()
@@ -365,7 +312,6 @@ fn check_with(
     code: &str,
     ext: &str,
     build_args: impl Fn(&str) -> Vec<String>,
-    stream: Stream,
     max_lines: usize,
 ) -> ToolOutcome {
     if !tool_present(tool, probe_arg) {
@@ -384,7 +330,7 @@ fn check_with(
     let args = build_args(path);
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    match run_tool(tool, &args, stream, max_lines) {
+    match run_tool(tool, &args, max_lines) {
         Ok(errors) => ToolOutcome::Ran { tool, errors },
         Err(outcome) => outcome,
     }
@@ -400,7 +346,6 @@ fn check_with(
 /// see [`ToolOutcome`] for why.
 pub fn validate_with_tools(code: &str, backend_name: &str) -> ToolValidation {
     let outcomes = match backend_name {
-        name if name.starts_with("javascript") => validate_javascript_tools(code),
         name if name.starts_with("typescript") => validate_typescript_tools(code),
         // Rust: `rust-sqlx` expands `sqlx::query_as!`/`sqlx::query!` at
         // compile time, which needs either a live database connection or an
@@ -577,7 +522,6 @@ fn poly_check(code: &str, ext: &str) -> ToolOutcome {
                 .map(|arg| (*arg).to_string())
                 .collect()
         },
-        Stream::Both,
         6,
     )
 }
@@ -610,86 +554,6 @@ fn validate_typescript_tools(code: &str) -> Vec<ToolOutcome> {
     vec![poly_check(code, ".ts")]
 }
 
-/// Path to the hand-written ambient `.d.ts` stubs for the driver packages
-/// (`postgres`, `bun`) the
-/// `javascript-*` (JSDoc emit mode, #81) backends reference via
-/// `import("pkg").Type` JSDoc annotations.
-///
-/// See that file's own header comment for why these are hand-written
-/// stand-ins rather than the real `@types/*` packages (no `npm install` at
-/// test time -- this must stay hermetic and offline-safe).
-fn js_mode_driver_stub_path() -> std::path::PathBuf {
-    std::path::Path::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/js_mode_stubs/driver-stubs.d.ts"
-    ))
-    .to_path_buf()
-}
-
-/// Validate generated `javascript-*` (JSDoc emit mode, #81) code against the
-/// real `node` runtime and, when available, real `tsc --checkJs --strict`.
-///
-/// #81's verification requirement is specifically "runs under `node`, not
-/// `tsx`, plus `tsc --checkJs --strict`", so both are reported as separate
-/// [`ToolOutcome`]s: a machine with `node` but no `tsc` has verified that the
-/// generated source parses, and verified nothing at all about whether its
-/// JSDoc annotations typecheck.
-///
-/// Writes the temp file with a `.mjs` extension rather than `.js`: `node`'s
-/// ESM-vs-CommonJS auto-detection for a bare `.js` file depends on Node
-/// version and on whether some enclosing directory happens to have a
-/// `package.json` with `"type": "module"` -- both outside this test's
-/// control, and both irrelevant to what's actually being verified (that the
-/// generated *source* is valid ESM). `.mjs` is an unambiguous, version-
-/// independent signal that sidesteps that entirely.
-fn validate_javascript_tools(code: &str) -> Vec<ToolOutcome> {
-    // Real `node`, not `tsx`/`ts-node`/a build step: the generated file must
-    // parse as plain ESM as-is. `--check` parses without executing,
-    // without executing it.
-    let parse = check_with(
-        "node",
-        "--version",
-        code,
-        ".mjs",
-        |path| ["--check", path].iter().map(|arg| (*arg).to_string()).collect(),
-        Stream::Stderr,
-        5,
-    );
-
-    let stub = js_mode_driver_stub_path();
-    let typecheck = check_with(
-        "tsc",
-        "--version",
-        code,
-        ".mjs",
-        |path| {
-            let mut args: Vec<String> = [
-                "--checkJs",
-                "--strict",
-                "--allowJs",
-                "--noEmit",
-                "--module",
-                "nodenext",
-                "--moduleResolution",
-                "nodenext",
-                "--target",
-                "es2022",
-            ]
-            .iter()
-            .map(|arg| (*arg).to_string())
-            .collect();
-            args.push(path.to_string());
-            args.push(stub.to_string_lossy().into_owned());
-            args
-        },
-        // tsc writes diagnostics to stdout by default.
-        Stream::Stdout,
-        10,
-    );
-
-    vec![parse, typecheck]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,7 +582,7 @@ export async function listUsers(): Promise<ListUsersRow[]> {
   // ...
 }
 "#;
-        let errors = validate_structural(code, "typescript-postgres");
+        let errors = validate_structural(code, "typescript-bun");
         assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
     }
 
@@ -732,7 +596,7 @@ export async function listUsers(): Promise<ListUsersRow[]> {
   return [];
 }
 "#;
-        let errors = validate_structural(code, "typescript-postgres");
+        let errors = validate_structural(code, "typescript-bun");
         assert!(
             errors.iter().any(|e| e.contains("any")),
             "expected an `any` violation, got: {:?}",

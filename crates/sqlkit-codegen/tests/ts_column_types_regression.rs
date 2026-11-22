@@ -3,8 +3,7 @@
 //! with `T` the type it would have had and `| null` outside, and the file
 //! imports the module's `Column` once, only when a declaration names it.
 //!
-//! Pinned for every backend that offers the option: `typescript-bun`,
-//! `typescript-postgres` and `typescript-pg`.
+//! Pinned for `typescript-bun`.
 
 #![cfg(feature = "lang-typescript")]
 
@@ -44,7 +43,7 @@ const COUNT: &str = "-- @name CountSchedules\n-- @returns :one\nSELECT count(*) 
 
 const MODULE: &str = "@app/database/columns";
 
-const BACKENDS: [&str; 2] = ["typescript-bun", "typescript-postgres"];
+const BACKENDS: [&str; 1] = ["typescript-bun"];
 
 fn backend(name: &str, options: &[(&str, &str)]) -> Box<dyn CodegenBackend> {
     let mut backend = get_backend(name).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -74,14 +73,8 @@ fn text(code: &GeneratedCode) -> String {
         .join("\n")
 }
 
-fn json(name: &str) -> &'static str {
-    if name == "typescript-postgres" {
-        "PostgresJsonValue"
-    } else if name == "typescript-bun" {
-        "SqlJsonValue"
-    } else {
-        "Record<string, unknown>"
-    }
+fn json(_name: &str) -> &'static str {
+    "SqlJsonValue"
 }
 
 #[test]
@@ -183,7 +176,7 @@ fn should_leave_output_unchanged_without_the_option() {
 }
 
 #[test]
-fn should_reject_invalid_modules_zod_and_js_mode() {
+fn should_reject_invalid_modules_and_zod() {
     for options in [
         vec![("column_types", "")],
         vec![("column_types", "mod\"ule")],
@@ -197,11 +190,6 @@ fn should_reject_invalid_modules_zod_and_js_mode() {
                 .collect();
             assert!(backend.apply_options(&options).is_err(), "{name}: {options:?}");
         }
-    }
-    for name in ["javascript-bun", "javascript-postgres"] {
-        let mut backend = get_backend(name).unwrap();
-        let options = HashMap::from([("column_types".to_string(), MODULE.to_string())]);
-        assert!(backend.apply_options(&options).is_err(), "{name}");
     }
 }
 

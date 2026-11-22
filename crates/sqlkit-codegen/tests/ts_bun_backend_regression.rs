@@ -1,8 +1,6 @@
-//! `typescript-bun` / `javascript-bun`: Bun's built-in `SQL` client.
+//! `typescript-bun`: Bun's built-in `SQL` client.
 //!
-//! Bun's tagged-template API copies postgres.js's, so the backend shares
-//! `typescript_postgres.rs`. These tests pin what differs from postgres.js --
-//! the handle type, Bun's result types, the parameter wrappers Bun needs, and
+//! These tests pin the handle type, Bun's result types, the parameter wrappers Bun needs, and
 //! the savepoint-aware `:batch` -- across every query kind, with real schema
 //! and query text run through the analyzer.
 
@@ -74,13 +72,12 @@ fn row_struct(code: &GeneratedCode) -> &str {
 }
 
 #[test]
-fn registry_names_and_engines() {
-    let ts = get_backend("typescript-bun").unwrap();
-    assert_eq!(ts.name(), "typescript-bun");
-    assert_eq!(ts.output_extension(), "ts");
-    let js = get_backend("javascript-bun").unwrap();
-    assert_eq!(js.name(), "javascript-bun");
-    assert_eq!(js.output_extension(), "js");
+fn registry_names_and_aliases() {
+    for name in ["typescript-bun", "typescript", "ts"] {
+        let backend = get_backend(name).unwrap();
+        assert_eq!(backend.name(), "typescript-bun", "{name}");
+        assert_eq!(backend.manifest().backend.file_extension, "ts", "{name}");
+    }
 }
 
 #[test]
@@ -180,17 +177,13 @@ fn exec_wraps_json_but_leaves_builtin_arrays_bare() {
 
 #[test]
 fn parameters_take_what_bun_binds() {
-    for name in ["typescript-bun", "javascript-bun"] {
-        let f = query_fn(&generate(&*backend(name, &[]), CREATE)).to_string();
-        let (numeric, json) = if name == "typescript-bun" {
-            ("amount: number | string", "metadata: unknown | null")
-        } else {
-            ("{number | string} amount", "{unknown | null} metadata")
-        };
-        assert!(f.contains(numeric), "numeric binds from a number or its text: {f}");
-        assert!(f.contains(json), "sql.json takes any value: {f}");
-        assert!(!f.contains("SqlJsonValue"), "{f}");
-    }
+    let f = query_fn(&generate(&*backend("typescript-bun", &[]), CREATE)).to_string();
+    assert!(
+        f.contains("amount: number | string"),
+        "numeric binds from a number or its text: {f}"
+    );
+    assert!(f.contains("metadata: unknown | null"), "sql.json takes any value: {f}");
+    assert!(!f.contains("SqlJsonValue"), "{f}");
     let f = query_fn(&generate(&*backend("typescript-bun", &[]), GET)).to_string();
     assert!(
         f.contains("id: number | string"),
@@ -282,51 +275,4 @@ fn zod_row_type_validates_bun_types() {
 #[test]
 fn outer_join_unions_is_accepted() {
     backend("typescript-bun", &[("outer_join_unions", "true")]);
-}
-
-#[test]
-fn javascript_bun_types_the_handle_through_jsdoc() {
-    let backend = backend("javascript-bun", &[]);
-    let code = generate(&*backend, GET);
-    let f = query_fn(&code);
-    assert!(f.contains("@param {import(\"bun\").SQL} sql"), "{f}");
-    assert!(f.contains("export async function getDonation(sql, id) {"), "{f}");
-
-    let batch = generate(&*backend, MARK_PAID);
-    let f = query_fn(&batch);
-    assert!(f.contains("/** @param {import(\"bun\").SQL} tx */"), "{f}");
-    assert!(
-        f.contains("/** @type {import(\"bun\").TransactionSQL} */ (sql).savepoint(run)"),
-        "{f}"
-    );
-
-    for (key, value) in [
-        ("row_type", "zod"),
-        ("outer_join_unions", "true"),
-        ("field_case", "camelCase"),
-    ] {
-        let mut b = get_backend("javascript-bun").unwrap();
-        let options = HashMap::from([(key.to_string(), value.to_string())]);
-        let err = b
-            .apply_options(&options)
-            .expect_err("JSDoc mode rejects TS-only options");
-        assert!(err.to_string().contains("javascript-bun"), "{err}");
-        assert!(err.to_string().contains("typescript-bun"), "{err}");
-    }
-}
-
-#[test]
-fn postgres_js_output_is_unchanged_by_the_bun_driver() {
-    let code = generate(&*backend("typescript-postgres", &[]), MARK_PAID);
-    let f = query_fn(&code);
-    assert!(f.contains("sql: Sql"), "{f}");
-    assert!(f.contains("await sql.begin(async (tx) => {"), "{f}");
-    let code = generate(&*backend("typescript-postgres", &[]), GET);
-    assert!(row_struct(&code).contains("scores: Array<number> | null;"));
-    assert!(
-        code.enum_def
-            .as_deref()
-            .unwrap()
-            .contains("export enum DonationStatus {")
-    );
 }

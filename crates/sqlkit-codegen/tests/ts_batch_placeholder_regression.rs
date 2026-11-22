@@ -1,5 +1,4 @@
-//! End-to-end regression test for #219: the `typescript-postgres`
-//! (postgres.js) `:batch` path rewrote `$N` placeholders **inside SQL string
+//! End-to-end regression test for #219: the TypeScript `:batch` path rewrote `$N` placeholders **inside SQL string
 //! literals**.
 //!
 //! The `:one`/`:many`/`:exec` paths all go through
@@ -12,12 +11,9 @@
 //! ```
 //!
 //! both occurrences were rewritten, so the literal `'ticket $1 filed'`
-//! became `'ticket ${item.owner} filed'` -- a second live postgres.js
+//! became `'ticket ${item.owner} filed'` -- a second live
 //! binding. Unlike a syntax error this is silent: the statement compiles,
 //! runs, and stores the wrong text.
-//!
-//! Covers the TypeScript emit mode and the `javascript-postgres` JSDoc emit
-//! mode, which had a verbatim copy of the same loop.
 
 #![cfg(feature = "lang-typescript")]
 
@@ -58,7 +54,7 @@ const SINGLE_PARAM_BATCH_QUERY_WITH_FIELD_NAME_IN_LITERAL: &str = "-- @name TagN
     UPDATE notes SET tag = $1 WHERE body = 'literal ${tag} here';";
 
 fn query_fn(backend_name: &str, sql: &str) -> String {
-    let backend: Box<dyn CodegenBackend> = get_backend(backend_name).expect("backend must support postgresql");
+    let backend: Box<dyn CodegenBackend> = get_backend(backend_name).expect("backend must construct");
     let catalog = Catalog::from_ddl(&[SCHEMA]).expect("schema must parse");
     let parsed = parse_query(sql).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
@@ -66,27 +62,26 @@ fn query_fn(backend_name: &str, sql: &str) -> String {
     code.query_fn.expect("expected a query fn")
 }
 
-/// This must fail before the fix on both emit modes: the literal came out as
+/// This must fail before the fix: the literal came out as
 /// `'ticket ${item.body} for ${item.owner}'`.
 #[test]
 fn batch_placeholders_inside_a_sql_string_literal_stay_literal() {
-    for backend_name in ["typescript-postgres", "javascript-postgres"] {
-        let generated = query_fn(backend_name, BATCH_QUERY);
+    let backend_name = "typescript-bun";
+    let generated = query_fn(backend_name, BATCH_QUERY);
 
-        assert!(
-            generated.contains("'ticket $2 for $1'"),
-            "{backend_name}: the SQL string literal must survive untouched (#219); got:\n{generated}"
-        );
-        assert!(
-            !generated.contains("'ticket ${item"),
-            "{backend_name}: a `$N` inside a literal became a live binding (#219); got:\n{generated}"
-        );
-        // The real placeholders still have to be rewritten.
-        assert!(
-            generated.contains("VALUES (${item.owner}, ${item.body},"),
-            "{backend_name}: the actual placeholders must still bind; got:\n{generated}"
-        );
-    }
+    assert!(
+        generated.contains("'ticket $2 for $1'"),
+        "{backend_name}: the SQL string literal must survive untouched (#219); got:\n{generated}"
+    );
+    assert!(
+        !generated.contains("'ticket ${item"),
+        "{backend_name}: a `$N` inside a literal became a live binding (#219); got:\n{generated}"
+    );
+    // The real placeholders still have to be rewritten.
+    assert!(
+        generated.contains("VALUES (${item.owner}, ${item.body},"),
+        "{backend_name}: the actual placeholders must still bind; got:\n{generated}"
+    );
 }
 
 /// The one-parameter branch used to replace the literal text `${field}`
@@ -100,21 +95,20 @@ fn batch_placeholders_inside_a_sql_string_literal_stay_literal() {
 /// the two `:batch` branches cannot regress it either.
 #[test]
 fn a_single_parameter_batch_also_leaves_the_literal_alone() {
-    for backend_name in ["typescript-postgres", "javascript-postgres"] {
-        let generated = query_fn(backend_name, SINGLE_PARAM_BATCH_QUERY);
+    let backend_name = "typescript-bun";
+    let generated = query_fn(backend_name, SINGLE_PARAM_BATCH_QUERY);
 
-        assert!(
-            generated.contains("'literal $1 here'"),
-            "{backend_name}: got:\n{generated}"
-        );
-        assert!(
-            generated.contains("SET tag = ${item}"),
-            "{backend_name}: got:\n{generated}"
-        );
-    }
+    assert!(
+        generated.contains("'literal $1 here'"),
+        "{backend_name}: got:\n{generated}"
+    );
+    assert!(
+        generated.contains("SET tag = ${item}"),
+        "{backend_name}: got:\n{generated}"
+    );
 }
 
-/// This must fail before the fix on both emit modes: a SQL literal
+/// This must fail before the fix: a SQL literal
 /// containing the literal text `${tag}` (the single param's field name) got
 /// its escaped `\${tag}` corrupted to `\${item}` by the old blind
 /// `.replace("${tag}", "${item}")`, because that replace ran over SQL that
@@ -122,23 +116,22 @@ fn a_single_parameter_batch_also_leaves_the_literal_alone() {
 /// the two apart.
 #[test]
 fn a_single_parameter_batch_leaves_a_literal_containing_the_field_name_placeholder_alone() {
-    for backend_name in ["typescript-postgres", "javascript-postgres"] {
-        let generated = query_fn(backend_name, SINGLE_PARAM_BATCH_QUERY_WITH_FIELD_NAME_IN_LITERAL);
+    let backend_name = "typescript-bun";
+    let generated = query_fn(backend_name, SINGLE_PARAM_BATCH_QUERY_WITH_FIELD_NAME_IN_LITERAL);
 
-        assert!(
-            generated.contains(r"'literal \${tag} here'"),
-            "{backend_name}: the SQL literal's own text must survive untouched (#219 residual); got:\n{generated}"
-        );
-        assert!(
-            !generated.contains(r"'literal \${item} here'"),
-            "{backend_name}: the literal's escaped `${{tag}}` must not become a live `${{item}}` binding; \
-             got:\n{generated}"
-        );
-        assert!(
-            generated.contains("SET tag = ${item}"),
-            "{backend_name}: the actual placeholder must still bind to the batch item; got:\n{generated}"
-        );
-    }
+    assert!(
+        generated.contains(r"'literal \${tag} here'"),
+        "{backend_name}: the SQL literal's own text must survive untouched (#219 residual); got:\n{generated}"
+    );
+    assert!(
+        !generated.contains(r"'literal \${item} here'"),
+        "{backend_name}: the literal's escaped `${{tag}}` must not become a live `${{item}}` binding; \
+         got:\n{generated}"
+    );
+    assert!(
+        generated.contains("SET tag = ${item}"),
+        "{backend_name}: the actual placeholder must still bind to the batch item; got:\n{generated}"
+    );
 }
 
 /// The non-batch paths were already literal-aware; this pins that the batch
@@ -146,7 +139,7 @@ fn a_single_parameter_batch_leaves_a_literal_containing_the_field_name_placehold
 #[test]
 fn the_non_batch_paths_remain_literal_aware() {
     let generated = query_fn(
-        "typescript-postgres",
+        "typescript-bun",
         "-- @name FindNote\n-- @returns :many\n\
          SELECT id FROM notes WHERE tag = 'literal $1 here' AND owner = $1;",
     );
@@ -158,33 +151,32 @@ fn the_non_batch_paths_remain_literal_aware() {
 /// Additive: the repository's own checker over the whole generated file.
 #[test]
 fn the_generated_batch_file_passes_tool_validation() {
-    for backend_name in ["typescript-postgres", "javascript-postgres"] {
-        let backend = get_backend(backend_name).unwrap();
-        let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
-        let parsed = parse_query(BATCH_QUERY).unwrap();
-        let analyzed = analyze(&catalog, &parsed).unwrap();
-        let code = generate_with_backend(&analyzed, &*backend).unwrap();
+    let backend_name = "typescript-bun";
+    let backend = get_backend(backend_name).unwrap();
+    let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
+    let parsed = parse_query(BATCH_QUERY).unwrap();
+    let analyzed = analyze(&catalog, &parsed).unwrap();
+    let code = generate_with_backend(&analyzed, &*backend).unwrap();
 
-        let mut file = backend.file_header_for_results(std::slice::from_ref(&code));
-        file.push('\n');
-        for text in [&code.row_struct, &code.query_fn].into_iter().flatten() {
-            file.push_str(text);
-            file.push_str("\n\n");
-        }
+    let mut file = backend.file_header_for_results(std::slice::from_ref(&code));
+    file.push('\n');
+    for text in [&code.row_struct, &code.query_fn].into_iter().flatten() {
+        file.push_str(text);
+        file.push_str("\n\n");
+    }
 
-        let validation = validate_with_tools(&file, backend_name);
+    let validation = validate_with_tools(&file, backend_name);
+    assert!(
+        validation.errors().is_empty(),
+        "{backend_name}: {:#?}\n\nfile:\n{file}",
+        validation.errors()
+    );
+    if strict_mode_enabled() {
         assert!(
-            validation.errors().is_empty(),
-            "{backend_name}: {:#?}\n\nfile:\n{file}",
-            validation.errors()
+            validation.fully_checked(),
+            "{backend_name}: strict mode requires every checker to have run, got {:?} run / {:?} missing",
+            validation.tools_run(),
+            validation.missing_tools()
         );
-        if strict_mode_enabled() {
-            assert!(
-                validation.fully_checked(),
-                "{backend_name}: strict mode requires every checker to have run, got {:?} run / {:?} missing",
-                validation.tools_run(),
-                validation.missing_tools()
-            );
-        }
     }
 }

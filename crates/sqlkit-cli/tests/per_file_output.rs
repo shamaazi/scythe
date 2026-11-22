@@ -39,7 +39,7 @@ const POSTS_SQL: &str = "-- @name ListPosts\n-- @returns :many\nSELECT id, title
 const CONFIG: &str = "[sqlkit]\nversion = \"1\"\n\n\
     [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
     schema = [\"schema.sql\"]\nqueries = [\"src/**/queries.sql\"]\n\n\
-    [[sql.gen]]\nbackend = \"typescript-postgres\"\noutput = \"{dir}\"\n";
+    [[sql.gen]]\nbackend = \"typescript-bun\"\noutput = \"{dir}\"\n";
 
 /// A project with `src/users/queries.sql` and `src/posts/queries.sql`, both
 /// defining a `CountRows` query.

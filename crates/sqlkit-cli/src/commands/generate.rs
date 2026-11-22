@@ -1329,7 +1329,7 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
 /// The output filename for a backend's generated queries file, shared by
 /// writing and header verification (`artifact_paths`).
 fn output_filename(backend: &dyn CodegenBackend) -> String {
-    format!("queries.{}", backend.output_extension())
+    format!("queries.{}", backend.manifest().backend.file_extension)
 }
 
 /// The provenance-header fields that are derived once per `[[sql.gen]]`
@@ -3546,7 +3546,7 @@ backend = \"rust-sqlx\"
         // (backend, the substring that opens the composite's declaration)
         let cases: &[(&str, &str)] = &[
             ("rust-sqlx", "pub struct Address {"),
-            ("typescript-postgres", "export interface Address {"),
+            ("typescript-bun", "export interface Address {"),
         ];
 
         for &(backend_name, marker) in cases {

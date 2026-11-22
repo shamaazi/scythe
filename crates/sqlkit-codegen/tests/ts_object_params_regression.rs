@@ -1,9 +1,7 @@
 //! `params = "object"`: TypeScript query functions that take their parameters
 //! as one object typed by an exported `<Query>Params` interface.
 //!
-//! Pinned for every backend that offers the option -- `typescript-bun`,
-//! `typescript-postgres` (tagged templates) and `typescript-pg` (a values
-//! array) -- with real schema and query text run through the analyzer, so
+//! Pinned for `typescript-bun`, with real schema and query text run through the analyzer, so
 //! declared names (`-- $N: name`) and nullability reach the generated code.
 
 use std::collections::HashMap;
@@ -40,7 +38,7 @@ const GROUPED: &str = "-- @name DonorsWithDonations\n-- @returns :grouped\n-- @g
     -- @param $1 since\n\
     SELECT donor_id, id FROM donations WHERE given_at >= $1;";
 
-const BACKENDS: [&str; 2] = ["typescript-bun", "typescript-postgres"];
+const BACKENDS: [&str; 1] = ["typescript-bun"];
 
 fn generate(backend: &dyn CodegenBackend, sql: &str) -> GeneratedCode {
     let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
@@ -95,7 +93,7 @@ fn takes_one_params_object_typed_by_an_exported_interface() {
 
 #[test]
 fn tagged_template_backends_bind_the_properties_in_place() {
-    for name in ["typescript-bun", "typescript-postgres"] {
+    for name in BACKENDS {
         let code = generate(&*object_backend(name), RECENT);
         let query_fn = query_fn(&code);
         assert!(
@@ -216,16 +214,5 @@ fn rejects_an_unknown_params_style() {
             err.to_string().contains("expected 'positional' or 'object'"),
             "{name}: {err}"
         );
-    }
-}
-
-#[test]
-fn javascript_backends_reject_the_object_style() {
-    for name in ["javascript-bun", "javascript-postgres"] {
-        let mut backend = get_backend(name).unwrap();
-        let err = backend
-            .apply_options(&HashMap::from([("params".to_string(), "object".to_string())]))
-            .expect_err("JSDoc mode has no object style");
-        assert!(err.to_string().contains("params = \"object\""), "{name}: {err}");
     }
 }

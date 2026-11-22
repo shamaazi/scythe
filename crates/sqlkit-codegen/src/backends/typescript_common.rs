@@ -967,14 +967,8 @@ pub fn generate_ts_many_row_remap(
 /// Generate the client-side fold body for a `:grouped` query.
 ///
 /// `row_access(sql_col_name, ts_full_type)` returns the TypeScript expression that
-/// reads that column from the current `row` loop variable.  Examples:
-/// - postgres.js and Bun: `|name, ty| format!("row['{}'] as {}", name, ty)`
-///
-/// Every TypeScript-mode caller casts.
-///
-/// The `javascript-*` emit mode is the sole exception and must never cast:
-/// `as T` is not valid JavaScript. Those callers pass `|name, _ty|` by
-/// necessity, not by preference.
+/// reads that column from the current `row` loop variable, e.g.
+/// `|name, ty| format!("row['{}'] as {}", name, ty)`.
 ///
 /// The helper emits the fold loop into a string that is appended directly inside
 /// the function body; the caller is responsible for surrounding braces.
@@ -985,19 +979,12 @@ pub fn generate_ts_many_row_remap(
 /// plain object per struct at `full_type` regardless of the backend's
 /// `outer_join_unions` setting, so there is no union variant here to agree
 /// with.
-///
-/// `js_mode` drops the `: Type` local-variable annotations and the
-/// `Map<unknown, Type>` generic argument, neither of which plain JavaScript
-/// can parse -- the JSDoc-mode counterpart used by the `javascript-*` emit
-/// mode. The fold logic itself (the `Map`-based grouping loop) is identical
-/// either way, so this stays one function rather than a duplicated one.
 pub fn generate_ts_grouped_fold_body(
     parent_struct_name: &str,
     _child_struct_name: &str,
     parent_columns: &[ResolvedColumn],
     child_columns: &[ResolvedColumn],
     key_col_name: &str,
-    js_mode: bool,
     row_access: impl Fn(&str, &str) -> String,
 ) -> String {
     let key_type = parent_columns
@@ -1006,13 +993,8 @@ pub fn generate_ts_grouped_fold_body(
         .map_or("unknown", |c| c.full_type.as_str());
 
     let mut out = String::new();
-    if js_mode {
-        let _ = writeln!(out, "\tconst result = [];");
-        let _ = writeln!(out, "\tconst index = new Map();");
-    } else {
-        let _ = writeln!(out, "\tconst result: {parent_struct_name}[] = [];");
-        let _ = writeln!(out, "\tconst index = new Map<unknown, {parent_struct_name}>();");
-    }
+    let _ = writeln!(out, "\tconst result: {parent_struct_name}[] = [];");
+    let _ = writeln!(out, "\tconst index = new Map<unknown, {parent_struct_name}>();");
     let _ = writeln!(out, "\tfor (const row of flatRows) {{");
     let _ = writeln!(out, "\t\tconst key = {};", row_access(key_col_name, key_type));
     let _ = writeln!(out, "\t\tlet parent = index.get(key);");
@@ -1040,193 +1022,6 @@ pub fn generate_ts_grouped_fold_body(
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out, "\treturn result;");
     out
-}
-
-/// Render `name` as a JSDoc `@property`/`@param` name token.
-///
-/// JSDoc tag syntax has no quoted or bracketed name form -- the name is a
-/// bare, whitespace-delimited token right after the `{type}` capture -- so
-/// neither of #215's two TypeScript answers to a hostile column name apply
-/// here. [`ts_property_key`]'s `"my col"` quoting and [`ts_index_access`]'s
-/// `row["my col"]` bracket access are both TypeScript/JavaScript *value*
-/// syntax; a `@property`/`@param` name is not a value position and cannot
-/// carry a string literal or a bracket expression. This is the same "no
-/// quoted form" situation `sqlkit_backend::naming::param_name` already
-/// resolves for parameter bindings across every target language, so the fix
-/// here is the same one: fold every character an identifier cannot hold
-/// into `_`, and prefix a leading digit so the token still opens like one.
-///
-/// The JSDoc name can therefore read differently from the row struct's own
-/// field spelling, which deliberately keeps the raw SQL column name (see
-/// [`ts_property_key`]'s doc comment) because it is cast straight onto the
-/// driver's row. That divergence is unavoidable once the name has to fit a
-/// syntax with no quoting at all -- it is the same trade-off every
-/// `sanitize_field_names` backend already accepts, for the same reason.
-pub fn js_doc_name(name: &str) -> String {
-    if is_ts_identifier(name) {
-        return name.to_string();
-    }
-    let mut mangled = String::with_capacity(name.len());
-    for ch in name.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
-            mangled.push(ch);
-        } else {
-            mangled.push('_');
-        }
-    }
-    if mangled.starts_with(|c: char| c.is_ascii_digit()) {
-        mangled.insert(0, '_');
-    }
-    mangled
-}
-
-/// Render one JSDoc `@property` line for a row typedef.
-///
-/// This function's source is grepped by a dedicated test
-/// (`test_js_property_line_source_cannot_emit_optional_syntax_into_the_name_position`)
-/// to guarantee no future edit can reintroduce JSDoc's bracket-optional
-/// (`[name]`) or `?`-suffix property syntax here. A nullable SQL column is a
-/// property that is always present on the row and may hold `null` --
-/// `{T | null}` -- never a property that may be *absent*, which is what
-/// `[name]`/`name?` mean in JSDoc. `col.full_type` already carries the
-/// `| null` suffix when `col.nullable` is true (computed once, upstream, by
-/// the type resolver -- see [`ResolvedColumn`]), so this function has no
-/// reason to branch on `col.nullable` at all: there is deliberately no such
-/// conditional here for the grep guard to catch a regression of.
-///
-/// The name goes through [`js_doc_name`] because a column is not guaranteed
-/// to be identifier-shaped and JSDoc's `@property` name has no quoted form
-/// -- see that function's doc comment.
-// jsdoc-property-line-start
-pub fn js_property_line(col: &ResolvedColumn) -> String {
-    format!(" * @property {{{}}} {}", col.full_type, js_doc_name(&col.field_name))
-}
-// jsdoc-property-line-end
-
-/// True when every column's key can be spelled as a bare JSDoc `@property`
-/// name. See [`render_row_typedef_body`] for why that governs which of two
-/// `@typedef` forms a row gets.
-fn every_key_is_a_bare_jsdoc_name(columns: &[ResolvedColumn]) -> bool {
-    columns.iter().all(|col| is_ts_identifier(&col.field_name))
-}
-
-/// Render the `@typedef` line(s) describing a row's shape, choosing between
-/// JSDoc's two forms according to whether any key needs quoting.
-///
-/// A generated row typedef describes the object the *driver* hands back:
-/// the `javascript-*` query fns end in `return rows;`, so the runtime keys
-/// are the column's own SQL spelling, exactly as in TypeScript mode, where
-/// [`ts_property_key`] quotes rather than mangles for precisely this reason.
-///
-/// JSDoc has two ways to describe an object and they do not have the same
-/// expressive power, which is what forces the branch here:
-///
-/// * `@typedef {object} Name` plus one `@property {T} key` line each. The
-///   `@property` name is a bare token -- TypeScript's JSDoc parser rejects a
-///   quoted one with `TS1003: Identifier expected` -- so this form simply
-///   cannot describe a key like `my col`.
-/// * `@typedef {{ "my col": string, id: number }} Name`, an inline object
-///   type expression, which accepts quoted keys and checks clean.
-///
-/// Mangling the name to fit the first form would be a silent wrong answer,
-/// not a cosmetic one: `@property {string} my_col` tells `tsc --checkJs`
-/// that the row has a `my_col` property, so `row["my col"]` -- the access
-/// that actually works at runtime -- becomes an error, while `row.my_col`
-/// type-checks and is `undefined`. That is the same trade the row-key
-/// contract rejects everywhere else in this file.
-///
-/// The `@property` form is kept for the overwhelmingly common all-identifier
-/// case so ordinary generated output stays byte-identical and stays readable;
-/// the type-literal form is used only where the first form would lie.
-fn render_row_typedef_body(out: &mut String, struct_name: &str, columns: &[ResolvedColumn], children_of: Option<&str>) {
-    if every_key_is_a_bare_jsdoc_name(columns) {
-        let _ = writeln!(out, " * @typedef {{object}} {}", struct_name);
-        for col in columns {
-            let _ = writeln!(out, "{}", js_property_line(col));
-        }
-        if let Some(child_struct_name) = children_of {
-            let _ = writeln!(out, " * @property {{{}[]}} children", child_struct_name);
-        }
-        return;
-    }
-
-    let mut fields: Vec<String> = columns
-        .iter()
-        .map(|col| format!("{}: {}", ts_property_key(&col.field_name), col.full_type))
-        .collect();
-    if let Some(child_struct_name) = children_of {
-        fields.push(format!("children: {child_struct_name}[]"));
-    }
-    let _ = writeln!(out, " * @typedef {{{{ {} }}}} {}", fields.join(", "), struct_name);
-}
-
-/// Render a plain-JS JSDoc `@typedef` for a row -- the JSDoc-mode
-/// counterpart of [`generate_ts_interface_row_struct`], used by the
-/// `javascript-*` emit mode of the TypeScript backends (#81). The
-/// nullable-as-`T | null` rule applies uniformly here too, via either
-/// [`js_property_line`] or the column's `full_type` directly; see
-/// [`render_row_typedef_body`] for which form a given row gets.
-pub fn generate_js_typedef_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
-    let mut out = String::new();
-    let _ = writeln!(out, "/**");
-    let _ = writeln!(out, " * Row type for {} queries.", query_name);
-    render_row_typedef_body(&mut out, struct_name, columns, None);
-    let _ = write!(out, " */");
-    out
-}
-
-/// Render a generic JSDoc `@typedef` from arbitrary `(name, type)` fields --
-/// used for `:batch` params objects, which are built from [`ResolvedParam`]s
-/// rather than [`ResolvedColumn`]s and so carry no SQL nullability to encode,
-/// and for composite type typedefs.
-///
-/// `name` goes through [`js_doc_name`] like every other JSDoc name token.
-/// `ResolvedParam::field_name` is already identifier-mangled unconditionally
-/// (`sqlkit_backend::naming::param_name` has no `sanitize_field_names`
-/// opt-out, unlike columns), so this is a no-op for the batch-params caller;
-/// it is load-bearing for the composite-field caller, whose names go through
-/// `to_camel_case` only and can still carry non-identifier characters.
-pub fn generate_js_typedef(type_name: &str, description: &str, fields: &[(String, String)]) -> String {
-    let mut out = String::new();
-    let _ = writeln!(out, "/**");
-    let _ = writeln!(out, " * {}", description);
-    let _ = writeln!(out, " * @typedef {{object}} {}", type_name);
-    for (name, ty) in fields {
-        let _ = writeln!(out, " * @property {{{}}} {}", ty, js_doc_name(name));
-    }
-    let _ = write!(out, " */");
-    out
-}
-
-/// Render paired child + parent JSDoc `@typedef`s for a `:grouped` query --
-/// the JSDoc-mode counterpart of [`generate_grouped_interface_structs`].
-pub fn generate_js_grouped_typedef_structs(
-    child_struct_name: &str,
-    parent_struct_name: &str,
-    parent_columns: &[ResolvedColumn],
-    child_columns: &[ResolvedColumn],
-) -> String {
-    let mut out = String::new();
-    let _ = writeln!(out, "/**");
-    let _ = writeln!(out, " * Child row type for grouped query.");
-    render_row_typedef_body(&mut out, child_struct_name, child_columns, None);
-    let _ = writeln!(out, " */");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "/**");
-    let _ = writeln!(out, " * Parent row type for grouped query.");
-    render_row_typedef_body(&mut out, parent_struct_name, parent_columns, Some(child_struct_name));
-    let _ = write!(out, " */");
-    out
-}
-
-/// Render a JSDoc inline type cast: `/** @type {T} */ (expr)`.
-///
-/// The JSDoc analog of a TypeScript `as T` assertion, for plain `.js` files
-/// checked with `tsc --checkJs`. `as` is TS-only syntax and would make the
-/// file fail to parse as JavaScript, so the `javascript-*` emit mode uses
-/// this everywhere a TypeScript backend would write `expr as T`.
-pub fn js_type_cast(ty: &str, expr: &str) -> String {
-    format!("/** @type {{{ty}}} */ ({expr})")
 }
 
 /// Keep free text from closing the JSDoc block it is written into.
@@ -1260,43 +1055,6 @@ pub fn ts_query_doc(analyzed: &sqlkit_core::analyzer::AnalyzedQuery, fallback: &
         let _ = writeln!(out, "/** {} */", jsdoc_text(text));
     }
     out
-}
-
-/// Render a JSDoc block combining a description (one or more lines), one `@param` tag
-/// per `(name, type)` pair, and a `@returns` tag -- the JSDoc-mode
-/// counterpart of a TypeScript function's inline `(name: Type): Ret`
-/// annotations, which a plain `.js` file cannot carry on the signature
-/// itself.
-///
-/// `name` goes through [`js_doc_name`] for the same reason [`js_property_line`]
-/// does. Every caller today passes an already-mangled `ResolvedParam::field_name`
-/// (or a literal like `"sql"`/`"items"`/`"count"`), so this is a no-op in
-/// practice, but it keeps `@param` from becoming the one JSDoc position that
-/// silently regresses if a future caller ever hands it a raw SQL name.
-pub fn generate_jsdoc_fn_header(description: &str, sig_params: &[(String, String)], ret_type: &str) -> String {
-    let mut out = String::new();
-    let _ = writeln!(out, "/**");
-    write_jsdoc_lines(&mut out, description);
-    for (name, ty) in sig_params {
-        let _ = writeln!(out, " * @param {{{}}} {}", ty, js_doc_name(name));
-    }
-    let _ = writeln!(out, " * @returns {{{}}}", ret_type);
-    let _ = write!(out, " */");
-    out
-}
-
-/// Render a JS function signature line with plain parameter names and no
-/// type annotations -- the JSDoc-mode counterpart of a TypeScript
-/// `name: Type` signature (see [`generate_jsdoc_fn_header`] for where the
-/// types go instead).
-pub fn js_fn_signature_line(is_async: bool, name: &str, sig_params: &[(String, String)]) -> String {
-    let params_inline = sig_params.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>().join(", ");
-    let keyword = if is_async {
-        "export async function"
-    } else {
-        "export function"
-    };
-    format!("{keyword} {name}({params_inline}) {{")
 }
 
 /// Generate a Zod enum schema from enum values.
@@ -1337,46 +1095,6 @@ pub fn generate_zod_enum(type_name: &str, values: &[String], naming: &sqlkit_bac
         );
     }
     let _ = write!(out, "}} as const;");
-    out
-}
-
-/// Render the JSDoc-mode enum definition: a frozen values object plus the
-/// union `@typedef` derived from it.
-///
-/// `as const` is TypeScript-only syntax, so the literal narrowing the TS path
-/// gets from it has to come from a JSDoc cast here. The cast must sit on the
-/// *initializer expression*, never on the declaration:
-///
-/// ```js
-/// export const XValues = /** @type {const} */ ({ A: "a" });  // narrows
-/// /** @type {const} */ export const XValues = { A: "a" };    // TS2304
-/// ```
-///
-/// There is no `const` *type* for JSDoc to name — `const` is only meaningful
-/// as an assertion applied to an expression — so the declaration form was
-/// never valid in any TypeScript version. All three `javascript-*` emitters
-/// used it until the tool-validation schema grew an enum column and
-/// `tsc --checkJs` rejected every one of them with
-/// `TS2304: Cannot find name 'const'`.
-///
-/// It lives here, rather than as three byte-identical copies in
-/// `typescript_pg.rs` / `typescript_postgres.rs` / `typescript_mysql2.rs`,
-/// because those copies are exactly why one wrong spelling took three fixes
-/// to remove.
-pub fn generate_js_enum_def(type_name: &str, variants: &[(String, String)]) -> String {
-    let values_name = format!("{type_name}Values");
-    let mut out = String::new();
-    let _ = writeln!(out, "export const {} = /** @type {{const}} */ ({{", values_name);
-    for (variant, value) in variants {
-        let _ = writeln!(out, "\t{}: \"{}\",", variant, value);
-    }
-    let _ = writeln!(out, "}});");
-    let _ = writeln!(out);
-    let _ = write!(
-        out,
-        "/** @typedef {{typeof {}[keyof typeof {}]}} {} */",
-        values_name, values_name, type_name
-    );
     out
 }
 
@@ -1681,12 +1399,11 @@ pub fn ts_column_types_import(module: Option<&str>, generated: &[crate::Generate
 /// Validate the `schema_types` and `schema_types_import` options, returning the
 /// import specifier. `schema_types` is the path the CLI writes the module to;
 /// query modules need the specifier to import it by, so it may not come alone.
-/// The module declares types only, which neither a Zod row schema (a runtime
-/// value) nor a JSDoc `.js` file can use.
+/// The module declares types only, which a Zod row schema (a runtime value)
+/// cannot use.
 pub fn ts_schema_types_options(
     options: &std::collections::HashMap<String, String>,
     row_type: TsRowType,
-    js_mode: bool,
 ) -> Result<Option<String>, SqlkitError> {
     let invalid = |message: String| SqlkitError::new(ErrorCode::InvalidConfig, message);
     let Some(module) = options.get("schema_types_import") else {
@@ -1708,9 +1425,6 @@ pub fn ts_schema_types_options(
         return Err(invalid(
             "schema_types needs row_type = \"interface\": a Zod schema cannot use type-only imports".to_string(),
         ));
-    }
-    if js_mode {
-        return Err(invalid("schema_types needs a TypeScript backend".to_string()));
     }
     Ok(Some(module.clone()))
 }
@@ -1806,8 +1520,8 @@ mod tests {
     }
 
     fn postgres_manifest() -> BackendManifest {
-        crate::backends::parse_manifest(include_str!("../../manifests/typescript-postgres.toml"))
-            .expect("TypeScript PostgreSQL manifest must parse")
+        crate::backends::parse_manifest(include_str!("../../manifests/typescript-bun.toml"))
+            .expect("TypeScript manifest must parse")
     }
 
     #[test]
@@ -2337,127 +2051,6 @@ mod tests {
             "\treturn rows.map((row) => ({\n\
              \t\tid: row['id'] as number,\n\
              \t}));\n"
-        );
-    }
-
-    /// Structural guard for #81's critical correctness rule: a nullable
-    /// column must be emitted as `{T | null}`, never as JSDoc's
-    /// bracket-optional (`[name]`) or `?`-suffix property syntax (which mean
-    /// the property may be *absent*, not that it may be `null`).
-    ///
-    /// This does not check the emitted *text* (that is
-    /// [`test_js_property_line_never_emits_bracket_or_question_mark_syntax`]
-    /// below) -- it greps [`js_property_line`]'s own *source*, between the
-    /// `jsdoc-property-line-start`/`-end` markers, for the literal
-    /// characters `[`, `]`, and `?`. Since none of those characters appear
-    /// anywhere in that function's body, there is no `if col.nullable { ...
-    /// } else { ... }` (or any other conditional) capable of selecting a
-    /// bracket/question-mark form in the first place -- not just that the
-    /// current logic happens not to produce one. A future edit that tried to
-    /// reintroduce optional-property syntax would have to touch those
-    /// characters and would fail this test before it could reach a `cargo
-    /// test` run that exercises the output.
-    #[test]
-    fn test_js_property_line_source_cannot_emit_optional_syntax_into_the_name_position() {
-        let source = include_str!("typescript_common.rs");
-        let start = source
-            .find("// jsdoc-property-line-start")
-            .expect("marker comment must exist in this file");
-        let end = source
-            .find("// jsdoc-property-line-end")
-            .expect("marker comment must exist in this file");
-        let body = &source[start..end];
-
-        assert!(
-            !body.contains('['),
-            "js_property_line's source must contain no '[' -- a bracket-optional code path \
-             would need one: {body}"
-        );
-        assert!(
-            !body.contains(']'),
-            "js_property_line's source must contain no ']' -- a bracket-optional code path \
-             would need one: {body}"
-        );
-        assert!(
-            !body.contains('?'),
-            "js_property_line's source must contain no '?' -- a question-mark-optional code \
-             path would need one: {body}"
-        );
-    }
-
-    /// Runtime companion to the source-level guard above: for both a
-    /// nullable and a non-nullable column, the emitted `@property` line
-    /// carries the type only -- never a bracket or `?` around the name.
-    #[test]
-    fn test_js_property_line_never_emits_bracket_or_question_mark_syntax() {
-        let nullable = column("bio", "string", true, None, false);
-        let non_nullable = column("id", "number", false, None, false);
-
-        let nullable_line = js_property_line(&nullable);
-        let non_nullable_line = js_property_line(&non_nullable);
-
-        assert_eq!(nullable_line, " * @property {string | null} bio");
-        assert_eq!(non_nullable_line, " * @property {number} id");
-        assert!(!nullable_line.contains('['), "{nullable_line}");
-        assert!(!nullable_line.contains(']'), "{nullable_line}");
-        assert!(!nullable_line.contains('?'), "{nullable_line}");
-    }
-
-    #[test]
-    fn test_generate_js_typedef_row_struct_matches_property_lines() {
-        let columns = vec![
-            column("id", "number", false, None, false),
-            column("bio", "string", true, None, false),
-        ];
-        let out = generate_js_typedef_row_struct("GetUserRow", "GetUser", &columns);
-
-        assert!(out.starts_with("/**\n"), "{out}");
-        assert!(out.contains(" * Row type for GetUser queries.\n"), "{out}");
-        assert!(out.contains(" * @typedef {object} GetUserRow\n"), "{out}");
-        assert!(out.contains(" * @property {number} id\n"), "{out}");
-        assert!(out.contains(" * @property {string | null} bio\n"), "{out}");
-        assert!(out.ends_with(" */"), "{out}");
-    }
-
-    #[test]
-    fn test_js_type_cast_wraps_expr_in_a_jsdoc_type_comment() {
-        assert_eq!(
-            js_type_cast("GetUserRow | undefined", "stmt.get()"),
-            "/** @type {GetUserRow | undefined} */ (stmt.get())"
-        );
-    }
-
-    #[test]
-    fn test_generate_jsdoc_fn_header_renders_params_and_return() {
-        let out = generate_jsdoc_fn_header(
-            "Fetch a single row.",
-            &[
-                ("client".to_string(), "import(\"pg\").PoolClient".to_string()),
-                ("id".to_string(), "number".to_string()),
-            ],
-            "Promise<Row | null>",
-        );
-
-        assert_eq!(
-            out,
-            "/**\n * Fetch a single row.\n * @param {import(\"pg\").PoolClient} client\n * @param {number} id\n \
-             * @returns {Promise<Row | null>}\n */"
-        );
-    }
-
-    #[test]
-    fn test_js_fn_signature_line_has_no_type_annotations() {
-        let sig_params = vec![
-            ("client".to_string(), "import(\"pg\").PoolClient".to_string()),
-            ("id".to_string(), "number".to_string()),
-        ];
-        assert_eq!(
-            js_fn_signature_line(true, "getUserById", &sig_params),
-            "export async function getUserById(client, id) {"
-        );
-        assert_eq!(
-            js_fn_signature_line(false, "getUserById", &sig_params),
-            "export function getUserById(client, id) {"
         );
     }
 

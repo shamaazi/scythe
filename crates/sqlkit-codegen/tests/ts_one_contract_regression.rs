@@ -1,10 +1,10 @@
-//! Regression tests for board #192: every TypeScript/JavaScript backend's
+//! Regression tests for board #192: every TypeScript backend's
 //! `QueryCommand::One | QueryCommand::Opt` match arm rendered byte-identical
 //! code -- the permissive `:opt` shape (`{Struct} | null` return type, `null`
 //! result on a missing row). `:opt` is correct under that shape; `:one` means
 //! "exactly one row, error if absent" and silently returned `null` instead,
 //! exactly the shape `opt_command_regression.rs`'s `KNOWN_UNDIFFERENTIATED_BACKENDS`
-//! lists every `typescript-*`/`javascript-*` backend under.
+//! lists every `typescript-*` backend under.
 //!
 //! The fix (`crates/sqlkit-codegen/src/backends/typescript_common.rs`,
 //! `crates/sqlkit-codegen/src/backends/typescript_*.rs`) splits every such arm
@@ -54,18 +54,8 @@ fn query_fn_for(backend_name: &str, command: QueryCommand) -> String {
         .unwrap_or_else(|| panic!("{backend_name}: {command:?} produced no query fn"))
 }
 
-/// Every `typescript-*`/`javascript-*` backend name registered in
-/// `get_backend` -- the same fifteen names
-/// `opt_command_regression.rs`'s `KNOWN_UNDIFFERENTIATED_BACKENDS` lists under
-/// the shared-arm reason this fix removes. Kept as an independent copy for
-/// the same reason that file gives for its own `ALL_BACKEND_NAMES`: the
-/// authoritative list lives in another agent's owned `lib.rs`.
-const TS_JS_BACKENDS: &[&str] = &[
-    "typescript-postgres",
-    "javascript-postgres",
-    "typescript-bun",
-    "javascript-bun",
-];
+/// The TypeScript backend names registered in `get_backend`.
+const TS_BACKENDS: &[&str] = &["typescript-bun"];
 
 /// The exact text `ts_row_not_found_throw("GetItem")` renders -- pinned here
 /// independently of that function so a change to either drifts loudly rather
@@ -82,7 +72,7 @@ const EXPECTED_THROW: &str = "throw new Error(\"no row found for query: GetItem\
 fn one_never_renders_nullable_and_always_throws_on_a_missing_row() {
     let mut failures = Vec::new();
 
-    for &name in TS_JS_BACKENDS {
+    for &name in TS_BACKENDS {
         let one_fn = query_fn_for(name, QueryCommand::One);
 
         if one_fn.contains(" | null") {
@@ -106,7 +96,7 @@ fn one_never_renders_nullable_and_always_throws_on_a_missing_row() {
         failures.is_empty(),
         "{} of {} backends violate the `:one` contract (#192):\n{}",
         failures.len(),
-        TS_JS_BACKENDS.len(),
+        TS_BACKENDS.len(),
         failures.join("\n\n")
     );
 }
@@ -117,7 +107,7 @@ fn one_never_renders_nullable_and_always_throws_on_a_missing_row() {
 fn opt_still_renders_nullable_and_never_throws_on_a_missing_row() {
     let mut failures = Vec::new();
 
-    for &name in TS_JS_BACKENDS {
+    for &name in TS_BACKENDS {
         let opt_fn = query_fn_for(name, QueryCommand::Opt);
 
         if !opt_fn.contains(" | null") {
@@ -136,7 +126,7 @@ fn opt_still_renders_nullable_and_never_throws_on_a_missing_row() {
         failures.is_empty(),
         "{} of {} backends violate the `:opt` contract (#192 must not have touched it):\n{}",
         failures.len(),
-        TS_JS_BACKENDS.len(),
+        TS_BACKENDS.len(),
         failures.join("\n\n")
     );
 }
@@ -148,7 +138,7 @@ fn opt_still_renders_nullable_and_never_throws_on_a_missing_row() {
 fn one_and_opt_render_different_code_for_every_backend() {
     let mut failures = Vec::new();
 
-    for &name in TS_JS_BACKENDS {
+    for &name in TS_BACKENDS {
         let one_fn = query_fn_for(name, QueryCommand::One);
         let opt_fn = query_fn_for(name, QueryCommand::Opt);
         if one_fn == opt_fn {

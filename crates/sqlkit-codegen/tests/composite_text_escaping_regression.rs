@@ -67,7 +67,7 @@ fn generated_text(backend_name: &str) -> String {
 /// Deliberately a table rather than one test per backend: the defect was identical in all
 /// eight, so a new backend copying the same parser -- which is how it spread the first time --
 /// should be added here rather than getting its own bespoke assertion.
-const PARSER_BACKENDS: &[(&str, &str)] = &[("typescript-postgres", "inner[i + 1] === '\"'")];
+const PARSER_BACKENDS: &[(&str, &str)] = &[("typescript-bun", "inner[i + 1] === '\"'")];
 
 #[cfg(feature = "lang-typescript")]
 #[test]
@@ -94,7 +94,7 @@ const NULLABLE_QUERY: &str = "-- @name GetProfile\n-- @returns :one\nSELECT id, 
 #[test]
 fn nullable_composite_fields_skip_scalar_and_static_decoders_for_sql_null() {
     let expectations = [(
-        "typescript-postgres",
+        "typescript-bun",
         [
             "age: f[0] === null ? null : Number(f[0])",
             "mood: f[1] === null ? null : f[1] as Mood",

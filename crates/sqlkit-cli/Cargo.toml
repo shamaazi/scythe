@@ -42,7 +42,7 @@ all-languages = ["lang-rust", "lang-typescript"]
 # The PostgreSQL client: `sqlkit inspect` and `sqlkit check --database-url`.
 # Generation, checking and linting work without it.
 postgres = ["dep:tokio-postgres", "sqlkit-inspect/postgres"]
-# Target languages. `lang-typescript` includes the JavaScript variants.
+# Target languages.
 lang-rust = ["sqlkit-codegen/lang-rust"]
 lang-typescript = ["sqlkit-codegen/lang-typescript"]
 # Gates the live-PostgreSQL integration tests in `tests/lint_live.rs` -- see
