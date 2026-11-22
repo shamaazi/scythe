@@ -52,7 +52,7 @@ become the generated function's doc comment.
 
 | Option | Values | Effect |
 |--------|--------|--------|
-| `output` | path, or a path containing `{dir}` | Output directory; with `{dir}`, one module per query file, written beside it |
+| `output` | path, or a path containing `{dir}` | Output directory, written to as `queries.ts`; with `{dir}`, one module per query file, written beside it and named after it (`billing.sql` -> `billing.ts`). A query file with no queries gets no module |
 | `field_case` | `snake_case` (default), `camelCase` | Property names of rows and parameters |
 | `row_keys` | `remap` (default), `driver` | With `camelCase`, `driver` trusts the client to return camel-cased keys (e.g. Bun's `SQL.camel` transform) instead of remapping rows; `driver` needs `field_case = "camelCase"` |
 | `params` | `positional` (default), `object` | Query functions take positional arguments or one parameter object |

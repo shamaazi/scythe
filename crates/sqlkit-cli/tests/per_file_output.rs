@@ -133,23 +133,51 @@ fn check_verifies_dir_output_provenance_per_query_file() {
     );
 }
 
+/// Each module is named after its query file, so one directory holds several;
+/// a query file with no queries gets no module, and `check` agrees.
 #[test]
-fn dir_output_rejects_two_query_files_in_one_directory() {
+fn dir_output_names_each_module_after_its_query_file() {
     let root = project();
     std::fs::write(
         root.path().join("src/users/more.sql"),
         "-- @name ListUsers\n-- @returns :many\nSELECT id FROM users;\n",
     )
     .unwrap();
+    std::fs::write(root.path().join("src/users/empty.sql"), "").unwrap();
     let config = CONFIG.replace("src/**/queries.sql", "src/**/*.sql");
+    std::fs::write(root.path().join("sqlkit.toml"), config).unwrap();
+    generate(root.path());
+
+    let users = std::fs::read_to_string(root.path().join("src/users/queries.ts")).unwrap();
+    let more = std::fs::read_to_string(root.path().join("src/users/more.ts")).unwrap();
+    assert!(users.contains("getUser") && !users.contains("listUsers"), "{users}");
+    assert!(more.contains("listUsers") && !more.contains("getUser"), "{more}");
+    assert!(
+        !root.path().join("src/users/empty.ts").exists(),
+        "a query file with no queries gets no module"
+    );
+
+    let output = sqlkit(&["check", "--config", &config_arg(root.path())]);
+    let err = combined(&output);
+    assert!(output.status.success(), "check must pass after generate: {err}");
+    assert!(!err.contains("SC-PRV"), "no provenance findings expected: {err}");
+}
+
+/// Two query files with the same stem in one directory still collide.
+#[test]
+fn dir_output_rejects_two_query_files_with_one_module_name() {
+    let root = project();
+    std::fs::write(
+        root.path().join("src/users/queries.pgsql"),
+        "-- @name ListUsers\n-- @returns :many\nSELECT id FROM users;\n",
+    )
+    .unwrap();
+    let config = CONFIG.replace("src/**/queries.sql", "src/**/queries.*");
     std::fs::write(root.path().join("sqlkit.toml"), config).unwrap();
 
     let output = sqlkit(&["generate", "--config", &config_arg(root.path())]);
     let err = combined(&output);
-    assert!(
-        !output.status.success(),
-        "two files in one directory must collide: {err}"
-    );
+    assert!(!output.status.success(), "the two modules must collide: {err}");
     assert!(err.contains("both write"), "{err}");
     assert!(!root.path().join("src/users/queries.ts").exists(), "nothing written");
 }

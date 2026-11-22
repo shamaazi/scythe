@@ -604,11 +604,10 @@ fn run_generate_inner(
         let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
 
         let mut all_query_blocks = Vec::new();
-        // Which query file each analyzed query came from, as a range over
-        // `all_query_blocks` (and so over `analyzed_queries`, which keeps the
-        // same order): a `{dir}` target generates one module per entry.
-        let mut query_file_ranges: Vec<(&str, Range<usize>)> = Vec::new();
-        for query_file in &query_files {
+        // The index in `query_files` of the file each block (and so each
+        // analyzed query, in the same order) came from.
+        let mut file_of_query: Vec<usize> = Vec::new();
+        for (file_index, query_file) in query_files.iter().enumerate() {
             let content = std::fs::read_to_string(query_file)
                 .map_err(|e| format!("failed to read query file '{}': {}", query_file, e))?;
             if has_unannotated_sql(&content) {
@@ -621,9 +620,8 @@ fn run_generate_inner(
                 .into());
             }
             let blocks = split_query_file(&content);
-            let start = all_query_blocks.len();
+            file_of_query.extend(std::iter::repeat_n(file_index, blocks.len()));
             all_query_blocks.extend(blocks);
-            query_file_ranges.push((query_file.as_str(), start..all_query_blocks.len()));
         }
 
         eprintln!("[{}] Analyzing {} queries...", sql_config.name, all_query_blocks.len());
@@ -719,11 +717,14 @@ fn run_generate_inner(
         let mut jobs: Vec<GenJob<'_>> = Vec::new();
         for (backend_index, (target, _, _)) in backends.iter().enumerate() {
             let per_file: Vec<(Option<&str>, String, Range<usize>)> = if is_per_file_output(&target.output) {
-                query_file_ranges
-                    .iter()
-                    .map(|(query_file, range)| {
+                // A query file with no queries gets no module.
+                query_file_ranges(&file_of_query, query_files.len())
+                    .into_iter()
+                    .zip(&query_files)
+                    .filter(|(range, _)| !range.is_empty())
+                    .map(|(range, query_file)| {
                         let output = per_file_output(&target.output, query_file, base_dir);
-                        (Some(*query_file), output, range.clone())
+                        (Some(query_file.as_str()), output, range)
                     })
                     .collect()
             } else {
@@ -754,10 +755,12 @@ fn run_generate_inner(
                     Some(query_file) => format!("{} (for {query_file})", target.backend),
                     None => target.backend.clone(),
                 };
+                let filename = output_filename(backends[backend_index].1.as_ref(), query_file);
                 jobs.push(GenJob {
                     backend_index,
                     label,
                     output_dir,
+                    filename,
                     queries,
                     queries_fingerprint,
                 });
@@ -773,9 +776,8 @@ fn run_generate_inner(
         // the same way.
         let mut seen_paths: AHashMap<String, String> = AHashMap::new();
         for job in &jobs {
-            let filename = output_filename(backends[job.backend_index].1.as_ref());
             let full_path = Path::new(&job.output_dir)
-                .join(&filename)
+                .join(&job.filename)
                 .to_string_lossy()
                 .into_owned();
             if let Some(existing) = seen_paths.insert(full_path.clone(), job.label.clone()) {
@@ -819,11 +821,12 @@ fn run_generate_inner(
                     .map_err(|e| format!("[{}] backend '{}': {e}", sql_config.name, target.backend))?;
             }
             let (_, backend, options_fingerprint) = &backends[job.backend_index];
+            let output_file = Path::new(&job.output_dir).join(&job.filename);
             let target_validation_failed = generate_for_backend(
                 &sql_config.name,
                 backend.as_ref(),
                 job.queries,
-                &job.output_dir,
+                &output_file,
                 overrides,
                 ProvenanceFields {
                     schema: &schema_fingerprint,
@@ -835,12 +838,7 @@ fn run_generate_inner(
             if target_validation_failed {
                 *validation_failed = true;
             }
-            written.push(
-                Path::new(&job.output_dir)
-                    .join(output_filename(backend.as_ref()))
-                    .display()
-                    .to_string(),
-            );
+            written.push(output_file.display().to_string());
         }
 
         // A target's `schema_types` module declares the whole schema's types, so it is
@@ -977,6 +975,8 @@ struct GenJob<'a> {
     /// collision error.
     label: String,
     output_dir: String,
+    /// See [`output_filename`].
+    filename: String,
     queries: &'a [AnalyzedQuery],
     queries_fingerprint: String,
 }
@@ -1534,9 +1534,28 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
 }
 
 /// The output filename for a backend's generated queries file, shared by
-/// writing and header verification (`artifact_paths`).
-fn output_filename(backend: &dyn CodegenBackend) -> String {
-    format!("queries.{}", backend.manifest().backend.file_extension)
+/// writing and header verification: a `{dir}` module is named after its query
+/// file (`billing.sql` -> `billing.ts`), so one directory can hold several; a
+/// target over the whole block writes `queries.<ext>`.
+fn output_filename(backend: &dyn CodegenBackend, query_file: Option<&str>) -> String {
+    let stem = query_file
+        .and_then(|file| Path::new(file).file_stem())
+        .map_or_else(|| "queries".into(), |stem| stem.to_string_lossy());
+    format!("{stem}.{}", backend.manifest().backend.file_extension)
+}
+
+/// Which queries came from which query file: for each of `file_count` files,
+/// the range of queries whose entry in `file_of_query` (each query's index in
+/// the query file list, in file order) is that file. `generate` and `check`
+/// both split a `{dir}` target's modules by it.
+fn query_file_ranges(file_of_query: &[usize], file_count: usize) -> Vec<Range<usize>> {
+    (0..file_count)
+        .map(|file_index| {
+            let start = file_of_query.partition_point(|index| *index < file_index);
+            let end = file_of_query.partition_point(|index| *index <= file_index);
+            start..end
+        })
+        .collect()
 }
 
 /// The provenance-header fields that are derived once per `[[sql.gen]]`
@@ -1576,7 +1595,7 @@ fn generate_for_backend(
     config_name: &str,
     backend: &dyn CodegenBackend,
     analyzed_queries: &[AnalyzedQuery],
-    output_dir: &str,
+    output_file: &Path,
     overrides: &[TypeOverride],
     provenance: ProvenanceFields<'_>,
     validate_output: bool,
@@ -1715,21 +1734,19 @@ fn generate_for_backend(
 
     let mut output_content = assemble_output(backend, &results, schema, queries, options);
 
-    let filename = output_filename(backend);
-
-    let out_path = Path::new(output_dir);
-    std::fs::create_dir_all(out_path).map_err(|e| format!("failed to create output dir '{}': {}", output_dir, e))?;
-
-    let output_file = out_path.join(&filename);
+    if let Some(out_path) = output_file.parent() {
+        std::fs::create_dir_all(out_path)
+            .map_err(|e| format!("failed to create output dir '{}': {}", out_path.display(), e))?;
+    }
 
     let mut format_validation_failed = false;
     if backend.manifest().backend.file_extension == "rs" {
-        let (formatted, failed) = apply_rust_formatting(config_name, &output_file, &output_content, validate_output);
+        let (formatted, failed) = apply_rust_formatting(config_name, output_file, &output_content, validate_output);
         output_content = formatted;
         format_validation_failed = failed;
     }
 
-    std::fs::write(&output_file, &output_content)
+    std::fs::write(output_file, &output_content)
         .map_err(|e| format!("failed to write output file '{}': {}", output_file.display(), e))?;
 
     eprintln!(
@@ -1740,7 +1757,7 @@ fn generate_for_backend(
     );
 
     let output_validation_failed = if validate_output {
-        report_generated_code_validation(config_name, &output_file, backend.name(), &output_content)
+        report_generated_code_validation(config_name, output_file, backend.name(), &output_content)
     } else {
         false
     };
@@ -2080,17 +2097,16 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         let queries_fingerprint = AnalyzedQuery::fingerprint_set(&analyzed_queries);
         // The same per query file, for `{dir}` targets: each module holds
         // only its own file's queries (`query_names` runs parallel to
-        // `analyzed_queries`, in file order).
-        let per_file_queries: Vec<PerFileQueries<'_>> = query_files
-            .iter()
-            .enumerate()
-            .map(|(file_index, query_file)| {
-                let start = query_names.partition_point(|(index, _)| *index < file_index);
-                let end = query_names.partition_point(|(index, _)| *index <= file_index);
-                PerFileQueries {
-                    query_file,
-                    queries_fingerprint: AnalyzedQuery::fingerprint_set(&analyzed_queries[start..end]),
-                }
+        // `analyzed_queries`, in file order). A file with no queries has no
+        // module, as `generate` writes none.
+        let file_of_query: Vec<usize> = query_names.iter().map(|(file_index, _)| *file_index).collect();
+        let per_file_queries: Vec<PerFileQueries<'_>> = query_file_ranges(&file_of_query, query_files.len())
+            .into_iter()
+            .zip(&query_files)
+            .filter(|(range, _)| !range.is_empty())
+            .map(|(range, query_file)| PerFileQueries {
+                query_file,
+                queries_fingerprint: AnalyzedQuery::fingerprint_set(&analyzed_queries[range]),
             })
             .collect();
 
@@ -2705,21 +2721,22 @@ fn verify_provenance(
         // A `{dir}` target wrote one module per query file, fingerprinted
         // over that file's queries alone; a plain target wrote one module
         // over the whole block.
-        let modules: Vec<(String, &str)> = if is_per_file_output(&target.output) {
+        let modules: Vec<(String, Option<&str>, &str)> = if is_per_file_output(&target.output) {
             per_file
                 .iter()
                 .map(|file| {
                     (
                         per_file_output(&target.output, file.query_file, base_dir),
+                        Some(file.query_file),
                         file.queries_fingerprint.as_str(),
                     )
                 })
                 .collect()
         } else {
-            vec![(target.output.clone(), current_queries)]
+            vec![(target.output.clone(), None, current_queries)]
         };
 
-        for (output, queries) in modules {
+        for (output, query_file, queries) in modules {
             let expected = ProvenanceExpectation {
                 target_label: &target_label,
                 backend_name: backend.name(),
@@ -2731,9 +2748,8 @@ fn verify_provenance(
             };
 
             let output_dir = base_dir.join(&output);
-            for artifact_path in artifact_paths(&*backend, &output_dir) {
-                violations.extend(verify_artifact(&artifact_path, &expected));
-            }
+            let artifact_path = output_dir.join(output_filename(&*backend, query_file));
+            violations.extend(verify_artifact(&artifact_path, &expected));
         }
 
         // The schema types module, generated from the schema alone.
@@ -2753,12 +2769,6 @@ fn verify_provenance(
     }
 
     violations
-}
-
-/// Every file `generate_for_backend` writes for one target, named by the same
-/// [`output_filename`] generation uses.
-fn artifact_paths(backend: &dyn CodegenBackend, output_dir: &Path) -> Vec<std::path::PathBuf> {
-    vec![output_dir.join(output_filename(backend))]
 }
 
 /// Check one generated file's provenance header against `expected`.
