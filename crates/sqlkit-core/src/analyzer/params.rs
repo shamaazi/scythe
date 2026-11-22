@@ -22,6 +22,38 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    /// The placeholder `expr` is, parenthesised, cast or signed, with its
+    /// position resolved and its cast as a neutral type. See
+    /// [`placeholder_token`]. Every site that binds a placeholder operand
+    /// peels it through this one helper.
+    pub(super) fn placeholder_operand(&mut self, expr: &Expr) -> Option<PlaceholderOperand> {
+        let token = placeholder_token(expr)?;
+        let position = self.resolve_placeholder_position(token.token)?;
+        Some(PlaceholderOperand {
+            position,
+            cast_type: token.cast.map(|data_type| datatype_to_neutral(data_type, self.catalog)),
+            signed: token.signed,
+        })
+    }
+
+    /// Register the placeholder `expr` is, if it is one: named `name`, typed
+    /// by its own cast or else by `context_type`. Returns whether it was one.
+    pub(super) fn bind_placeholder(
+        &mut self,
+        expr: &Expr,
+        name: Option<String>,
+        context_type: Option<String>,
+        null_evidence: Option<NullEvidence>,
+        source_relation: Option<String>,
+    ) -> bool {
+        let Some(operand) = self.placeholder_operand(expr) else {
+            return false;
+        };
+        let neutral_type = operand.cast_type.or(context_type);
+        self.register_param(operand.position, name, neutral_type, null_evidence, source_relation);
+        true
+    }
+
     pub(super) fn register_param(
         &mut self,
         position: i64,
@@ -60,17 +92,13 @@ impl<'a> Analyzer<'a> {
     /// the value written into `relation.column`, so the parameter takes that
     /// column's constraints. Call after the placeholder is registered.
     pub(super) fn bind_written_param(&mut self, expr: &Expr, relation: &str, column: &str) {
-        let mut operand = expr;
-        while let Expr::Nested(inner) | Expr::Cast { expr: inner, .. } = operand {
-            operand = inner;
-        }
-        let Expr::Value(vws) = operand else {
-            return;
-        };
-        let Some(p) = value_is_placeholder(vws) else {
-            return;
-        };
-        let Some(pos) = self.resolve_placeholder_position(p) else {
+        // A signed placeholder (`-$1`) writes a value other than its own.
+        let Some(PlaceholderOperand {
+            position: pos,
+            signed: false,
+            ..
+        }) = self.placeholder_operand(expr)
+        else {
             return;
         };
         let origin = ColumnOrigin {
@@ -164,16 +192,10 @@ impl<'a> Analyzer<'a> {
                 let col_ti = self.infer_expr_type(col_expr, scope);
                 let col_name = param_name(col_expr);
                 for item in list {
-                    if let Expr::Value(vws) = item
-                        && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p)
-                    {
-                        // No `source_relation`: each `$N` in the list stands for one element
-                        // of a set the column is tested against, not a single bound value
-                        // compared to that column the way `col = $N` is.
-                        let neutral_type = Some(col_ti.neutral_type.clone());
-                        self.register_param(pos, Some(col_name.clone()), neutral_type, None, None);
-                    }
+                    // No `source_relation`: each `$N` in the list stands for one element
+                    // of a set the column is tested against, not a single bound value
+                    // compared to that column the way `col = $N` is.
+                    self.collect_param_from_expr(item, &col_name, &col_ti.neutral_type);
                 }
             }
             // The operand was previously never descended into, so a
@@ -200,22 +222,10 @@ impl<'a> Analyzer<'a> {
             }
             Expr::AnyOp { left, right, .. } | Expr::AllOp { left, right, .. } => {
                 let left_ti = self.infer_expr_type(left, scope);
-                if let Expr::Value(vws) = right.as_ref()
-                    && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
-                {
-                    let array_type = format!("array<{}>", left_ti.neutral_type);
-                    let name = pluralize(&param_name(left));
-                    self.register_param(pos, Some(name), Some(array_type), None, None);
-                }
                 self.collect_param_from_any(right, &left_ti, &param_name(left));
                 // `$1 = ANY(array_expr)`: the placeholder is an element.
                 let right_ti = self.infer_expr_type(right, scope);
-                if let Some(element) = right_ti
-                    .neutral_type
-                    .strip_prefix("array<")
-                    .and_then(|inner| inner.strip_suffix('>'))
-                {
+                if let Some(element) = array_element_type(&right_ti.neutral_type) {
                     self.collect_param_from_expr(left, &param_name(right), element);
                 }
                 self.collect_params_from_where(left, scope);
@@ -326,27 +336,9 @@ impl<'a> Analyzer<'a> {
     /// Register the placeholder an `IS [NOT] NULL` tests -- bare, parenthesised
     /// or cast (`$1::date IS NULL`) -- as nullable, typed by its cast if any.
     fn bind_null_tested_operand(&mut self, operand: &Expr) {
-        let mut operand = operand;
-        let mut neutral_type = None;
-        loop {
-            match operand {
-                Expr::Nested(inner) => operand = inner,
-                Expr::Cast {
-                    expr: inner, data_type, ..
-                } if neutral_type.is_none() => {
-                    neutral_type = Some(datatype_to_neutral(data_type, self.catalog));
-                    operand = inner;
-                }
-                _ => break,
-            }
+        if !self.bind_placeholder(operand, None, None, Some(NullEvidence::NullTested), None) {
+            self.propagate_null_evidence(operand, NullEvidence::NullTested);
         }
-        if let Expr::Value(vws) = operand
-            && let Some(p) = value_is_placeholder(vws)
-            && let Some(pos) = self.resolve_placeholder_position(p)
-        {
-            self.register_param(pos, None, neutral_type, Some(NullEvidence::NullTested), None);
-        }
-        self.propagate_null_evidence(operand, NullEvidence::NullTested);
     }
 
     /// Pass `evidence` that `expr` may be NULL on to the placeholders whose
@@ -366,17 +358,9 @@ impl<'a> Analyzer<'a> {
             return;
         }
         for argument in self.get_function_args(func) {
-            let mut inner = &argument;
-            while let Expr::Nested(next) | Expr::Cast { expr: next, .. } = inner {
-                inner = next;
+            if !self.bind_placeholder(&argument, None, None, Some(evidence), None) {
+                self.propagate_null_evidence(&argument, evidence);
             }
-            if let Expr::Value(vws) = inner
-                && let Some(p) = value_is_placeholder(vws)
-                && let Some(pos) = self.resolve_placeholder_position(p)
-            {
-                self.register_param(pos, None, None, Some(evidence), None);
-            }
-            self.propagate_null_evidence(&argument, evidence);
         }
     }
 
@@ -395,16 +379,7 @@ impl<'a> Analyzer<'a> {
     /// A placeholder that is an operand of `NOT`, `AND` or `OR` is boolean, as
     /// PostgreSQL infers it: `NOT $1` leaves no other context to type `$1` from.
     fn bind_boolean_operand(&mut self, operand: &Expr) {
-        let mut operand = operand;
-        while let Expr::Nested(inner) = operand {
-            operand = inner;
-        }
-        if let Expr::Value(vws) = operand
-            && let Some(p) = value_is_placeholder(vws)
-            && let Some(pos) = self.resolve_placeholder_position(p)
-        {
-            self.register_param(pos, None, Some("bool".to_string()), None, None);
-        }
+        self.bind_placeholder(operand, None, Some("bool".to_string()), None, None);
     }
 
     pub(super) fn try_bind_param_from_comparison(
@@ -414,68 +389,36 @@ impl<'a> Analyzer<'a> {
         scope: &Scope,
         op: Option<&BinaryOperator>,
     ) {
-        match param_side {
-            Expr::Value(vws) => {
-                if let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
-                {
-                    let col_ti = self.infer_expr_type(col_side, scope);
-                    let col_name = param_name(col_side);
-                    let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
-                    // The one shape where "the column this parameter is bound against" is
-                    // unambiguous -- `col_side`'s own `source_relation`, the same field
-                    // `AnalyzedColumn` carries for the same reason (#189). Everywhere else
-                    // `register_param` is called from, the relation stays `None`.
-                    self.register_param(
-                        pos,
-                        Some(param_name),
-                        Some(col_ti.neutral_type),
-                        None,
-                        col_ti.source_relation,
-                    );
-                }
-            }
-            Expr::Cast {
-                expr: inner, data_type, ..
-            } => {
-                if let Expr::Value(vws) = inner.as_ref()
-                    && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
-                {
-                    let neutral = datatype_to_neutral(data_type, self.catalog);
-                    let col_ti = self.infer_expr_type(col_side, scope);
-                    let col_name = param_name(col_side);
-                    let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
-                    self.register_param(pos, Some(param_name), Some(neutral), None, col_ti.source_relation);
-                }
-            }
-            _ => {}
+        if placeholder_token(param_side).is_none() {
+            return;
         }
+        let col_ti = self.infer_expr_type(col_side, scope);
+        let col_name = param_name(col_side);
+        let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
+        // The one shape where "the column this parameter is bound against" is
+        // unambiguous -- `col_side`'s own `source_relation`, the same field
+        // `AnalyzedColumn` carries for the same reason (#189). Everywhere else
+        // `register_param` is called from, the relation stays `None`.
+        self.bind_placeholder(
+            param_side,
+            Some(param_name),
+            Some(col_ti.neutral_type),
+            None,
+            col_ti.source_relation,
+        );
     }
 
     pub(super) fn collect_param_from_expr(&mut self, expr: &Expr, name: &str, type_str: &str) {
-        if let Expr::Value(vws) = expr {
-            if let Some(p) = value_is_placeholder(vws)
-                && let Some(pos) = self.resolve_placeholder_position(p)
-            {
-                self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), None, None);
-            }
-        } else if let Expr::Cast {
-            expr: inner, data_type, ..
-        } = expr
-            && let Expr::Value(vws) = inner.as_ref()
-            && let Some(p) = value_is_placeholder(vws)
-            && let Some(pos) = self.resolve_placeholder_position(p)
-        {
-            let neutral = datatype_to_neutral(data_type, self.catalog);
-            self.register_param(pos, Some(name.to_string()), Some(neutral), None, None);
-        }
+        self.bind_placeholder(expr, Some(name.to_string()), Some(type_str.to_string()), None, None);
     }
 
     pub(super) fn collect_param_from_expr_with_type(&mut self, expr: &Expr, type_str: &str, name: &str) {
         self.collect_param_from_expr_with_type_nullable(expr, type_str, name, None);
     }
 
+    /// Bind every placeholder in `expr` whose value becomes `expr`'s, typed
+    /// and named by the context `expr` is in (the column it is written into,
+    /// the pattern it matches), with `nullable` as their null evidence.
     pub(super) fn collect_param_from_expr_with_type_nullable(
         &mut self,
         expr: &Expr,
@@ -483,31 +426,11 @@ impl<'a> Analyzer<'a> {
         name: &str,
         nullable: Option<NullEvidence>,
     ) {
+        if self.bind_placeholder(expr, Some(name.to_string()), Some(type_str.to_string()), nullable, None) {
+            return;
+        }
         match expr {
-            Expr::Value(vws) => {
-                if let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
-                {
-                    self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), nullable, None);
-                }
-            }
-            Expr::Cast {
-                expr: inner, data_type, ..
-            } => {
-                if let Expr::Value(vws) = inner.as_ref()
-                    && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
-                {
-                    let neutral = datatype_to_neutral(data_type, self.catalog);
-                    self.register_param(pos, Some(name.to_string()), Some(neutral), nullable, None);
-                } else {
-                    self.collect_param_from_expr_with_type_nullable(inner, type_str, name, nullable);
-                }
-            }
-            Expr::Nested(inner) => {
-                self.collect_param_from_expr_with_type_nullable(inner, type_str, name, nullable);
-            }
-            Expr::UnaryOp { expr: inner, .. } => {
+            Expr::Cast { expr: inner, .. } | Expr::Nested(inner) | Expr::UnaryOp { expr: inner, .. } => {
                 self.collect_param_from_expr_with_type_nullable(inner, type_str, name, nullable);
             }
             Expr::BinaryOp { left, right, .. } => {
@@ -547,51 +470,26 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    /// Type the placeholder a cast to `neutral_type` is applied to.
     pub(super) fn collect_param_type_from_cast(&mut self, expr: &Expr, neutral_type: &str) {
-        if let Expr::Value(vws) = expr
-            && let Some(p) = value_is_placeholder(vws)
-            && let Some(pos) = self.resolve_placeholder_position(p)
-        {
-            let name = match neutral_type {
-                "interval" => Some("duration".to_string()),
-                _ => None,
-            };
-            self.register_param(pos, name, Some(neutral_type.to_string()), None, None);
-        }
+        let name = (neutral_type == "interval").then(|| "duration".to_string());
+        self.bind_placeholder(expr, name, Some(neutral_type.to_string()), None, None);
     }
 
+    /// Bind the placeholders of the array operand of `= ANY(...)`/`= ALL(...)`
+    /// compared with a `left_ti` value: the whole array, or each element of
+    /// an `ARRAY[...]` constructor.
     pub(super) fn collect_param_from_any(&mut self, expr: &Expr, left_ti: &TypeInfo, left_name: &str) {
+        let array_type = format!("array<{}>", left_ti.neutral_type);
+        if self.bind_placeholder(expr, Some(pluralize(left_name)), Some(array_type), None, None) {
+            return;
+        }
         match expr {
-            Expr::Value(vws) => {
-                if let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
-                {
-                    let array_type = format!("array<{}>", left_ti.neutral_type);
-                    let name = pluralize(left_name);
-                    self.register_param(pos, Some(name), Some(array_type), None, None);
-                }
-            }
-            Expr::Cast {
-                expr: inner, data_type, ..
-            } => {
-                if let Expr::Value(vws) = inner.as_ref()
-                    && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
-                {
-                    let neutral = datatype_to_neutral(data_type, self.catalog);
-                    self.register_param(pos, Some(pluralize(left_name)), Some(neutral), None, None);
-                }
-            }
             Expr::Nested(inner) => self.collect_param_from_any(inner, left_ti, left_name),
             Expr::Array(arr) => {
                 for (i, elem) in arr.elem.iter().enumerate() {
-                    if let Expr::Value(vws) = elem
-                        && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p)
-                    {
-                        let name = format!("{}{}", left_name, i + 1);
-                        self.register_param(pos, Some(name), Some(left_ti.neutral_type.clone()), None, None);
-                    }
+                    let name = format!("{}{}", left_name, i + 1);
+                    self.bind_placeholder(elem, Some(name), Some(left_ti.neutral_type.clone()), None, None);
                 }
             }
             _ => {}

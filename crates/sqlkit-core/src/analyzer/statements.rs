@@ -600,7 +600,7 @@ impl<'a> Analyzer<'a> {
                             continue;
                         };
                         if let Some((col_name, col_type, nullable)) = effective_cols.get(i).and_then(|c| c.as_ref())
-                            && is_placeholder_operand(expr)
+                            && placeholder_token(expr).is_some()
                         {
                             let evidence = nullable.then_some(NullEvidence::WrittenToNullable);
                             self.collect_param_from_expr_with_type_nullable(expr, col_type, col_name, evidence);

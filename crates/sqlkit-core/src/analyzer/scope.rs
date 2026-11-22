@@ -506,10 +506,7 @@ impl<'a> Analyzer<'a> {
         array_exprs
             .iter()
             .map(|array| {
-                let array_type = self.infer_expr_type(array, scope).neutral_type;
-                let element_type = array_type
-                    .strip_prefix("array<")
-                    .and_then(|inner| inner.strip_suffix('>'))
+                let element_type = super::helpers::array_element_type(&self.infer_expr_type(array, scope).neutral_type)
                     .map_or_else(|| UNRESOLVED_EXPR_MARKER.to_string(), str::to_string);
                 let name = single_name.clone().unwrap_or_else(|| "unnest".to_string());
                 ScopeColumn::new(name, element_type, true)

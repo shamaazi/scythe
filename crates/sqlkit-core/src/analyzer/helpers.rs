@@ -445,13 +445,51 @@ pub(super) fn parse_placeholder(s: &str) -> Option<i64> {
     s.strip_prefix('$')?.parse::<i64>().ok()
 }
 
-/// Whether `expr` is a placeholder, parenthesised or cast, and nothing more.
-pub(super) fn is_placeholder_operand(expr: &Expr) -> bool {
-    match expr {
-        Expr::Nested(inner) | Expr::Cast { expr: inner, .. } => is_placeholder_operand(inner),
-        Expr::Value(vws) => value_is_placeholder(vws).is_some(),
-        _ => false,
+/// A placeholder an expression is once parentheses, casts and a sign are
+/// peeled: `$1`, `($1)`, `$1::date`, `-$1`.
+pub(super) struct PlaceholderToken<'e> {
+    /// The placeholder as written, e.g. `$1`.
+    pub(super) token: &'e str,
+    /// The cast applied to the placeholder itself, innermost first: the
+    /// parameter's type wherever it appears.
+    pub(super) cast: Option<&'e ast::DataType>,
+    /// Whether a unary sign was peeled, so the expression's value is not the
+    /// parameter's own.
+    pub(super) signed: bool,
+}
+
+/// See [`PlaceholderToken`]; `None` for any other expression.
+pub(super) fn placeholder_token(expr: &Expr) -> Option<PlaceholderToken<'_>> {
+    let mut cast = None;
+    let mut signed = false;
+    let mut operand = expr;
+    loop {
+        match operand {
+            Expr::Nested(inner) => operand = inner,
+            Expr::Cast {
+                expr: inner, data_type, ..
+            } => {
+                cast = Some(data_type);
+                operand = inner;
+            }
+            Expr::UnaryOp {
+                op: ast::UnaryOperator::Plus | ast::UnaryOperator::Minus,
+                expr: inner,
+            } => {
+                signed = true;
+                operand = inner;
+            }
+            Expr::Value(vws) => {
+                return value_is_placeholder(vws).map(|token| PlaceholderToken { token, cast, signed });
+            }
+            _ => return None,
+        }
     }
+}
+
+/// The element type of an `array<...>` neutral type.
+pub(super) fn array_element_type(neutral_type: &str) -> Option<&str> {
+    neutral_type.strip_prefix("array<")?.strip_suffix('>')
 }
 
 /// Derive a param name from a comparison context.

@@ -432,6 +432,15 @@ pub(super) enum NullEvidence {
     Annotation,
 }
 
+/// A placeholder operand, resolved: see [`Analyzer::placeholder_operand`].
+pub(super) struct PlaceholderOperand {
+    pub(super) position: i64,
+    /// The neutral type of the cast applied to the placeholder itself.
+    pub(super) cast_type: Option<String>,
+    /// Whether a unary sign was peeled off it.
+    pub(super) signed: bool,
+}
+
 /// Tracked parameter info during analysis
 #[derive(Debug, Clone)]
 pub(super) struct ParamInfo {

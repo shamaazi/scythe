@@ -157,13 +157,7 @@ impl<'a> Analyzer<'a> {
             } => {
                 let col_ti = self.infer_expr_type(col_expr, scope);
                 for item in list {
-                    if let Expr::Value(vws) = item
-                        && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p)
-                    {
-                        let col_name = param_name(col_expr);
-                        self.register_param(pos, Some(col_name), Some(col_ti.neutral_type.clone()), None, None);
-                    }
+                    self.collect_param_from_expr(item, &param_name(col_expr), &col_ti.neutral_type);
                 }
                 // `NULL IN (1, 2)` is NULL, not false (#119).
                 TypeInfo::new("bool", col_ti.nullable)
@@ -226,26 +220,11 @@ impl<'a> Analyzer<'a> {
 
                 for case_when in conditions {
                     let _ = self.infer_expr_type(&case_when.condition, scope);
-                    if let Expr::Value(vws) = &case_when.condition
-                        && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p)
-                    {
-                        match &operand_ti {
-                            Some(op_ti) => {
-                                let name = operand.as_ref().map(|op| param_name(op));
-                                self.register_param(pos, name, Some(op_ti.neutral_type.clone()), None, None);
-                            }
-                            None => {
-                                self.register_param(
-                                    pos,
-                                    Some("flag".to_string()),
-                                    Some("bool".to_string()),
-                                    None,
-                                    None,
-                                );
-                            }
-                        }
-                    }
+                    let (name, neutral_type) = match &operand_ti {
+                        Some(op_ti) => (operand.as_ref().map(|op| param_name(op)), op_ti.neutral_type.clone()),
+                        None => (Some("flag".to_string()), "bool".to_string()),
+                    };
+                    self.bind_placeholder(&case_when.condition, name, Some(neutral_type), None, None);
 
                     let ti = self.infer_expr_type(&case_when.result, scope);
                     // Widen across every arm instead of keeping only the
@@ -297,30 +276,8 @@ impl<'a> Analyzer<'a> {
 
             Expr::Exists { .. } => TypeInfo::new("bool", false),
 
-            Expr::AnyOp { left, right, .. } => {
+            Expr::AnyOp { left, right, .. } | Expr::AllOp { left, right, .. } => {
                 let left_ti = self.infer_expr_type(left, scope);
-                if let Expr::Value(vws) = right.as_ref()
-                    && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
-                {
-                    let array_type = format!("array<{}>", left_ti.neutral_type);
-                    let name = pluralize(&param_name(left));
-                    self.register_param(pos, Some(name), Some(array_type), None, None);
-                }
-                self.collect_param_from_any(right, &left_ti, &param_name(left));
-                TypeInfo::new("bool", false)
-            }
-
-            Expr::AllOp { left, right, .. } => {
-                let left_ti = self.infer_expr_type(left, scope);
-                if let Expr::Value(vws) = right.as_ref()
-                    && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
-                {
-                    let array_type = format!("array<{}>", left_ti.neutral_type);
-                    let name = pluralize(&param_name(left));
-                    self.register_param(pos, Some(name), Some(array_type), None, None);
-                }
                 self.collect_param_from_any(right, &left_ti, &param_name(left));
                 TypeInfo::new("bool", false)
             }
@@ -620,9 +577,7 @@ impl<'a> Analyzer<'a> {
                     if !ti.nullable || is_literal(arg) {
                         any_non_nullable = true;
                     }
-                    if coalesce_name.is_none()
-                        && !matches!(arg, Expr::Value(vws) if value_is_placeholder(vws).is_some())
-                    {
+                    if coalesce_name.is_none() && placeholder_token(arg).is_none() {
                         let n = param_name(arg);
                         if n != "unknown" {
                             coalesce_name = Some(n);
@@ -633,28 +588,11 @@ impl<'a> Analyzer<'a> {
                 // A placeholder argument, bare or cast (`coalesce($1::boolean, x)`),
                 // may be NULL: that is what the fallback is for. So may one a
                 // STRICT call in an argument passes its NULL through from.
+                let param_type = (result_type != "unknown").then(|| result_type.clone());
                 for arg in &args {
-                    self.propagate_null_evidence(arg, NullEvidence::CoalesceArgument);
-                    let mut operand = arg;
-                    while let Expr::Nested(inner) | Expr::Cast { expr: inner, .. } = operand {
-                        operand = inner;
-                    }
-                    if let Expr::Value(vws) = operand
-                        && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p)
-                    {
-                        let param_type = if result_type != "unknown" {
-                            Some(result_type.clone())
-                        } else {
-                            None
-                        };
-                        self.register_param(
-                            pos,
-                            coalesce_name.clone(),
-                            param_type,
-                            Some(NullEvidence::CoalesceArgument),
-                            None,
-                        );
+                    let evidence = Some(NullEvidence::CoalesceArgument);
+                    if !self.bind_placeholder(arg, coalesce_name.clone(), param_type.clone(), evidence, None) {
+                        self.propagate_null_evidence(arg, NullEvidence::CoalesceArgument);
                     }
                 }
 
@@ -983,15 +921,10 @@ impl<'a> Analyzer<'a> {
             "array_to_string" => TypeInfo::new("string", true),
             "unnest" => {
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
-                let inner = if ti.neutral_type.starts_with("array<") && ti.neutral_type.ends_with('>') {
-                    ti.neutral_type[6..ti.neutral_type.len() - 1].to_string()
-                } else {
-                    // The argument isn't (or didn't resolve to) an array
-                    // type, so there is no element type to give this column
-                    // -- mark it rather than reach codegen as a bare
-                    // "unknown" (#223).
-                    UNRESOLVED_EXPR_MARKER.to_string()
-                };
+                // An argument that isn't (or didn't resolve to) an array type
+                // gives this column no element type -- mark it rather than
+                // reach codegen as a bare "unknown" (#223).
+                let inner = array_element_type(&ti.neutral_type).unwrap_or(UNRESOLVED_EXPR_MARKER);
                 TypeInfo::new(inner, true)
             }
 
@@ -1108,17 +1041,12 @@ impl<'a> Analyzer<'a> {
         for (call_index, declaration_index) in &matched.bindings {
             let expression = call_arguments[*call_index].1;
             let declaration = &matched.function.arguments[*declaration_index];
-            if let Expr::Value(value) = expression
-                && let Some(placeholder) = value_is_placeholder(value)
-                && let Some(position) = self.resolve_placeholder_position(placeholder)
-            {
-                let mut neutral_type = sql_type_to_neutral(&declaration.sql_type, self.catalog).into_owned();
-                if declaration.mode == FunctionArgumentMode::Variadic {
-                    neutral_type = array_element_type(&neutral_type).unwrap_or(&neutral_type).to_string();
-                }
-                let evidence = (!matched.function.strict).then_some(NullEvidence::CalledOnNullInput);
-                self.register_param(position, declaration.name.clone(), Some(neutral_type), evidence, None);
+            let mut neutral_type = sql_type_to_neutral(&declaration.sql_type, self.catalog).into_owned();
+            if declaration.mode == FunctionArgumentMode::Variadic {
+                neutral_type = array_element_type(&neutral_type).unwrap_or(&neutral_type).to_string();
             }
+            let evidence = (!matched.function.strict).then_some(NullEvidence::CalledOnNullInput);
+            self.bind_placeholder(expression, declaration.name.clone(), Some(neutral_type), evidence, None);
         }
     }
 
@@ -1633,10 +1561,6 @@ fn literal_converts_to(literal: &str, declared: &str, catalog: &crate::catalog::
         ),
         _ => true,
     }
-}
-
-fn array_element_type(neutral_type: &str) -> Option<&str> {
-    neutral_type.strip_prefix("array<")?.strip_suffix('>')
 }
 
 fn sql_array_element_type(sql_type: &str) -> Option<&str> {

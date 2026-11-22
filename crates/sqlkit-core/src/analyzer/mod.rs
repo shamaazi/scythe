@@ -425,7 +425,7 @@ fn check_param_names(query: &Query, params: &[AnalyzedParam]) -> Result<(), Sqlk
 fn unwrap_neutral_containers(neutral: &str) -> &str {
     let mut current = neutral;
     loop {
-        if let Some(inner) = current.strip_prefix("array<").and_then(|r| r.strip_suffix('>')) {
+        if let Some(inner) = helpers::array_element_type(current) {
             current = inner.trim();
         } else if let Some(inner) = current.strip_prefix("nullable<").and_then(|r| r.strip_suffix('>')) {
             current = inner.trim();
