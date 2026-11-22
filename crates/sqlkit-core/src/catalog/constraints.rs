@@ -2,9 +2,9 @@
 //! resolution into [`ValueConstraints`].
 
 use ahash::{AHashMap, AHashSet};
-use sqlparser::ast::{ColumnOption, ColumnOptionDef, DataType, Expr, ObjectName};
+use sqlparser::ast::{ColumnOption, ColumnOptionDef, DataType, Expr, ObjectName, ObjectNamePart};
 
-use super::type_normalizer::{normalize_data_type, object_name_to_key};
+use super::type_normalizer::{ident_to_lower, normalize_data_type, object_name_to_key};
 use super::{Catalog, DomainDef, lookup_qualified};
 use crate::constraints::{
     SmartComment, TextComparison, Translation, Untranslated, ValueConstraints, referenced_columns, translate_check,
@@ -33,8 +33,8 @@ pub struct ColumnConstraints {
     /// `n` of `varchar(n)`/`char(n)`, as the normalized SQL type spells it;
     /// `None` for a column declared with a domain, whose own length applies.
     pub max_length: Option<u64>,
-    /// The collation an explicit `COLLATE` names, lowercased and unqualified.
-    pub collation: Option<String>,
+    /// The collation an explicit `COLLATE` names.
+    pub collation: Option<Collation>,
     pub checks: Vec<CheckConstraint>,
     /// `COMMENT ON COLUMN` / `COMMENT ON DOMAIN` text, as written: see
     /// [`SmartComment`] for how it is read.
@@ -87,16 +87,55 @@ fn max_length(sql_type: &str) -> Option<u64> {
 }
 
 /// The collation a column's `COLLATE` option names.
-fn collation(options: &[ColumnOptionDef]) -> Option<String> {
+fn collation(options: &[ColumnOptionDef]) -> Option<Collation> {
     options.iter().find_map(|option| match &option.option {
-        ColumnOption::Collation(name) => Some(collation_name(name)),
+        ColumnOption::Collation(name) => Collation::from_sql(name),
         _ => None,
     })
 }
 
-/// A collation's name, lowercased and without its schema.
-pub(crate) fn collation_name(name: &ObjectName) -> String {
-    super::type_normalizer::bare_name(&object_name_to_key(name)).to_string()
+/// A collation, by the name PostgreSQL stores it under
+/// (`pg_collation.collname`). Collation names are identifiers, so they are
+/// case-sensitive once read: `COLLATE "C"` names the C collation, while an
+/// unquoted `COLLATE C` names `c`, which PostgreSQL does not have.
+///
+/// The schema is not kept, as a live catalog reports the name alone: a
+/// collation named `C`, `POSIX` or `default` created outside `pg_catalog`
+/// would be taken for the built-in one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Collation(String);
+
+impl Collation {
+    /// The collation stored as `name`, as `pg_collation.collname` reads.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    /// The collation an SQL name refers to: a quoted identifier verbatim, an
+    /// unquoted one lowercased, without its schema.
+    pub(crate) fn from_sql(name: &ObjectName) -> Option<Self> {
+        match name.0.last()? {
+            ObjectNamePart::Identifier(ident) => Some(Self(ident_to_lower(ident))),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether text compares byte by byte under the collation: the
+    /// database default (deterministic, as every database default is), `C`
+    /// or `POSIX`.
+    pub fn compares_bytes(&self) -> bool {
+        matches!(self.0.as_str(), "default" | "C" | "POSIX")
+    }
+}
+
+impl std::fmt::Display for Collation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 /// One `CHECK` constraint on a single value.
@@ -444,11 +483,11 @@ impl Catalog {
             collation = def.constraints.collation.clone();
             domain = def.constraints.domain.clone();
         }
-        match collation.as_deref() {
-            None | Some("default" | "c" | "posix") => TextComparison::Exact,
-            Some(name) => TextComparison::Inexact(format!(
-                "text compares under the collation \"{name}\", which need not be byte by byte"
+        match collation {
+            Some(collation) if !collation.compares_bytes() => TextComparison::Inexact(format!(
+                "text compares under the collation \"{collation}\", which need not be byte by byte"
             )),
+            _ => TextComparison::Exact,
         }
     }
 }

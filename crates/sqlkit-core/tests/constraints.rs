@@ -423,7 +423,7 @@ fn should_not_translate_text_comparisons_on_citext_or_collated_values() {
     );
     let label = catalog.column_constraints("t", "label").unwrap();
     assert!(
-        label.untranslated[0].reason.contains("en_us"),
+        label.untranslated[0].reason.contains("\"en_US\""),
         "{:?}",
         label.untranslated
     );
@@ -694,4 +694,27 @@ fn should_read_alter_domain_constraint_names_as_postgresql_does() {
         (s("^[a-z]+$"), Some(2), None),
         "the NOT VALID check was validated by its quoted name"
     );
+}
+
+#[test]
+fn should_read_collation_names_as_case_sensitive_identifiers() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE DOMAIN posix_text AS text COLLATE pg_catalog.\"POSIX\";",
+        "CREATE TABLE t (
+            a text COLLATE \"C\" CHECK (a = 'x'),
+            b text COLLATE \"default\" CHECK (b = 'x'),
+            c posix_text CHECK (c = 'x'),
+            d text COLLATE \"en_US\" CHECK (d = 'x')
+        );",
+    ])
+    .unwrap();
+    for column in ["a", "b", "c"] {
+        let constraints = catalog.column_constraints("t", column).unwrap();
+        assert_eq!(constraints.rules.allowed.map(|a| a.len()), Some(1), "{column}");
+    }
+    let posix = catalog.domain_constraint_facts("posix_text").unwrap();
+    assert_eq!(posix.collation.as_ref().map(|c| c.name()), Some("POSIX"));
+    let d = catalog.column_constraint_facts("t", "d").unwrap();
+    assert_eq!(d.collation.as_ref().map(|c| c.name()), Some("en_US"));
+    assert!(catalog.column_constraints("t", "d").unwrap().rules.allowed.is_none());
 }

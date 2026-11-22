@@ -226,7 +226,10 @@ impl Catalog {
                 lines.push(format!("{kind}-comment\t{owner}\t{}", escape_component(comment)));
             }
             if let Some(collation) = &facts.collation {
-                lines.push(format!("{kind}-collation\t{owner}\t{}", escape_component(collation)));
+                lines.push(format!(
+                    "{kind}-collation\t{owner}\t{}",
+                    escape_component(collation.name())
+                ));
             }
         }
         for (key, table) in canonical_entries(&self.tables) {

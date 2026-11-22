@@ -20,7 +20,7 @@ use sqlparser::dialect::PostgreSqlDialect;
 
 use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key, object_name_to_raw_name};
 
-pub use constraints::{CheckConstraint, ColumnConstraints, ColumnOrigin};
+pub use constraints::{CheckConstraint, Collation, ColumnConstraints, ColumnOrigin};
 use constraints::{DomainConstraint, NamedConstraint, attach_check};
 
 pub use builder::{

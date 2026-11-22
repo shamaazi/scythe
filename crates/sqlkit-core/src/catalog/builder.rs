@@ -3,8 +3,8 @@ use ahash::{AHashMap, AHashSet};
 use crate::errors::SqlkitError;
 
 use super::{
-    Catalog, Column, ColumnConstraints, CompositeField, CompositeType, DomainDef, EnumType, Function, FunctionArgument,
-    FunctionArgumentMode, FunctionResultColumn, FunctionReturn, Table,
+    Catalog, Collation, Column, ColumnConstraints, CompositeField, CompositeType, DomainDef, EnumType, Function,
+    FunctionArgument, FunctionArgumentMode, FunctionResultColumn, FunctionReturn, Table,
 };
 
 /// A database object name with its original identifier spelling preserved.
@@ -132,10 +132,10 @@ impl ColumnDefinition {
     }
 
     /// Attach the collation the column declares, when it differs from its
-    /// type's.
+    /// type's, by the name `pg_collation.collname` stores (case-sensitive).
     #[must_use]
     pub fn collation(mut self, collation: impl Into<String>) -> Self {
-        self.facts.collation = Some(collation.into());
+        self.facts.collation = Some(Collation::new(collation));
         self
     }
 
@@ -179,7 +179,7 @@ impl CheckDefinition {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct InspectedFacts {
     checks: Vec<CheckDefinition>,
-    collation: Option<String>,
+    collation: Option<Collation>,
     comment: Option<String>,
 }
 
@@ -368,10 +368,10 @@ impl DomainDefinition {
     }
 
     /// Attach the collation the domain declares, when it differs from its
-    /// base type's.
+    /// base type's, by the name `pg_collation.collname` stores (case-sensitive).
     #[must_use]
     pub fn collation(mut self, collation: impl Into<String>) -> Self {
-        self.facts.collation = Some(collation.into());
+        self.facts.collation = Some(Collation::new(collation));
         self
     }
 
@@ -713,7 +713,7 @@ fn apply_facts(catalog: &mut Catalog, pending: Vec<PendingFacts>) {
             .map(|data_type| ColumnConstraints::from_type(&data_type, &[], &catalog.domains))
             .unwrap_or_default();
         let base_type = resolved_base_type(catalog, &raw_type);
-        constraints.collation = facts.collation.map(|collation| collation.to_lowercase());
+        constraints.collation = facts.collation;
         constraints.comment = facts.comment;
         let slot = match &target {
             FactsTarget::Column(key, index) => catalog
@@ -1130,7 +1130,7 @@ mod tests {
 
         let name = catalog.column_constraint_facts("t", "name").unwrap();
         assert_eq!(name.max_length, Some(10));
-        assert_eq!(name.collation.as_deref(), Some("c"));
+        assert_eq!(name.collation.as_ref().map(super::Collation::name), Some("C"));
         let checks: Vec<_> = name
             .checks
             .iter()
