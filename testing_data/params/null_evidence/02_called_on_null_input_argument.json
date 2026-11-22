@@ -1,0 +1,21 @@
+{
+  "category": "params/null_evidence",
+  "description": "A placeholder passed to a function called on NULL input (not STRICT) may be NULL: the function handles it, as a report's optional filter does",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "id", "nullable": true, "type": "int32" }],
+      "command": "many",
+      "name": "ListAccounts",
+      "params": [{ "name": "only_hidden", "nullable": true, "type": "bool" }]
+    },
+    "success": true
+  },
+  "name": "called_on_null_input_argument",
+  "query_sql": "-- @name ListAccounts\n-- @returns :many\nSELECT id FROM accounts_report($1);",
+  "schema_sql": [
+    "CREATE TABLE accounts (id INTEGER PRIMARY KEY, hidden BOOLEAN NOT NULL);",
+    "CREATE FUNCTION accounts_report(only_hidden boolean) RETURNS TABLE (id integer) LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN QUERY SELECT a.id FROM accounts a WHERE only_hidden IS NULL OR a.hidden = only_hidden; END $$;"
+  ],
+  "source": "original",
+  "tags": ["param", "nullability", "function"]
+}

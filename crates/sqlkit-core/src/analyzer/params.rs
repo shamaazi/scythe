@@ -1,4 +1,4 @@
-use sqlparser::ast::{BinaryOperator, Expr, UnaryOperator};
+use sqlparser::ast::{self, BinaryOperator, Expr, UnaryOperator};
 
 use crate::catalog::ColumnOrigin;
 
@@ -27,14 +27,14 @@ impl<'a> Analyzer<'a> {
         position: i64,
         name: Option<String>,
         neutral_type: Option<String>,
-        nullable: bool,
+        null_evidence: Option<NullEvidence>,
         source_relation: Option<String>,
     ) {
         if let Some(existing) = self.params.iter_mut().find(|p| p.position == position) {
-            // Nullability accumulates where the rest fills blanks: one use that
-            // accepts NULL (`$1 IS NULL`, a nullable column written from it)
-            // means the caller may pass NULL, whichever use is visited first.
-            existing.nullable |= nullable;
+            // Evidence accumulates where the rest fills blanks: one use that
+            // gives the caller a reason to pass NULL makes the parameter
+            // nullable, whichever use is visited first.
+            existing.null_evidence = existing.null_evidence.or(null_evidence);
             if existing.name.is_none() && name.is_some() {
                 existing.name = name;
             }
@@ -49,7 +49,7 @@ impl<'a> Analyzer<'a> {
                 position,
                 name,
                 neutral_type,
-                nullable,
+                null_evidence,
                 source_relation,
                 written_to: Vec::new(),
             });
@@ -172,7 +172,7 @@ impl<'a> Analyzer<'a> {
                         // of a set the column is tested against, not a single bound value
                         // compared to that column the way `col = $N` is.
                         let neutral_type = Some(col_ti.neutral_type.clone());
-                        self.register_param(pos, Some(col_name.clone()), neutral_type, false, None);
+                        self.register_param(pos, Some(col_name.clone()), neutral_type, None, None);
                     }
                 }
             }
@@ -206,7 +206,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&param_name(left));
-                    self.register_param(pos, Some(name), Some(array_type), false, None);
+                    self.register_param(pos, Some(name), Some(array_type), None, None);
                 }
                 self.collect_param_from_any(right, &left_ti, &param_name(left));
                 // `$1 = ANY(array_expr)`: the placeholder is an element.
@@ -344,8 +344,52 @@ impl<'a> Analyzer<'a> {
             && let Some(p) = value_is_placeholder(vws)
             && let Some(pos) = self.resolve_placeholder_position(p)
         {
-            self.register_param(pos, None, neutral_type, true, None);
+            self.register_param(pos, None, neutral_type, Some(NullEvidence::NullTested), None);
         }
+        self.propagate_null_evidence(operand, NullEvidence::NullTested);
+    }
+
+    /// Pass `evidence` that `expr` may be NULL on to the placeholders whose
+    /// NULL makes it NULL through a STRICT function call: `$1` in
+    /// `coalesce(code($1), 'none')`, where `code` is STRICT, may be NULL as
+    /// much as `code($1)` may. Only the evidence passes: the call's own
+    /// overload types and names its arguments.
+    pub(super) fn propagate_null_evidence(&mut self, expr: &Expr, evidence: NullEvidence) {
+        let mut operand = expr;
+        while let Expr::Nested(inner) | Expr::Cast { expr: inner, .. } = operand {
+            operand = inner;
+        }
+        let Expr::Function(func) = operand else {
+            return;
+        };
+        if !self.is_strict_function(func) {
+            return;
+        }
+        for argument in self.get_function_args(func) {
+            let mut inner = &argument;
+            while let Expr::Nested(next) | Expr::Cast { expr: next, .. } = inner {
+                inner = next;
+            }
+            if let Expr::Value(vws) = inner
+                && let Some(p) = value_is_placeholder(vws)
+                && let Some(pos) = self.resolve_placeholder_position(p)
+            {
+                self.register_param(pos, None, None, Some(evidence), None);
+            }
+            self.propagate_null_evidence(&argument, evidence);
+        }
+    }
+
+    /// Whether every overload of the function `func` calls is STRICT, so a
+    /// NULL argument makes the call NULL.
+    fn is_strict_function(&self, func: &ast::Function) -> bool {
+        let name = object_name_to_string(&func.name).to_lowercase();
+        let overloads = self
+            .catalog
+            .get_functions(&name)
+            .or_else(|| self.builtin_overloads(&name))
+            .unwrap_or_default();
+        !overloads.is_empty() && overloads.iter().all(|function| function.strict)
     }
 
     /// A placeholder that is an operand of `NOT`, `AND` or `OR` is boolean, as
@@ -359,7 +403,7 @@ impl<'a> Analyzer<'a> {
             && let Some(p) = value_is_placeholder(vws)
             && let Some(pos) = self.resolve_placeholder_position(p)
         {
-            self.register_param(pos, None, Some("bool".to_string()), false, None);
+            self.register_param(pos, None, Some("bool".to_string()), None, None);
         }
     }
 
@@ -386,7 +430,7 @@ impl<'a> Analyzer<'a> {
                         pos,
                         Some(param_name),
                         Some(col_ti.neutral_type),
-                        false,
+                        None,
                         col_ti.source_relation,
                     );
                 }
@@ -402,7 +446,7 @@ impl<'a> Analyzer<'a> {
                     let col_ti = self.infer_expr_type(col_side, scope);
                     let col_name = param_name(col_side);
                     let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
-                    self.register_param(pos, Some(param_name), Some(neutral), false, col_ti.source_relation);
+                    self.register_param(pos, Some(param_name), Some(neutral), None, col_ti.source_relation);
                 }
             }
             _ => {}
@@ -414,7 +458,7 @@ impl<'a> Analyzer<'a> {
             if let Some(p) = value_is_placeholder(vws)
                 && let Some(pos) = self.resolve_placeholder_position(p)
             {
-                self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), false, None);
+                self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), None, None);
             }
         } else if let Expr::Cast {
             expr: inner, data_type, ..
@@ -424,12 +468,12 @@ impl<'a> Analyzer<'a> {
             && let Some(pos) = self.resolve_placeholder_position(p)
         {
             let neutral = datatype_to_neutral(data_type, self.catalog);
-            self.register_param(pos, Some(name.to_string()), Some(neutral), false, None);
+            self.register_param(pos, Some(name.to_string()), Some(neutral), None, None);
         }
     }
 
     pub(super) fn collect_param_from_expr_with_type(&mut self, expr: &Expr, type_str: &str, name: &str) {
-        self.collect_param_from_expr_with_type_nullable(expr, type_str, name, false);
+        self.collect_param_from_expr_with_type_nullable(expr, type_str, name, None);
     }
 
     pub(super) fn collect_param_from_expr_with_type_nullable(
@@ -437,7 +481,7 @@ impl<'a> Analyzer<'a> {
         expr: &Expr,
         type_str: &str,
         name: &str,
-        nullable: bool,
+        nullable: Option<NullEvidence>,
     ) {
         match expr {
             Expr::Value(vws) => {
@@ -470,10 +514,9 @@ impl<'a> Analyzer<'a> {
                 self.collect_param_from_expr_with_type_nullable(left, type_str, name, nullable);
                 self.collect_param_from_expr_with_type_nullable(right, type_str, name, nullable);
             }
+            // A COALESCE argument's own evidence comes from inference, the
+            // one place the COALESCE rule lives.
             Expr::Function(func) => {
-                // A COALESCE argument may be NULL whatever the column allows:
-                // the fallback stands in for it.
-                let nullable = nullable || object_name_to_string(&func.name).eq_ignore_ascii_case("coalesce");
                 for arg in self.get_function_args(func) {
                     self.collect_param_from_expr_with_type_nullable(&arg, type_str, name, nullable);
                 }
@@ -490,7 +533,7 @@ impl<'a> Analyzer<'a> {
                 for case_when in conditions {
                     // A searched CASE's condition is a boolean, not the value written.
                     if operand.is_none() {
-                        self.collect_param_from_expr_with_type_nullable(&case_when.condition, "bool", name, false);
+                        self.collect_param_from_expr_with_type_nullable(&case_when.condition, "bool", name, None);
                     } else {
                         self.collect_param_from_expr_with_type_nullable(&case_when.condition, type_str, name, nullable);
                     }
@@ -513,7 +556,7 @@ impl<'a> Analyzer<'a> {
                 "interval" => Some("duration".to_string()),
                 _ => None,
             };
-            self.register_param(pos, name, Some(neutral_type.to_string()), false, None);
+            self.register_param(pos, name, Some(neutral_type.to_string()), None, None);
         }
     }
 
@@ -525,7 +568,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(left_name);
-                    self.register_param(pos, Some(name), Some(array_type), false, None);
+                    self.register_param(pos, Some(name), Some(array_type), None, None);
                 }
             }
             Expr::Cast {
@@ -536,7 +579,7 @@ impl<'a> Analyzer<'a> {
                     && let Some(pos) = self.resolve_placeholder_position(p)
                 {
                     let neutral = datatype_to_neutral(data_type, self.catalog);
-                    self.register_param(pos, Some(pluralize(left_name)), Some(neutral), false, None);
+                    self.register_param(pos, Some(pluralize(left_name)), Some(neutral), None, None);
                 }
             }
             Expr::Nested(inner) => self.collect_param_from_any(inner, left_ti, left_name),
@@ -547,7 +590,7 @@ impl<'a> Analyzer<'a> {
                         && let Some(pos) = self.resolve_placeholder_position(p)
                     {
                         let name = format!("{}{}", left_name, i + 1);
-                        self.register_param(pos, Some(name), Some(left_ti.neutral_type.clone()), false, None);
+                        self.register_param(pos, Some(name), Some(left_ti.neutral_type.clone()), None, None);
                     }
                 }
             }
@@ -595,24 +638,24 @@ mod tests {
     fn test_register_param_new() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false, None);
+        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), None, None);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].position, 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
         assert_eq!(analyzer.params[0].neutral_type, Some("int32".to_string()));
-        assert!(!analyzer.params[0].nullable);
+        assert_eq!(analyzer.params[0].null_evidence, None);
     }
 
     #[test]
     fn test_register_param_dedup_fills_missing() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, None, None, false, None);
+        analyzer.register_param(1, None, None, None, None);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, None);
         assert_eq!(analyzer.params[0].neutral_type, None);
 
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false, None);
+        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), None, None);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
         assert_eq!(analyzer.params[0].neutral_type, Some("int32".to_string()));
@@ -622,8 +665,14 @@ mod tests {
     fn test_register_param_does_not_overwrite_existing() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false, None);
-        analyzer.register_param(1, Some("new_name".to_string()), Some("string".to_string()), true, None);
+        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), None, None);
+        analyzer.register_param(
+            1,
+            Some("new_name".to_string()),
+            Some("string".to_string()),
+            Some(NullEvidence::NullTested),
+            None,
+        );
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
         assert_eq!(analyzer.params[0].neutral_type, Some("int32".to_string()));
@@ -636,13 +685,13 @@ mod tests {
         // param out of later picking one up from a comparison site.
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false, None);
+        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), None, None);
         assert_eq!(analyzer.params[0].source_relation, None);
         analyzer.register_param(
             1,
             Some("id".to_string()),
             Some("int32".to_string()),
-            false,
+            None,
             Some("users".to_string()),
         );
         assert_eq!(analyzer.params.len(), 1, "still one param, not a second entry");
@@ -657,14 +706,14 @@ mod tests {
             1,
             Some("id".to_string()),
             Some("int32".to_string()),
-            false,
+            None,
             Some("users".to_string()),
         );
         analyzer.register_param(
             1,
             Some("id".to_string()),
             Some("int32".to_string()),
-            false,
+            None,
             Some("orders".to_string()),
         );
         assert_eq!(analyzer.params[0].source_relation, Some("users".to_string()));
@@ -674,8 +723,8 @@ mod tests {
     fn test_register_multiple_params() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("name".to_string()), Some("string".to_string()), false, None);
-        analyzer.register_param(2, Some("age".to_string()), Some("int32".to_string()), false, None);
+        analyzer.register_param(1, Some("name".to_string()), Some("string".to_string()), None, None);
+        analyzer.register_param(2, Some("age".to_string()), Some("int32".to_string()), None, None);
         assert_eq!(analyzer.params.len(), 2);
         assert_eq!(analyzer.params[0].position, 1);
         assert_eq!(analyzer.params[1].position, 2);

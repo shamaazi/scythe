@@ -411,13 +411,36 @@ pub(super) struct Scope {
     pub(super) sources: Vec<ScopeSource>,
 }
 
+/// Why a parameter may be NULL: the statement gives the caller a reason to
+/// pass it. A use that gives no such reason -- a comparison, which a NULL
+/// simply fails, or an argument of a STRICT function, which a NULL only makes
+/// NULL -- registers no evidence, so it can neither make a parameter nullable
+/// nor stop another use from doing so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum NullEvidence {
+    /// Tested by `IS [NOT] NULL`, as the optional-filter idiom
+    /// `$1 IS NULL OR col = $1` does.
+    NullTested,
+    /// Written into a nullable column (`INSERT ... VALUES`, `SET col = $1`).
+    WrittenToNullable,
+    /// A `COALESCE` argument, which its fallback stands in for.
+    CoalesceArgument,
+    /// An argument of a function called on NULL input (not `STRICT`), which
+    /// handles NULL itself, as a report function's optional filter does.
+    CalledOnNullInput,
+    /// Marked nullable by an annotation (`@param $1 name?`, `@optional`).
+    Annotation,
+}
+
 /// Tracked parameter info during analysis
 #[derive(Debug, Clone)]
 pub(super) struct ParamInfo {
     pub(super) position: i64,
     pub(super) name: Option<String>,
     pub(super) neutral_type: Option<String>,
-    pub(super) nullable: bool,
+    /// Why the caller may pass NULL, from the first use that says so; `None`
+    /// while no use does.
+    pub(super) null_evidence: Option<NullEvidence>,
     /// See [`AnalyzedParam::source_relation`]; carried through unchanged into the public type.
     pub(super) source_relation: Option<String>,
     /// Catalog columns this parameter is written into directly; their

@@ -1,0 +1,28 @@
+{
+  "category": "params/null_evidence",
+  "description": "A placeholder passed to a STRICT function gives no reason to pass NULL, so a comparison elsewhere leaves it non-nullable",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "id", "nullable": false, "type": "int32" }],
+      "command": "many",
+      "name": "ListVisibleAccounts",
+      "params": [
+        {
+          "name": "id",
+          "note": "NULL would only make is_visible($1) NULL, filtering every row out",
+          "nullable": false,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "strict_function_argument",
+  "query_sql": "-- @name ListVisibleAccounts\n-- @returns :many\nSELECT id FROM accounts WHERE id = $1 AND is_visible($1);",
+  "schema_sql": [
+    "CREATE TABLE accounts (id INTEGER PRIMARY KEY, hidden BOOLEAN NOT NULL);",
+    "CREATE FUNCTION is_visible(account integer) RETURNS boolean LANGUAGE sql STABLE STRICT RETURN NOT (SELECT hidden FROM accounts WHERE id = account);"
+  ],
+  "source": "original",
+  "tags": ["param", "nullability", "function"]
+}

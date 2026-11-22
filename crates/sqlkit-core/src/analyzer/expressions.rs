@@ -60,7 +60,7 @@ impl<'a> Analyzer<'a> {
                     // `$N` exactly as before and, for `?`, assigns (and memoizes by
                     // span) the next positional slot.
                     if let Some(pos) = self.resolve_placeholder_position(p) {
-                        self.register_param(pos, None, None, false, None);
+                        self.register_param(pos, None, None, None, None);
                     }
                     // ~keep Same "nothing to infer a type from" shape as the NULL arm
                     // above -- a bare placeholder reached with no CAST/comparison/
@@ -162,7 +162,7 @@ impl<'a> Analyzer<'a> {
                         && let Some(pos) = self.resolve_placeholder_position(p)
                     {
                         let col_name = param_name(col_expr);
-                        self.register_param(pos, Some(col_name), Some(col_ti.neutral_type.clone()), false, None);
+                        self.register_param(pos, Some(col_name), Some(col_ti.neutral_type.clone()), None, None);
                     }
                 }
                 // `NULL IN (1, 2)` is NULL, not false (#119).
@@ -233,14 +233,14 @@ impl<'a> Analyzer<'a> {
                         match &operand_ti {
                             Some(op_ti) => {
                                 let name = operand.as_ref().map(|op| param_name(op));
-                                self.register_param(pos, name, Some(op_ti.neutral_type.clone()), false, None);
+                                self.register_param(pos, name, Some(op_ti.neutral_type.clone()), None, None);
                             }
                             None => {
                                 self.register_param(
                                     pos,
                                     Some("flag".to_string()),
                                     Some("bool".to_string()),
-                                    false,
+                                    None,
                                     None,
                                 );
                             }
@@ -305,7 +305,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&param_name(left));
-                    self.register_param(pos, Some(name), Some(array_type), false, None);
+                    self.register_param(pos, Some(name), Some(array_type), None, None);
                 }
                 self.collect_param_from_any(right, &left_ti, &param_name(left));
                 TypeInfo::new("bool", false)
@@ -319,7 +319,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&param_name(left));
-                    self.register_param(pos, Some(name), Some(array_type), false, None);
+                    self.register_param(pos, Some(name), Some(array_type), None, None);
                 }
                 self.collect_param_from_any(right, &left_ti, &param_name(left));
                 TypeInfo::new("bool", false)
@@ -631,8 +631,10 @@ impl<'a> Analyzer<'a> {
                 }
 
                 // A placeholder argument, bare or cast (`coalesce($1::boolean, x)`),
-                // may be NULL: that is what the fallback is for.
+                // may be NULL: that is what the fallback is for. So may one a
+                // STRICT call in an argument passes its NULL through from.
                 for arg in &args {
+                    self.propagate_null_evidence(arg, NullEvidence::CoalesceArgument);
                     let mut operand = arg;
                     while let Expr::Nested(inner) | Expr::Cast { expr: inner, .. } = operand {
                         operand = inner;
@@ -646,7 +648,13 @@ impl<'a> Analyzer<'a> {
                         } else {
                             None
                         };
-                        self.register_param(pos, coalesce_name.clone(), param_type, true, None);
+                        self.register_param(
+                            pos,
+                            coalesce_name.clone(),
+                            param_type,
+                            Some(NullEvidence::CoalesceArgument),
+                            None,
+                        );
                     }
                 }
 
@@ -1086,6 +1094,12 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    /// Type the placeholders passed to a schema function by the overload the
+    /// call resolves to. An argument of a function called on NULL input (not
+    /// STRICT) may be NULL: the function handles it. An argument of a STRICT
+    /// function gives no evidence, since NULL only makes the call NULL;
+    /// [`Analyzer::propagate_null_evidence`] passes on evidence the call
+    /// itself has.
     pub(super) fn register_catalog_function_params(
         &mut self,
         matched: &CatalogFunctionMatch<'_>,
@@ -1102,7 +1116,8 @@ impl<'a> Analyzer<'a> {
                 if declaration.mode == FunctionArgumentMode::Variadic {
                     neutral_type = array_element_type(&neutral_type).unwrap_or(&neutral_type).to_string();
                 }
-                self.register_param(position, declaration.name.clone(), Some(neutral_type), true, None);
+                let evidence = (!matched.function.strict).then_some(NullEvidence::CalledOnNullInput);
+                self.register_param(position, declaration.name.clone(), Some(neutral_type), evidence, None);
             }
         }
     }

@@ -573,13 +573,19 @@ impl<'a> Analyzer<'a> {
                 // silently.
                 for row in &values.rows {
                     for (i, expr) in row.iter().enumerate() {
+                        let empty_scope = Scope { sources: Vec::new() };
                         if let Some((col_name, col_type, nullable)) = effective_cols.get(i).and_then(|c| c.as_ref()) {
-                            self.collect_param_from_expr_with_type_nullable(expr, col_type, col_name, *nullable);
+                            let evidence = nullable.then_some(NullEvidence::WrittenToNullable);
+                            self.collect_param_from_expr_with_type_nullable(expr, col_type, col_name, evidence);
                             self.bind_written_param(expr, table_name, col_name);
+                            // Placeholders nested in the value (a COALESCE
+                            // argument, a function argument) are typed from
+                            // their own context, as in `SET col = ...`.
+                            self.collect_params_from_where(expr, &empty_scope);
                         } else {
-                            let ti = self.infer_expr_type(expr, &Scope { sources: Vec::new() });
+                            let ti = self.infer_expr_type(expr, &empty_scope);
                             let name = target_cols.get(i).cloned().unwrap_or_else(|| expr_to_name(expr));
-                            self.collect_param_from_expr_with_type_nullable(expr, &ti.neutral_type, &name, ti.nullable);
+                            self.collect_param_from_expr_with_type_nullable(expr, &ti.neutral_type, &name, None);
                         }
                     }
                 }
@@ -596,7 +602,8 @@ impl<'a> Analyzer<'a> {
                         if let Some((col_name, col_type, nullable)) = effective_cols.get(i).and_then(|c| c.as_ref())
                             && is_placeholder_operand(expr)
                         {
-                            self.collect_param_from_expr_with_type_nullable(expr, col_type, col_name, *nullable);
+                            let evidence = nullable.then_some(NullEvidence::WrittenToNullable);
+                            self.collect_param_from_expr_with_type_nullable(expr, col_type, col_name, evidence);
                             self.bind_written_param(expr, table_name, col_name);
                         }
                     }
@@ -615,8 +622,10 @@ impl<'a> Analyzer<'a> {
         for assign in assignments {
             let col_name = assignment_target_name(&assign.target);
             if let Some(col_type) = self.get_column_type(table_name, &col_name) {
-                let nullable = self.is_column_nullable(table_name, &col_name);
-                self.collect_param_from_expr_with_type_nullable(&assign.value, &col_type, &col_name, nullable);
+                let evidence = self
+                    .is_column_nullable(table_name, &col_name)
+                    .then_some(NullEvidence::WrittenToNullable);
+                self.collect_param_from_expr_with_type_nullable(&assign.value, &col_type, &col_name, evidence);
                 self.bind_written_param(&assign.value, table_name, &col_name);
             }
             self.collect_params_from_where(&assign.value, scope);

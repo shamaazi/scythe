@@ -28,7 +28,7 @@ use crate::parser::{Query, QueryCommand};
 use helpers::{
     detect_select_star_source, disambiguate_duplicate_names, find_nested_placeholder_id, reject_unresolved_params,
 };
-use types::Analyzer;
+use types::{Analyzer, NullEvidence};
 
 pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, SqlkitError> {
     let mut analyzer = Analyzer {
@@ -122,10 +122,11 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Sqlkit
                 .map(|doc| doc.name.clone())
                 .unwrap_or_else(|| p.name.clone().unwrap_or_else(|| format!("p{}", p.position)));
             let neutral_type = p.neutral_type.clone().unwrap_or_else(|| "unknown".to_string());
+            let annotated = doc.is_some_and(|doc| doc.nullable).then_some(NullEvidence::Annotation);
             AnalyzedParam {
                 name,
                 neutral_type,
-                nullable: p.nullable || doc.is_some_and(|doc| doc.nullable),
+                nullable: p.null_evidence.or(annotated).is_some(),
                 position: p.position,
                 source_relation: p.source_relation.clone(),
                 constraints: written_constraints(catalog, &p.written_to),
@@ -358,7 +359,7 @@ fn register_unvisited_placeholders(analyzer: &mut Analyzer<'_>, stmt: &sqlparser
         std::ops::ControlFlow::<()>::Continue(())
     });
     for position in positions {
-        analyzer.register_param(position, None, None, false, None);
+        analyzer.register_param(position, None, None, None, None);
     }
 }
 

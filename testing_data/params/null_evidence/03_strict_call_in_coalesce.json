@@ -1,0 +1,20 @@
+{
+  "category": "params/null_evidence",
+  "description": "A STRICT call passes NULL through, so its placeholder argument may be NULL when the call is a COALESCE argument",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "label", "nullable": false, "type": "string" }],
+      "command": "one",
+      "name": "GetLabel",
+      "params": [{ "name": "code", "nullable": true, "type": "string" }]
+    },
+    "success": true
+  },
+  "name": "strict_call_in_coalesce",
+  "query_sql": "-- @name GetLabel\n-- @returns :one\nSELECT coalesce(label_for($1), 'none') AS label;",
+  "schema_sql": [
+    "CREATE FUNCTION label_for(code text) RETURNS text LANGUAGE sql IMMUTABLE STRICT RETURN upper(code);"
+  ],
+  "source": "original",
+  "tags": ["param", "nullability", "function", "coalesce"]
+}
