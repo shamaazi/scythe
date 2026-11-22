@@ -144,7 +144,7 @@ impl TsQueryParams {
             None => self
                 .params
                 .iter()
-                .map(|param| (param.field_name.clone(), param.full_type.clone()))
+                .map(|param| (param.field_name.clone(), param.ts_full_type().into_owned()))
                 .collect(),
         }
     }
@@ -162,7 +162,7 @@ impl TsQueryParams {
             write_ts_property(
                 &mut out,
                 &param.field_name,
-                &param.full_type,
+                &param.ts_full_type(),
                 &param.lang_type,
                 param.constraints.as_ref(),
             );
@@ -208,11 +208,11 @@ impl TsRowShape {
     /// `lang_type` would stay sound under `Flat` as well (`T` is assignable
     /// to `T | null`), but `Flat` keeps `full_type` so the generated text is
     /// unchanged for the shape that never needed the narrowing.
-    pub fn cast_type(self, col: &ResolvedColumn) -> &str {
+    pub fn cast_type(self, col: &ResolvedColumn) -> std::borrow::Cow<'_, str> {
         if self == Self::Union && col.is_join_discriminant() {
-            return &col.lang_type;
+            return std::borrow::Cow::Borrowed(col.ts_lang_type());
         }
-        &col.full_type
+        col.ts_full_type()
     }
 }
 
@@ -492,7 +492,7 @@ pub fn generate_ts_interface_row_struct(struct_name: &str, query_name: &str, col
         write_ts_property(
             &mut out,
             &col.field_name,
-            &col.full_type,
+            &col.ts_full_type(),
             &col.lang_type,
             col.constraints.as_ref(),
         );
@@ -573,7 +573,7 @@ pub fn generate_ts_union_row_struct(struct_name: &str, query_name: &str, columns
         write_ts_property(
             &mut out,
             &col.field_name,
-            &col.full_type,
+            &col.ts_full_type(),
             &col.lang_type,
             col.constraints.as_ref(),
         );
@@ -596,9 +596,9 @@ pub fn generate_ts_union_row_struct(struct_name: &str, query_name: &str, columns
                 let _ = write!(out, "; ");
             }
             let matched_type = if col.nullable_before_join {
-                col.full_type.as_str()
+                col.ts_full_type()
             } else {
-                col.lang_type.as_str()
+                std::borrow::Cow::Borrowed(col.ts_lang_type())
             };
             let _ = write!(out, "{}: {}", ts_property_key(&col.field_name), matched_type);
         }
@@ -774,7 +774,7 @@ pub fn generate_grouped_interface_structs(
         write_ts_property(
             &mut out,
             &col.field_name,
-            &col.full_type,
+            &col.ts_full_type(),
             &col.lang_type,
             col.constraints.as_ref(),
         );
@@ -787,7 +787,7 @@ pub fn generate_grouped_interface_structs(
         write_ts_property(
             &mut out,
             &col.field_name,
-            &col.full_type,
+            &col.ts_full_type(),
             &col.lang_type,
             col.constraints.as_ref(),
         );
@@ -866,7 +866,7 @@ pub fn generate_ts_row_object_literal(
             out,
             "{indent}{}: {},",
             ts_property_key(&col.field_name),
-            row_access(&col.name, shape.cast_type(col))
+            row_access(&col.name, &shape.cast_type(col))
         );
     }
     out
@@ -986,13 +986,13 @@ pub fn generate_ts_grouped_fold_body(
     let key_type = parent_columns
         .iter()
         .find(|c| c.name == key_col_name)
-        .map_or("unknown", |c| c.full_type.as_str());
+        .map_or(std::borrow::Cow::Borrowed("unknown"), ResolvedColumn::ts_full_type);
 
     let mut out = String::new();
     let _ = writeln!(out, "\tconst result: {parent_struct_name}[] = [];");
     let _ = writeln!(out, "\tconst index = new Map<unknown, {parent_struct_name}>();");
     let _ = writeln!(out, "\tfor (const row of flatRows) {{");
-    let _ = writeln!(out, "\t\tconst key = {};", row_access(key_col_name, key_type));
+    let _ = writeln!(out, "\t\tconst key = {};", row_access(key_col_name, &key_type));
     let _ = writeln!(out, "\t\tlet parent = index.get(key);");
     let _ = writeln!(out, "\t\tif (!parent) {{");
     let _ = writeln!(out, "\t\t\tparent = {{");
@@ -1300,105 +1300,28 @@ fn write_ts_property(
     lang_type: &str,
     constraints: Option<&ValueConstraints>,
 ) {
-    out.push_str(&ts_property_doc(constraints, ts_own_type(lang_type), "\t"));
+    out.push_str(&ts_property_doc(constraints, lang_type, "\t"));
     let _ = writeln!(out, "\t{}: {};", ts_property_key(field_name), full_type);
 }
 
-/// The generic type a `column_types` module exports: `Column<Name, Own>`.
-const TS_COLUMN_TYPE: &str = "Column";
-
-/// Validate the `column_types` option: a module specifier for the import of
-/// its `Column` type. A Zod row schema is a runtime value the type-only
-/// `Column` cannot reach, so `row_type = "zod"` rejects it.
-pub fn ts_column_types_option(module: &str, row_type: TsRowType) -> Result<String, SqlkitError> {
-    if module.is_empty() || module.chars().any(|c| matches!(c, '"' | '\\') || c.is_control()) {
-        return Err(SqlkitError::new(
-            ErrorCode::InvalidConfig,
-            format!("invalid column_types '{module}': expected a module specifier"),
-        ));
+/// The imports for the `ts_type` overrides the generated code names (see
+/// [`crate::GeneratedCode::type_imports`]): one `import type { A, B } from
+/// "<module>";` per module, sorted.
+pub fn ts_type_imports(generated: &[crate::GeneratedCode]) -> String {
+    let mut imports: Vec<&crate::TypeImport> = generated.iter().flat_map(|code| &code.type_imports).collect();
+    imports.sort_unstable();
+    imports.dedup();
+    let mut out = String::new();
+    for chunk in imports.chunk_by(|a, b| a.module == b.module) {
+        let names: Vec<&str> = chunk.iter().map(|import| import.name.as_str()).collect();
+        let _ = writeln!(
+            out,
+            "import type {{ {} }} from {};",
+            names.join(", "),
+            ts_string_literal(&chunk[0].module)
+        );
     }
-    if row_type == TsRowType::Zod {
-        return Err(SqlkitError::new(
-            ErrorCode::InvalidConfig,
-            "column_types needs row_type = \"interface\": a Zod schema cannot carry a type-only Column",
-        ));
-    }
-    Ok(module.to_string())
-}
-
-/// The TypeScript backends' [`crate::backend_trait::CodegenBackend::column_type`]
-/// under `column_types`: `Column<'table.column', T>`, with `| null` outside.
-pub fn ts_column_type(column: &str, lang_type: &str, nullable: bool) -> (String, String) {
-    let mut lang = format!("{TS_COLUMN_TYPE}<'");
-    for c in column.chars() {
-        if matches!(c, '\'' | '\\') {
-            lang.push('\\');
-        }
-        lang.push(c);
-    }
-    let _ = write!(lang, "', {lang_type}>");
-    let full = if nullable {
-        format!("{lang} | null")
-    } else {
-        lang.clone()
-    };
-    (lang, full)
-}
-
-/// A [`ts_column_type`] split into everything before its own type and that
-/// own type, or `None` for any other type.
-fn ts_column_type_parts(lang_type: &str) -> Option<(&str, &str)> {
-    let name = lang_type.strip_prefix(TS_COLUMN_TYPE)?.strip_prefix("<'")?;
-    let mut escaped = false;
-    for (index, c) in name.char_indices() {
-        match c {
-            _ if escaped => escaped = false,
-            '\\' => escaped = true,
-            '\'' => {
-                let own = name[index + 1..].strip_prefix(", ")?.strip_suffix('>')?;
-                let prefix_len = lang_type.len() - own.len() - 1;
-                return Some((&lang_type[..prefix_len], own));
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// The type a column or parameter has of its own, before [`ts_column_type`]
-/// declared it `Column<'table.column', T>`: `T`. Code that decides by the
-/// value's type -- validation tags, a composite's parser, a driver's typed
-/// arrays -- reads this.
-pub fn ts_own_type(lang_type: &str) -> &str {
-    ts_column_type_parts(lang_type).map_or(lang_type, |(_, own)| own)
-}
-
-/// `lang_type` with its own type (see [`ts_own_type`]) replaced by `own`.
-pub fn ts_with_own_type(lang_type: &str, own: &str) -> String {
-    match ts_column_type_parts(lang_type) {
-        Some((prefix, _)) => format!("{prefix}{own}>"),
-        None => own.to_string(),
-    }
-}
-
-/// `import type { Column } from "<module>";` when a `column_types` module is
-/// set and some generated declaration names a column type, else empty.
-pub fn ts_column_types_import(module: Option<&str>, generated: &[crate::GeneratedCode]) -> String {
-    let Some(module) = module else {
-        return String::new();
-    };
-    let marker = format!("{TS_COLUMN_TYPE}<'");
-    let used = generated.iter().any(|code| {
-        [&code.query_fn, &code.row_struct, &code.model_struct]
-            .into_iter()
-            .flatten()
-            .any(|body| body.contains(&marker))
-    });
-    if used {
-        format!("import type {{ {TS_COLUMN_TYPE} }} from \"{module}\";\n")
-    } else {
-        String::new()
-    }
+    out
 }
 
 /// Validate the `schema_types` and `schema_types_import` options, returning the
@@ -1634,6 +1557,7 @@ mod tests {
     ) -> ResolvedColumn {
         ResolvedColumn {
             constraints: None,
+            ts_type: None,
             name: name.to_string(),
             field_name: name.to_string(),
             lang_type: lang_type.to_string(),
@@ -1844,6 +1768,7 @@ mod tests {
     fn bytes_column(name: &str, lang_type: &str, nullable: bool) -> ResolvedColumn {
         ResolvedColumn {
             constraints: None,
+            ts_type: None,
             name: name.to_string(),
             field_name: name.to_string(),
             lang_type: lang_type.to_string(),
@@ -2094,22 +2019,48 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_ts_column_type_escapes_the_name_and_keeps_null_outside() {
-        let (lang, full) = ts_column_type("it's.a\\b", "\"x\" | \"y\"", true);
-        assert_eq!(lang, "Column<'it\\'s.a\\\\b', \"x\" | \"y\">");
-        assert_eq!(full, format!("{lang} | null"));
+    fn type_import(module: &str, name: &str) -> crate::TypeImport {
+        crate::TypeImport {
+            module: module.to_string(),
+            name: name.to_string(),
+        }
     }
 
     #[test]
-    fn test_ts_own_type_reads_through_a_column_type() {
-        let (lang, _) = ts_column_type("it's.a, b>", "Array<number>", false);
-        assert_eq!(ts_own_type(&lang), "Array<number>");
+    fn test_ts_type_imports_groups_names_per_module() {
+        let generated = [
+            crate::GeneratedCode::build(|c| {
+                c.type_imports = vec![type_import("@app/b", "Zed"), type_import("@app/a", "Two")];
+            }),
+            crate::GeneratedCode::build(|c| {
+                c.type_imports = vec![type_import("@app/a", "One"), type_import("@app/a", "Two")];
+            }),
+        ];
         assert_eq!(
-            ts_with_own_type(&lang, "Int32Array | Array<number>"),
-            "Column<'it\\'s.a, b>', Int32Array | Array<number>>"
+            ts_type_imports(&generated),
+            "import type { One, Two } from \"@app/a\";\nimport type { Zed } from \"@app/b\";\n"
         );
-        assert_eq!(ts_own_type("Array<number>"), "Array<number>");
-        assert_eq!(ts_with_own_type("number", "string"), "string");
+        assert_eq!(ts_type_imports(&[]), "");
+    }
+
+    #[test]
+    fn test_ts_types_declare_the_override_and_keep_null_outside() {
+        let column = ResolvedColumn {
+            lang_type: "string".to_string(),
+            full_type: "string | null".to_string(),
+            nullable: true,
+            ts_type: Some(crate::overrides::TsTypeOverride {
+                ts_type: "'a' | 'b'".to_string(),
+                import: None,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(column.ts_lang_type(), "'a' | 'b'");
+        assert_eq!(column.ts_full_type(), "'a' | 'b' | null");
+        let plain = ResolvedColumn {
+            ts_type: None,
+            ..column
+        };
+        assert_eq!(plain.ts_full_type(), "string | null");
     }
 }

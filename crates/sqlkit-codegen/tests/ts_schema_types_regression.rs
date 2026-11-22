@@ -142,16 +142,29 @@ fn query_modules_import_enums_and_name_domain_values_by_their_alias() {
     );
 }
 
+/// A `ts_type` override replaces the domain's name, which the module then does
+/// not import.
 #[test]
-fn column_types_wrap_the_alias() {
-    let mut options = IMPORTING.to_vec();
-    options.push(("column_types", "@app/columns"));
-    let code = generate(backend(&options).as_ref());
+fn a_ts_type_override_replaces_the_alias() {
+    let catalog = catalog(SCHEMA);
+    let analyzed = analyze(&catalog, &parse_query(GET).unwrap()).unwrap();
+    let overrides = [sqlkit_codegen::TypeOverride {
+        column: Some("donors.email".to_string()),
+        ts_type: Some(sqlkit_codegen::overrides::TsTypeOverride {
+            ts_type: "Email".to_string(),
+            import: Some("@app/columns".to_string()),
+        }),
+        ..Default::default()
+    }];
+    let backend = backend(IMPORTING);
+    let code = sqlkit_codegen::generate_with_backend_and_overrides(&analyzed, backend.as_ref(), &overrides).unwrap();
     let row = code.row_struct.as_deref().unwrap();
-    assert!(row.contains("\temail: Column<'donors.email', EmailAddress>;"), "{row}");
+    assert!(row.contains("\temail: Email;"), "{row}");
+    assert!(row.contains("\tcountry: CountryCode | null;"), "{row}");
     assert!(
-        row.contains("\tcountry: Column<'donors.country', CountryCode> | null;"),
-        "{row}"
+        !code.schema_types.iter().any(|name| name == "EmailAddress"),
+        "{:?}",
+        code.schema_types
     );
 }
 

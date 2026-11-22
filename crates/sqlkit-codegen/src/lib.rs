@@ -68,6 +68,27 @@ pub struct GeneratedCode {
     /// backend's [`CodegenBackend::schema_types_import`] module, for the file
     /// to import. Empty unless the backend imports them.
     pub schema_types: Vec<String>,
+    /// The types this query's code names from other modules, for `ts_type`
+    /// overrides with a `ts_import` (see [`overrides::TsTypeOverride`]): one entry
+    /// per declared column or parameter, sorted and deduplicated.
+    pub type_imports: Vec<TypeImport>,
+}
+
+/// A type a generated module imports by name from another module.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TypeImport {
+    pub module: String,
+    pub name: String,
+}
+
+impl TypeImport {
+    fn of(ts_type: Option<&overrides::TsTypeOverride>) -> Option<Self> {
+        let ts_type = ts_type?;
+        Some(Self {
+            module: ts_type.import.clone()?,
+            name: ts_type.ts_type.clone(),
+        })
+    }
 }
 
 impl GeneratedCode {
@@ -261,7 +282,7 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
         &mut params,
         &mut result.constraint_warnings,
     )?;
-    result.schema_types = resolve::apply_column_types(
+    result.schema_types = resolve::apply_schema_types(
         backend,
         degraded_columns.as_deref().unwrap_or(&analyzed.columns),
         &mut columns,
@@ -339,6 +360,14 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
     }
     result.nested_struct_defs = nested_struct_defs;
     result.degraded_nested_structs = nested_degradations;
+    if needs_row_struct && !analyzed.columns.is_empty() {
+        result
+            .type_imports
+            .extend(columns.iter().filter_map(|c| TypeImport::of(c.ts_type.as_ref())));
+    }
+    result
+        .type_imports
+        .extend(params.iter().filter_map(|p| TypeImport::of(p.ts_type.as_ref())));
 
     if analyzed.command == QueryCommand::Grouped {
         let group_by = analyzed.group_by.as_ref().ok_or_else(|| {
@@ -397,8 +426,11 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
                 &mut child_cols,
             ),
         ] {
-            let names = resolve::apply_column_types(backend, analyzed_cols, cols, &[], &mut []);
+            let names = resolve::apply_schema_types(backend, analyzed_cols, cols, &[], &mut []);
             result.schema_types.extend(names);
+            result
+                .type_imports
+                .extend(cols.iter().filter_map(|c| TypeImport::of(c.ts_type.as_ref())));
         }
 
         // Every `generate_grouped_structs` implementation injects one more
@@ -447,6 +479,9 @@ pub fn generate_with_backend_and_overrides_and_nested_composites(
     } else {
         result.query_fn = Some(backend.generate_query_fn(analyzed, &struct_name, &columns, &params)?);
     }
+
+    result.type_imports.sort();
+    result.type_imports.dedup();
 
     Ok(result)
 }

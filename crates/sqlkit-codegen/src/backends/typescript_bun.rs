@@ -16,9 +16,8 @@ use crate::backends::typescript_common::{
     generate_ts_json_composite_interface, generate_ts_many_row_remap, generate_ts_nested_interface,
     generate_ts_one_row_remap, generate_ts_schema_types, generate_ts_union_row_struct, generate_zod_enum,
     generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
-    ts_column_type, ts_column_types_import, ts_column_types_option, ts_constrained_type, ts_index_access,
-    ts_inexpressible_rules, ts_member_access, ts_own_type, ts_property_key, ts_query_doc, ts_row_not_found_throw,
-    ts_schema_type, ts_schema_types_import, ts_schema_types_options, ts_with_own_type,
+    ts_constrained_type, ts_index_access, ts_inexpressible_rules, ts_member_access, ts_property_key, ts_query_doc,
+    ts_row_not_found_throw, ts_schema_type, ts_schema_types_import, ts_schema_types_options, ts_type_imports,
 };
 use crate::constraints::ConstraintPolicy;
 use sqlkit_core::constraints::{Rules, ValueConstraints};
@@ -35,9 +34,10 @@ const BUN_JSON_VALUE_TS: &str = "type SqlJsonValue = null | string | number | bo
 /// either shape row by row. The manifest maps containers generically, so
 /// these two element types are widened here, on the columns only:
 /// parameters keep the plain array type, which Bun binds as an array literal.
-/// A column whose type a user override replaced is left alone.
+/// A column a `ts_type` override declares, or whose type a `type` override
+/// replaced, is left alone.
 fn bun_typed_array(column: &ResolvedColumn) -> Option<&'static str> {
-    if ts_own_type(&column.lang_type) != "Array<number>" {
+    if column.ts_type.is_some() || column.lang_type != "Array<number>" {
         return None;
     }
     match column.neutral_type.as_str() {
@@ -59,7 +59,7 @@ fn bun_columns(columns: &[ResolvedColumn]) -> std::borrow::Cow<'_, [ResolvedColu
             let Some(typed) = bun_typed_array(c) else {
                 return c.clone();
             };
-            let lang_type = ts_with_own_type(&c.lang_type, &format!("{typed} | {}", ts_own_type(&c.lang_type)));
+            let lang_type = format!("{typed} | {}", c.lang_type);
             let full_type = if c.nullable {
                 format!("{lang_type} | null")
             } else {
@@ -78,9 +78,13 @@ fn bun_columns(columns: &[ResolvedColumn]) -> std::borrow::Cow<'_, [ResolvedColu
 /// What Bun binds for a parameter, where that is wider than what it returns
 /// for the same type: an `int8` or `numeric` value from a `number` as well as
 /// its text, and a `json`/`jsonb` value from anything `sql.json` serialises.
-/// A parameter whose type a user override replaced is left alone.
+/// A parameter a `ts_type` override declares, or whose type a `type` override
+/// replaced, is left alone.
 fn bun_param_type(param: &ResolvedParam) -> Option<&'static str> {
-    match (param.neutral_type.as_str(), ts_own_type(&param.lang_type)) {
+    if param.ts_type.is_some() {
+        return None;
+    }
+    match (param.neutral_type.as_str(), param.lang_type.as_str()) {
         ("int64" | "decimal", "string") => Some("number | string"),
         ("json", "SqlJsonValue") => Some("unknown"),
         _ => None,
@@ -99,7 +103,7 @@ fn bun_params(params: &[ResolvedParam]) -> std::borrow::Cow<'_, [ResolvedParam]>
             let Some(own) = bun_param_type(p) else {
                 return p.clone();
             };
-            let lang_type = ts_with_own_type(&p.lang_type, own);
+            let lang_type = own.to_string();
             let full_type = if p.nullable {
                 format!("{lang_type} | null")
             } else {
@@ -259,10 +263,7 @@ fn ts_composite_field_overrides(columns: &[ResolvedColumn], var: &str) -> Vec<(S
         .map(|c| {
             let key = ts_property_key(&c.field_name);
             let member = ts_index_access(var, &c.name);
-            (
-                key,
-                format!("parse{}({member}) as {}", ts_own_type(&c.lang_type), c.full_type),
-            )
+            (key, format!("parse{}({member}) as {}", c.lang_type, c.ts_full_type()))
         })
         .collect()
 }
@@ -277,7 +278,7 @@ fn ts_composite_aware_row_access(columns: &[ResolvedColumn]) -> impl Fn(&str, &s
         if let Some(col) = columns.iter().find(|c| c.name == name)
             && col.neutral_type.starts_with("composite::")
         {
-            return format!("parse{}({member}) as {ty}", ts_own_type(&col.lang_type));
+            return format!("parse{}({member}) as {ty}", col.lang_type);
         }
         format!("{member} as {ty}")
     }
@@ -435,9 +436,6 @@ pub struct TypescriptBunBackend {
     /// the `sql<StructName[]>` generic instead of being rebuilt field by field. `false`
     /// (`"remap"`, the default) rebuilds camelCase rows from raw snake_case keys.
     driver_keys: bool,
-    /// `column_types`: the module whose `Column<Name, Own>` declares each value read
-    /// from or written to a table column -- see [`ts_column_type`].
-    column_types: Option<String>,
     /// `schema_types_import`: the module declaring the schema's enums and domains
     /// (see [`crate::schema_types`]), which query modules import instead of
     /// declaring enums themselves and inlining a domain's base type.
@@ -458,7 +456,6 @@ impl TypescriptBunBackend {
             validation: TsValidation::default(),
             constraint_policy: ConstraintPolicy::default(),
             driver_keys: false,
-            column_types: None,
             schema_types_import: None,
         })
     }
@@ -565,11 +562,6 @@ impl CodegenBackend for TypescriptBunBackend {
         ts_constrained_type(constraints, lang_type, nullable)
     }
 
-    fn column_type(&self, column: &str, lang_type: &str, nullable: bool) -> Option<(String, String)> {
-        self.column_types.as_ref()?;
-        Some(ts_column_type(column, lang_type, nullable))
-    }
-
     fn schema_types_import(&self) -> Option<&str> {
         self.schema_types_import.as_deref()
     }
@@ -595,10 +587,10 @@ impl CodegenBackend for TypescriptBunBackend {
     /// The header declares `SqlJsonValue` and imports `TransactionSQL` only
     /// when some generated fragment names them, so a file without JSON columns
     /// or `:batch` queries carries no unused binding. It imports the
-    /// `column_types` module's `Column` when a declaration names it.
+    /// types its `ts_type` overrides name.
     fn file_header_for_results(&self, generated: &[crate::GeneratedCode]) -> String {
         let mut header = self.bun_header_for_results(generated);
-        header.push_str(&ts_column_types_import(self.column_types.as_deref(), generated));
+        header.push_str(&ts_type_imports(generated));
         header.push_str(&ts_schema_types_import(self.schema_types_import.as_deref(), generated));
         header
     }
@@ -783,7 +775,7 @@ impl CodegenBackend for TypescriptBunBackend {
                             let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
                             let _ = writeln!(out, "export interface {} {{", params_type_name);
                             for p in params {
-                                let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
+                                let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.ts_full_type());
                             }
                             let _ = writeln!(out, "}}");
                             let _ = writeln!(out);
@@ -811,7 +803,7 @@ impl CodegenBackend for TypescriptBunBackend {
                     );
                     let batch_sig_params = vec![
                         ("sql".to_string(), "SQL".to_string()),
-                        ("items".to_string(), format!("{}[]", params[0].full_type)),
+                        ("items".to_string(), format!("{}[]", params[0].ts_full_type())),
                     ];
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "Promise<void>");
                     let batch_sql = batch_item_sql_single(&sql_clean, &params[0], &analyzed.composites);
@@ -1131,7 +1123,6 @@ impl CodegenBackend for TypescriptBunBackend {
                 "validation",
                 "constraints",
                 "row_keys",
-                "column_types",
                 "schema_types",
                 "schema_types_import",
             ],
@@ -1175,9 +1166,6 @@ impl CodegenBackend for TypescriptBunBackend {
         if let Some(value) = options.get("constraints") {
             self.constraint_policy = ConstraintPolicy::from_option(value)?;
         }
-        if let Some(value) = options.get("column_types") {
-            self.column_types = Some(ts_column_types_option(value, self.row_type)?);
-        }
         self.schema_types_import = ts_schema_types_options(options, self.row_type)?;
 
         Ok(())
@@ -1197,6 +1185,7 @@ mod tests {
         vec![
             ResolvedColumn {
                 constraints: None,
+                ts_type: None,
                 name: "id".to_string(),
                 field_name: "id".to_string(),
                 lang_type: "number".to_string(),
@@ -1209,6 +1198,7 @@ mod tests {
             },
             ResolvedColumn {
                 constraints: None,
+                ts_type: None,
                 name: "total".to_string(),
                 field_name: "total".to_string(),
                 lang_type: "string".to_string(),

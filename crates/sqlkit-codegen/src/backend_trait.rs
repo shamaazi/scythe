@@ -5,6 +5,7 @@ use sqlkit_core::errors::{ErrorCode, SqlkitError};
 
 use crate::GeneratedCode;
 use crate::constraints::ConstraintPolicy;
+pub use crate::overrides::TsTypeOverride;
 
 /// A column with its type resolved to the target language.
 #[derive(Debug, Clone, Default)]
@@ -32,6 +33,9 @@ pub struct ResolvedColumn {
     /// [`sqlkit_core::analyzer::AnalyzedColumn::constraints`]); `None` unless the
     /// backend renders validation ([`CodegenBackend::constraint_policy`]).
     pub constraints: Option<ValueConstraints>,
+    /// The TypeScript type a `type_overrides` entry declares this column as;
+    /// `lang_type` and `full_type` keep the type the value has of its own.
+    pub ts_type: Option<TsTypeOverride>,
 }
 
 impl ResolvedColumn {
@@ -40,10 +44,50 @@ impl ResolvedColumn {
     pub fn is_join_discriminant(&self) -> bool {
         self.join_group.is_some() && !self.nullable_before_join
     }
+
+    /// The TypeScript type this column is declared as, without `| null`: its
+    /// `ts_type` override, or its own `lang_type`.
+    pub fn ts_lang_type(&self) -> &str {
+        ts_lang_type(self.ts_type.as_ref(), &self.lang_type)
+    }
+
+    /// [`Self::ts_lang_type`] with `| null` when the column is nullable.
+    pub fn ts_full_type(&self) -> std::borrow::Cow<'_, str> {
+        ts_full_type(self.ts_type.as_ref(), &self.full_type, self.nullable)
+    }
+}
+
+impl ResolvedParam {
+    /// The TypeScript type this parameter is declared as, without `| null`:
+    /// its `ts_type` override, or its own `lang_type`.
+    pub fn ts_lang_type(&self) -> &str {
+        ts_lang_type(self.ts_type.as_ref(), &self.lang_type)
+    }
+
+    /// [`Self::ts_lang_type`] with `| null` when the parameter is nullable.
+    pub fn ts_full_type(&self) -> std::borrow::Cow<'_, str> {
+        ts_full_type(self.ts_type.as_ref(), &self.full_type, self.nullable)
+    }
+}
+
+fn ts_lang_type<'a>(ts_type: Option<&'a TsTypeOverride>, lang_type: &'a str) -> &'a str {
+    ts_type.map_or(lang_type, |t| t.ts_type.as_str())
+}
+
+fn ts_full_type<'a>(
+    ts_type: Option<&'a TsTypeOverride>,
+    full_type: &'a str,
+    nullable: bool,
+) -> std::borrow::Cow<'a, str> {
+    match ts_type {
+        None => std::borrow::Cow::Borrowed(full_type),
+        Some(t) if nullable => std::borrow::Cow::Owned(format!("{} | null", t.ts_type)),
+        Some(t) => std::borrow::Cow::Borrowed(t.ts_type.as_str()),
+    }
 }
 
 /// A parameter with its type resolved to the target language.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResolvedParam {
     pub name: String,
     pub field_name: String,
@@ -56,6 +100,9 @@ pub struct ResolvedParam {
     /// [`sqlkit_core::analyzer::AnalyzedParam::constraints`]); `None` unless the
     /// backend renders validation ([`CodegenBackend::constraint_policy`]).
     pub constraints: Option<ValueConstraints>,
+    /// The TypeScript type a `type_overrides` entry declares this parameter as;
+    /// `lang_type` and `full_type` keep the type the value has of its own.
+    pub ts_type: Option<TsTypeOverride>,
 }
 
 /// Inputs for [`CodegenBackend::generate_grouped_query_fn`].
@@ -129,15 +176,6 @@ pub trait CodegenBackend: Send + Sync {
         _lang_type: &str,
         _nullable: bool,
     ) -> Option<(String, String)> {
-        None
-    }
-
-    /// The `(lang_type, full_type)` a value read from or written to the table
-    /// column `column` (`table.column`, see
-    /// [`sqlkit_core::analyzer::AnalyzedColumn::base_column`]) is declared as,
-    /// given its own -- already [`Self::constrained_type`]-narrowed -- type, or
-    /// `None` to keep that type.
-    fn column_type(&self, _column: &str, _lang_type: &str, _nullable: bool) -> Option<(String, String)> {
         None
     }
 

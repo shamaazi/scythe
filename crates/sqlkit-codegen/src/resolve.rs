@@ -7,19 +7,19 @@ use sqlkit_core::constraints::ValueConstraints;
 use sqlkit_core::errors::{ErrorCode, SqlkitError};
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
-use crate::overrides::{TypeOverride, find_override};
+use crate::overrides::{TypeOverride, column_keys, find_override, param_keys};
 
 /// Resolve analyzed columns into resolved columns using a backend manifest.
 ///
 /// When `overrides` is non-empty, each column is checked against the override
 /// list before the normal type-resolution path. The first matching override
-/// replaces the column's neutral type.
+/// replaces the column's neutral type (`type`) and/or records the TypeScript
+/// type it is declared as (`ts_type`).
 ///
-/// `column_match` is built per column from [`AnalyzedColumn::source_relation`] -- the
-/// analyzer's real owning-table for that column -- rather than from a single query-level
-/// table name. A query-level name only ever exists for a single-table `SELECT *`
-/// (`detect_select_star_source`), so building `column_match` from it made a `column =
-/// "table.col"` override a no-op for every other projection (#189).
+/// A `column = "table.col"` override matches by [`crate::overrides::column_keys`]:
+/// the column's base column (followed through views), then the relation it is
+/// read from -- never a query-level table name, which only ever exists for a
+/// single-table `SELECT *` (#189).
 pub fn resolve_columns(
     columns: &[AnalyzedColumn],
     manifest: &BackendManifest,
@@ -28,12 +28,10 @@ pub fn resolve_columns(
     let resolved: Vec<ResolvedColumn> = columns
         .iter()
         .map(|col| {
-            let column_match = match col.source_relation {
-                Some(ref relation) => format!("{relation}.{}", col.name),
-                None => String::new(),
-            };
-            let effective_neutral_type =
-                find_override(overrides, &column_match, &col.neutral_type).unwrap_or(&col.neutral_type);
+            let matched = find_override(overrides, &column_keys(col), &col.neutral_type);
+            let effective_neutral_type = matched
+                .and_then(|o| o.neutral_type.as_deref())
+                .unwrap_or(&col.neutral_type);
 
             let (full_type, lang_type) = resolve_type_pair(effective_neutral_type, manifest, col.nullable)
                 .map(|(f, l)| (f.into_owned(), l.into_owned()))
@@ -54,6 +52,7 @@ pub fn resolve_columns(
                 nullable_before_join: col.nullable_before_join,
                 sql_type: col.sql_type.clone(),
                 constraints: col.constraints.clone(),
+                ts_type: matched.and_then(|o| o.ts_type.clone()),
             })
         })
         .collect::<Result<_, SqlkitError>>()?;
@@ -72,15 +71,11 @@ pub fn resolve_columns(
 /// When `overrides` is non-empty, each param is checked against the override
 /// list before the normal type-resolution path.
 ///
-/// `column_match` prefers [`AnalyzedParam::source_relation`] -- the real relation a direct
-/// `WHERE table.column = $N` comparison bound this parameter against -- over the query-level
-/// `source_table` fallback. `source_table` only ever comes from `detect_select_star_source`
-/// (a single-table `SELECT *`), so before `AnalyzedParam` carried its own relation, a
-/// qualified `column = "table.col"` override on a parameter was a silent no-op for any other
-/// projection -- the parameter half of #189, left tracked when the column half was fixed in
-/// 99227e8e. `source_table` stays as the fallback (rather than being removed) so a parameter
-/// with no traceable owning column -- `IN` list, `LIKE`, a literal comparison -- keeps
-/// resolving the same way it did before this field existed.
+/// A `column = "table.col"` override matches by [`crate::overrides::param_keys`]:
+/// the column the parameter is written into, then the column a direct
+/// comparison binds it against, and only when it has neither the query-level
+/// `source_table` -- so a parameter with no traceable owning column (`IN` list,
+/// `LIKE`, a literal comparison) keeps resolving the way it always has (#189).
 pub fn resolve_params(
     params: &[AnalyzedParam],
     manifest: &BackendManifest,
@@ -90,13 +85,10 @@ pub fn resolve_params(
     let resolved: Vec<ResolvedParam> = params
         .iter()
         .map(|param| {
-            let column_match = match param.source_relation {
-                Some(ref relation) => format!("{relation}.{}", param.name),
-                None if !source_table.is_empty() => format!("{}.{}", source_table, param.name),
-                None => String::new(),
-            };
-            let effective_neutral_type =
-                find_override(overrides, &column_match, &param.neutral_type).unwrap_or(&param.neutral_type);
+            let matched = find_override(overrides, &param_keys(param, source_table), &param.neutral_type);
+            let effective_neutral_type = matched
+                .and_then(|o| o.neutral_type.as_deref())
+                .unwrap_or(&param.neutral_type);
 
             let (full_type, lang_type) = resolve_type_pair(effective_neutral_type, manifest, param.nullable)
                 .map(|(f, l)| (f.into_owned(), l.into_owned()))
@@ -116,6 +108,7 @@ pub fn resolve_params(
                 neutral_type: effective_neutral_type.to_string(),
                 nullable: param.nullable,
                 constraints: param.constraints.clone(),
+                ts_type: matched.and_then(|o| o.ts_type.clone()),
             })
         })
         .collect::<Result<_, SqlkitError>>()?;
@@ -129,17 +122,15 @@ pub fn resolve_params(
     Ok(resolved)
 }
 
-/// Declare each resolved column and parameter that reads or writes a table
-/// column unchanged at the type [`CodegenBackend::column_type`] gives that
-/// column. `analyzed` and `resolved` correspond by index, as
+/// Declare each resolved column and parameter holding a value of a domain
+/// type by the name the backend's [`CodegenBackend::schema_type`] gives that
+/// domain. `analyzed` and `resolved` correspond by index, as
 /// [`resolve_columns`] and [`resolve_params`] produce them. Runs after
-/// [`crate::constraints::apply_constraint_policy`], so a narrowed type is the
-/// one passed on.
+/// [`crate::constraints::apply_constraint_policy`].
 ///
-/// A scalar value of a domain type is first declared by the name the
-/// backend's [`CodegenBackend::schema_type`] gives it, so `column_type` wraps
-/// that name. Returns those names, for the module to import.
-pub fn apply_column_types(
+/// A value whose type a `ts_type` override declares keeps that type and names
+/// no domain. Returns the names used, for the module to import.
+pub fn apply_schema_types(
     backend: &dyn CodegenBackend,
     analyzed_columns: &[AnalyzedColumn],
     columns: &mut [ResolvedColumn],
@@ -148,45 +139,31 @@ pub fn apply_column_types(
 ) -> Vec<String> {
     let targets = analyzed_columns
         .iter()
-        .map(|c| {
-            (
-                c.base_column.as_ref(),
-                domain_of(&c.neutral_type, c.constraints.as_ref()),
-            )
-        })
+        .map(|c| domain_of(&c.neutral_type, c.constraints.as_ref()))
         .zip(
             columns
                 .iter_mut()
-                .map(|c| (&mut c.lang_type, &mut c.full_type, c.nullable)),
+                .map(|c| (&mut c.lang_type, &mut c.full_type, c.nullable, c.ts_type.is_some())),
         )
         .chain(
             analyzed_params
                 .iter()
-                .map(|p| {
-                    (
-                        p.base_column.as_ref(),
-                        domain_of(&p.neutral_type, p.constraints.as_ref()),
-                    )
-                })
+                .map(|p| domain_of(&p.neutral_type, p.constraints.as_ref()))
                 .zip(
                     params
                         .iter_mut()
-                        .map(|p| (&mut p.lang_type, &mut p.full_type, p.nullable)),
+                        .map(|p| (&mut p.lang_type, &mut p.full_type, p.nullable, p.ts_type.is_some())),
                 ),
         );
     let mut schema_types = Vec::new();
-    for ((base_column, domain), (lang_type, full_type, nullable)) in targets {
+    for (domain, (lang_type, full_type, nullable, declared)) in targets {
+        if declared {
+            continue;
+        }
         if let Some(domain) = domain
             && let Some((lang, full)) = backend.schema_type(domain, nullable)
         {
             schema_types.push(lang.clone());
-            *lang_type = lang;
-            *full_type = full;
-        }
-        let Some(base_column) = base_column else {
-            continue;
-        };
-        if let Some((lang, full)) = backend.column_type(&base_column.name(), lang_type, nullable) {
             *lang_type = lang;
             *full_type = full;
         }
@@ -201,29 +178,6 @@ fn domain_of<'a>(neutral_type: &str, constraints: Option<&'a ValueConstraints>) 
         return None;
     }
     constraints?.domain.as_deref()
-}
-
-/// Every `"table.column"` reference actually present across a set of analyzed params, keyed
-/// on [`AnalyzedParam::source_relation`] -- the parameter counterpart of
-/// [`crate::overrides::column_references`], which does the same job for
-/// [`AnalyzedColumn::source_relation`]. A param with no single owning relation (`IN` list,
-/// `LIKE` pattern, literal comparison: `source_relation: None`) contributes nothing, which is
-/// exactly what a qualified `column` override can never legitimately target either.
-///
-/// Wired into the CLI's unmatched-override preflight
-/// ([`crate::overrides::unmatched_column_overrides`]) via `sqlkit-cli`'s
-/// `check_type_overrides_resolve`, which chains this alongside `column_references` into the
-/// `known` set it builds -- reusing the existing diagnostic rather than adding a second one
-/// (#189's remainder).
-pub fn param_references<'a>(params: impl Iterator<Item = &'a AnalyzedParam>) -> ahash::AHashSet<String> {
-    params
-        .filter_map(|param| {
-            param
-                .source_relation
-                .as_deref()
-                .map(|relation| format!("{relation}.{}", param.name))
-        })
-        .collect()
 }
 
 /// Reject two SQL identifiers in the same column list or param list that
@@ -373,6 +327,7 @@ pub fn param_type_to_borrowed(rust_type: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::overrides::param_references;
 
     #[test]
     fn test_param_type_to_borrowed_string() {
@@ -597,6 +552,7 @@ mod tests {
             column: Some("users.id".to_string()),
             db_type: None,
             neutral_type: Some("int32".to_string()),
+            ..Default::default()
         }];
         let resolved = resolve_columns(&[test_column_with_relation("id", "users")], &manifest, &overrides).unwrap();
         assert_eq!(resolved[0].neutral_type, "int32");
@@ -613,6 +569,7 @@ mod tests {
             column: Some("users.id".to_string()),
             db_type: None,
             neutral_type: Some("int32".to_string()),
+            ..Default::default()
         }];
         let columns = [
             test_column_with_relation("id", "users"),
@@ -641,6 +598,7 @@ mod tests {
             column: Some("users.name".to_string()),
             db_type: Some("string".to_string()),
             neutral_type: Some("int32".to_string()),
+            ..Default::default()
         }];
         // `orders.total` doesn't match `column`, but its neutral_type ("string") matches
         // `db_type` -- the entry must still fire via that fallback.
@@ -664,6 +622,7 @@ mod tests {
             column: Some("users.email".to_string()),
             db_type: None,
             neutral_type: Some("int32".to_string()),
+            ..Default::default()
         }];
         let resolved = resolve_params(
             &[test_param_with_relation("email", 1, "users")],
@@ -692,6 +651,7 @@ mod tests {
             column: Some("users.email".to_string()),
             db_type: None,
             neutral_type: Some("int32".to_string()),
+            ..Default::default()
         }];
         let resolved = resolve_params(&[test_param("email", 1)], &manifest, &overrides, "").unwrap();
         assert_eq!(
@@ -795,11 +755,13 @@ mod tests {
                 column: Some("users.email".to_string()),
                 db_type: None,
                 neutral_type: Some("json".to_string()),
+                ..Default::default()
             },
             TypeOverride {
                 column: Some("users.emial".to_string()),
                 db_type: None,
                 neutral_type: Some("json".to_string()),
+                ..Default::default()
             },
         ];
         let unmatched = unmatched_column_overrides(&overrides, &known);

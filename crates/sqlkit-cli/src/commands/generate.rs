@@ -51,7 +51,8 @@ struct SqlConfig {
     output: Option<String>,
     /// Generation targets via [[sql.gen]] or [sql.gen.rust]
     gen_config: Option<GenTargets>,
-    type_overrides: Option<Vec<TypeOverrideConfig>>,
+    /// `[[sql.type_overrides]]`, validated.
+    type_overrides: Vec<TypeOverride>,
 }
 
 /// Deserialization target for a raw `[[sql]]` table, before [`GenTargets`]
@@ -97,6 +98,13 @@ impl TryFrom<RawSqlConfig> for SqlConfig {
             .gen_config
             .map(|value| parse_gen_targets(value, raw.output.as_deref(), &raw.name))
             .transpose()?;
+        let type_overrides = raw
+            .type_overrides
+            .unwrap_or_default()
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| entry.into_type_override(&raw.name, index))
+            .collect::<Result<_, _>>()?;
 
         Ok(SqlConfig {
             name: raw.name,
@@ -104,7 +112,7 @@ impl TryFrom<RawSqlConfig> for SqlConfig {
             queries: raw.queries,
             output: raw.output,
             gen_config,
-            type_overrides: raw.type_overrides,
+            type_overrides,
         })
     }
 }
@@ -255,12 +263,76 @@ struct LegacyLangGenConfig {
     target: String,
 }
 
+/// One `[[sql.type_overrides]]` entry as written. Modelled on sqlc's
+/// `go_type`: `type` replaces the neutral type every backend resolves, while
+/// `ts_type` (with an optional `ts_import`) changes only the TypeScript type
+/// the value is declared as.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TypeOverrideConfig {
     column: Option<String>,
     db_type: Option<String>,
     #[serde(rename = "type")]
     neutral_type: Option<String>,
+    ts_type: Option<String>,
+    ts_import: Option<String>,
+}
+
+impl TypeOverrideConfig {
+    /// Validate the entry, the `index`-th of block `block`.
+    fn into_type_override(self, block: &str, index: usize) -> Result<TypeOverride, String> {
+        let label = match (&self.column, &self.db_type) {
+            (Some(column), _) => format!("column = \"{column}\""),
+            (None, Some(db_type)) => format!("db_type = \"{db_type}\""),
+            (None, None) => format!("#{}", index + 1),
+        };
+        let invalid = |message: &str| format!("[{block}] type_overrides entry {label}: {message}");
+        if self.column.is_none() && self.db_type.is_none() {
+            return Err(invalid("needs `column` or `db_type` to match values by"));
+        }
+        if self.neutral_type.is_none() && self.ts_type.is_none() {
+            return Err(invalid("needs `type` and/or `ts_type`"));
+        }
+        let ts_type = match self.ts_type {
+            None if self.ts_import.is_some() => return Err(invalid("`ts_import` needs `ts_type`")),
+            None => None,
+            Some(ts_type) => {
+                if ts_type.trim().is_empty() {
+                    return Err(invalid("`ts_type` is empty"));
+                }
+                if let Some(module) = &self.ts_import {
+                    if module.is_empty() || module.chars().any(|c| matches!(c, '"' | '\\') || c.is_control()) {
+                        return Err(invalid(&format!(
+                            "invalid ts_import '{module}': expected a module specifier"
+                        )));
+                    }
+                    if !is_ts_identifier(&ts_type) {
+                        return Err(invalid(&format!(
+                            "with ts_import, ts_type must be the name the module exports, got '{ts_type}' -- \
+                             export a named type for it, or drop ts_import to write the type inline"
+                        )));
+                    }
+                }
+                Some(sqlkit_codegen::overrides::TsTypeOverride {
+                    ts_type,
+                    import: self.ts_import,
+                })
+            }
+        };
+        Ok(TypeOverride {
+            column: self.column,
+            db_type: self.db_type,
+            neutral_type: self.neutral_type,
+            ts_type,
+        })
+    }
+}
+
+/// Whether `name` is a plain TypeScript identifier.
+fn is_ts_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
+        && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
 }
 
 /// A resolved generation target with backend name, output directory, and options.
@@ -396,7 +468,8 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
 /// either way (#189). Covers every query's flat `columns` plus, for a `:grouped` query, both
 /// halves of `group_by`'s parent/child split -- the same column sets
 /// [`generate_with_backend_and_overrides`] resolves -- and
-/// every query's `params`, via [`sqlkit_codegen::resolve::param_references`] (#189's
+/// every query's `params`, via [`sqlkit_codegen::overrides::param_keys`] -- the very keys
+/// resolution matches by -- (#189's
 /// remainder: a qualified override that only ever targets a parameter, not a column, used to
 /// pass this check silently even though it could never match anything either).
 fn check_type_overrides_resolve(
@@ -411,9 +484,13 @@ fn check_type_overrides_resolve(
             .flat_map(|group| group.parent_columns.iter().chain(group.child_columns.iter()));
         query.columns.iter().chain(group_columns)
     }));
-    known.extend(sqlkit_codegen::resolve::param_references(
-        analyzed_queries.iter().flat_map(|query| query.params.iter()),
-    ));
+    known.extend(analyzed_queries.iter().flat_map(|query| {
+        let source_table = query.source_table.as_deref().unwrap_or("");
+        query
+            .params
+            .iter()
+            .flat_map(move |param| sqlkit_codegen::overrides::param_keys(param, source_table))
+    }));
     let unmatched = sqlkit_codegen::overrides::unmatched_column_overrides(overrides, &known);
     if unmatched.is_empty() {
         return Ok(());
@@ -555,17 +632,7 @@ fn run_generate_inner(
         // target fingerprints each query file's queries on its own instead.
         let queries_fingerprint = AnalyzedQuery::fingerprint_set(&analyzed_queries);
 
-        let overrides: Vec<TypeOverride> = sql_config
-            .type_overrides
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .map(|o| TypeOverride {
-                column: o.column.clone(),
-                db_type: o.db_type.clone(),
-                neutral_type: o.neutral_type.clone(),
-            })
-            .collect();
+        let overrides = &sql_config.type_overrides;
 
         // A `column = "table.col"` override that names no relation/column pair present in
         // any query this block resolves is a config mistake -- almost always a typo'd table
@@ -575,7 +642,7 @@ fn run_generate_inner(
         // already gives a config mistake that can never be correct (e.g. two targets
         // colliding on one output path, an unannotated SQL block): a warning would compete
         // with the other `eprintln!` progress lines and is easy to miss in CI.
-        check_type_overrides_resolve(&sql_config.name, &analyzed_queries, &overrides)?;
+        check_type_overrides_resolve(&sql_config.name, &analyzed_queries, overrides)?;
 
         let gen_targets = resolve_gen_targets(sql_config)?;
 
@@ -601,6 +668,17 @@ fn run_generate_inner(
                 backend
                     .apply_options(&target.options)
                     .map_err(|e| format!("backend '{}' apply_options failed: {}", target.backend, e))?;
+            }
+            // A Zod schema is a runtime value: a type-only `ts_type` cannot reach it.
+            if target.options.get("row_type").is_some_and(|row_type| row_type == "zod")
+                && overrides.iter().any(|o| o.ts_type.is_some())
+            {
+                return Err(format!(
+                    "[{}] backend '{}': type_overrides with ts_type need row_type = \"interface\" -- a Zod \
+                     schema cannot carry a type-only TypeScript type",
+                    sql_config.name, target.backend
+                )
+                .into());
             }
 
             let options_fingerprint = resolve_options_fingerprint(target, base_dir)?;
@@ -690,7 +768,7 @@ fn run_generate_inner(
                 backend.as_ref(),
                 job.queries,
                 &job.output_dir,
-                &overrides,
+                overrides,
                 ProvenanceFields {
                     schema: &schema_fingerprint,
                     queries: &job.queries_fingerprint,
@@ -3134,6 +3212,7 @@ SELECT * FROM users WHERE id = $1;
             column: Some("users.emial".to_string()), // deliberate typo
             db_type: None,
             neutral_type: Some("string".to_string()),
+            ts_type: None,
         }];
 
         let err = check_type_overrides_resolve("main", &[query], &overrides)
@@ -3163,6 +3242,7 @@ SELECT * FROM users WHERE id = $1;
             column: Some("users.email".to_string()),
             db_type: None,
             neutral_type: Some("json".to_string()),
+            ts_type: None,
         }];
 
         check_type_overrides_resolve("main", &[query], &overrides).expect("users.email is a real column");
@@ -3194,6 +3274,7 @@ SELECT * FROM users WHERE id = $1;
             column: Some("orders.total".to_string()),
             db_type: None,
             neutral_type: Some("string".to_string()),
+            ts_type: None,
         }];
 
         check_type_overrides_resolve("main", &[query], &overrides).expect("orders.total is a real child column");
@@ -3211,9 +3292,52 @@ SELECT * FROM users WHERE id = $1;
             column: None,
             db_type: Some("ltree".to_string()),
             neutral_type: Some("string".to_string()),
+            ts_type: None,
         }];
 
         check_type_overrides_resolve("main", &[query], &overrides).expect("db_type-only overrides are never flagged");
+    }
+
+    fn type_override_config(toml_entry: &str) -> Result<TypeOverride, String> {
+        let entry: TypeOverrideConfig = toml::from_str(toml_entry).map_err(|e| e.to_string())?;
+        entry.into_type_override("main", 0)
+    }
+
+    #[test]
+    fn type_override_config_accepts_ts_type_with_and_without_an_import() {
+        let imported =
+            type_override_config("column = \"a.b\"\nts_type = \"Meta\"\nts_import = \"@app/columns\"").unwrap();
+        let ts_type = imported.ts_type.unwrap();
+        assert_eq!(ts_type.ts_type, "Meta");
+        assert_eq!(ts_type.import.as_deref(), Some("@app/columns"));
+        assert!(imported.neutral_type.is_none());
+        let inline = type_override_config("db_type = \"json\"\nts_type = \"Record<string, unknown>\"").unwrap();
+        assert_eq!(inline.ts_type.unwrap().import, None);
+    }
+
+    #[test]
+    fn type_override_config_rejects_invalid_entries() {
+        for (entry, expected) in [
+            ("ts_type = \"Meta\"", "needs `column` or `db_type`"),
+            ("column = \"a.b\"", "needs `type` and/or `ts_type`"),
+            (
+                "column = \"a.b\"\ntype = \"json\"\nts_import = \"m\"",
+                "`ts_import` needs `ts_type`",
+            ),
+            (
+                "column = \"a.b\"\nts_type = \"A[]\"\nts_import = \"m\"",
+                "must be the name the module exports",
+            ),
+            (
+                "column = \"a.b\"\nts_type = \"A\"\nts_import = \"m\\\"\"",
+                "invalid ts_import",
+            ),
+            ("column = \"a.b\"\nts_type = \" \"", "`ts_type` is empty"),
+            ("column = \"a.b\"\nts_types = \"A\"", "unknown field"),
+        ] {
+            let err = type_override_config(entry).expect_err(entry);
+            assert!(err.contains(expected), "{entry}: {err}");
+        }
     }
 
     /// Must fail before the fix: `known` was built from `column_references` alone, which
@@ -3243,6 +3367,7 @@ SELECT * FROM users WHERE id = $1;
             column: Some("users.emial".to_string()), // deliberate typo
             db_type: None,
             neutral_type: Some("json".to_string()),
+            ts_type: None,
         }];
 
         let err = check_type_overrides_resolve("main", &[query], &overrides)
@@ -3274,6 +3399,7 @@ SELECT * FROM users WHERE id = $1;
             column: Some("users.email".to_string()),
             db_type: None,
             neutral_type: Some("json".to_string()),
+            ts_type: None,
         }];
 
         check_type_overrides_resolve("main", &[query], &overrides).expect("users.email is a real param reference");
@@ -4213,7 +4339,7 @@ backend = \"rust-sqlx\"
             queries: Vec::new(),
             output: Some(output_dir.to_string_lossy().into_owned()),
             gen_config: None,
-            type_overrides: None,
+            type_overrides: Vec::new(),
         }
     }
 
@@ -4430,7 +4556,7 @@ backend = \"rust-sqlx\"
                     toml::Value::String("pydantic".to_string()),
                 )]),
             }])),
-            type_overrides: None,
+            type_overrides: Vec::new(),
         };
 
         // Computed through the real function, not hand-derived, so this test
@@ -4533,7 +4659,7 @@ backend = \"rust-sqlx\"
                 manifest: Some("overlay.toml".to_string()),
                 options: std::collections::HashMap::new(),
             }])),
-            type_overrides: None,
+            type_overrides: Vec::new(),
         };
 
         // The header was written when the overlay held its *original*
@@ -4743,7 +4869,7 @@ backend = \"rust-sqlx\"
                 manifest: None,
                 options: std::collections::HashMap::new(),
             }])),
-            type_overrides: None,
+            type_overrides: Vec::new(),
         };
 
         write_artifact(
@@ -4907,7 +5033,7 @@ backend = \"rust-sqlx\"
                 manifest: None,
                 options: std::collections::HashMap::new(),
             }])),
-            type_overrides: None,
+            type_overrides: Vec::new(),
         };
 
         let violations = verify_provenance(
@@ -5396,7 +5522,7 @@ backend = \"rust-sqlx\"
                     manifest: None,
                     options: std::collections::HashMap::new(),
                 }])),
-                type_overrides: None,
+                type_overrides: Vec::new(),
             },
             std::path::Path::new("."),
             sqlkit_lint::Severity::Error,
@@ -5439,7 +5565,7 @@ backend = \"rust-sqlx\"
                     manifest: None,
                     options: std::collections::HashMap::new(),
                 }])),
-                type_overrides: None,
+                type_overrides: Vec::new(),
             },
             std::path::Path::new("proj"),
             sqlkit_lint::Severity::Error,

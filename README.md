@@ -59,13 +59,39 @@ become the generated function's doc comment.
 | `row_type` | `interface` (default), `zod` | Plain interfaces or Zod schemas |
 | `validation` | `none` (default), `jsdoc` | Document translated `CHECK` constraints on parameters |
 | `constraints` | `ignore`, `warn`, `error` | What to do with a constraint that cannot be translated |
-| `column_types` | module specifier | Declare row and parameter properties through a `Column<...>` type from that module |
 | `schema_types`, `schema_types_import` | path, specifier | Write the schema's enums and domains once, to one module, and import them |
 | `structs_only` | `true`/`false` | Emit types only, no query functions |
 | `outer_join_unions` | `true`/`false` | Model outer-joined columns as unions of present and absent shapes |
 
 `rust-sqlx` takes `structs_only`, `serde` and `derive`; `rust-tokio-postgres` takes `serde` and
 `derive`.
+
+### Type overrides
+
+`[[sql.type_overrides]]` entries change the type of the values they match, first match wins.
+Modelled on sqlc's `go_type`:
+
+```toml
+[[sql.type_overrides]]
+column = "campaigns.metadata"          # or db_type = "json", matched on the inferred type
+ts_type = "CampaignMetadata"
+ts_import = "@app/database/columns"
+
+[[sql.type_overrides]]
+column = "campaigns.kind"
+ts_type = "'general' | 'mosque'"
+```
+
+| Key | Effect |
+|-----|--------|
+| `column` | `table.column`: matches values read from that column, through views (a column a view computes is matched by the view's name), and parameters written into it or compared with it |
+| `db_type` | Matches every value of that inferred type, when `column` does not match |
+| `type` | Replaces the inferred type, in every backend: binding and validation follow it |
+| `ts_type` | The TypeScript type the value is declared as, with `\| null` added when it is nullable. Only the declared type changes: binding, validation tags and parsing keep the inferred type. Rust backends ignore it; `row_type = "zod"` rejects it |
+| `ts_import` | Imports `ts_type`, which must then be an identifier, as a type from that module: one `import type { A, B } from "<module>";` per module, naming the types each generated module uses |
+
+An entry needs `column` or `db_type`, and `type` or `ts_type` or both. A `column` that matches no
+value in any query fails generation.
 
 ## Commands
 
