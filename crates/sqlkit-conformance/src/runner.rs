@@ -1,45 +1,16 @@
-//! Wires fixtures, the analyzer, codegen, a live [`Executor`], and the four
-//! assertions in [`crate::verdict`] into one real [`Verdict`] per (fixture,
-//! engine, column) -- the part of this crate that makes every guarantee in
+//! Wires fixtures, the analyzer, codegen, the live PostgreSQL [`Executor`],
+//! and the four assertions in [`crate::verdict`] into one real [`Verdict`]
+//! per fixture -- the part of this crate that makes every guarantee in
 //! [`crate::verdict`] and [`crate::divergence`] real rather than aspirational.
 //!
-//! ## The dyn-incompatibility problem
+//! ## No silent skips
 //!
-//! [`Executor`] is not object-safe: it has an associated `const ENGINE` and
-//! its methods return `impl Future` (RPITIT), neither of which is
-//! dyn-compatible. So this runner cannot hold a `Vec<Box<dyn Executor>>`
-//! and iterate a fixture's `live.engines` generically -- it has to `match`
-//! on [`Engine`] and monomorphize a concrete executor type per arm (see
-//! [`run_one_leg`]).
-//!
-//! ## The silent-skip trap, and the two outcomes this runner allows instead
-//!
-//! The natural way to write that match is `_ => continue` for any engine
-//! whose driver isn't compiled in -- which is exactly the failure mode this
-//! whole crate exists to prevent: a green result produced by examining
-//! nothing, with no way to tell "skipped" from "passed" in the output. This
-//! runner draws a deliberate line between two engine states, and only one
-//! of them is a skip:
-//!
-//! - **Selected but not runnable** (its feature is off, or it has no
-//!   connection configuration): a **hard error**. [`run`] returns `Err`
-//!   before evaluating a single fixture. Asking to run an engine that
-//!   cannot run is a misconfiguration, not a scoping decision, and must
-//!   stop the whole batch rather than silently produce a partial result.
-//! - **Listed by a fixture but not selected for this invocation** (none today,
-//!   with PostgreSQL the only engine):
-//!   an **explicit, recorded skip**. It is pushed onto
-//!   [`RunReport::skipped`] with the fixture name, engine, and a reason, so
-//!   it is always visible in the report -- never indistinguishable from a
-//!   pass, and never simply absent.
-//!
-//! The second case is a skip rather than a hard error because an engine a
-//! fixture lists but this invocation did not select is out of scope for it.
-//!
-//! All six engines now have a driver. The `EngineNotCompiled` arm is what
-//! remains of the bring-up: it fires when an engine is *selected* in a
-//! build that did not compile its feature, which is still a
-//! misconfiguration rather than a scoping decision.
+//! The failure mode this whole crate exists to prevent is a green result
+//! produced by examining nothing. So a [`run`] that cannot actually reach
+//! PostgreSQL -- the crate was built without the `pg` feature, or no
+//! connection URL was configured -- is a **hard error** returned before a
+//! single fixture is evaluated, never a skip that could be mistaken for a
+//! pass.
 
 use std::path::PathBuf;
 
@@ -47,73 +18,57 @@ use ahash::AHashMap;
 
 use crate::divergence::{DivergenceEntry, DivergenceError};
 use crate::executor::{Executor, MissingColumn};
-use crate::fixture::{Engine, LiveFixture, RowCountMismatch as FixtureRowCountMismatch};
+use crate::fixture::{LiveFixture, RowCountMismatch as FixtureRowCountMismatch};
 use crate::verdict::{
-    ColumnFacts, ColumnFactsError, FixtureEngineFacts, RowCountMismatch as FactsRowCountMismatch, Verdict, evaluate,
+    ColumnFacts, ColumnFactsError, FixtureFacts, RowCountMismatch as FactsRowCountMismatch, Verdict, evaluate,
 };
 
-/// Connection configuration and engine selection for one invocation of
-/// [`run`]. Built once per process (typically from environment variables
-/// via [`RunnerConfig::from_env`]) and shared read-only across every leg.
+/// The codegen backend whose rendered output stands in for "what sqlkit
+/// actually generates" when computing G. A Rust backend, whose manifest
+/// renders an optional column as `Option<{T}>`: A1 fidelity and A2
+/// soundness both ask whether the generated code wraps a column.
+const REPRESENTATIVE_BACKEND: &str = "rust-sqlx";
+
+/// Connection configuration for one invocation of [`run`]. Built once per
+/// process (typically from the environment via [`RunnerConfig::from_env`])
+/// and shared read-only across every fixture.
 #[derive(Debug, Clone, Default)]
 pub struct RunnerConfig {
-    /// The engines this invocation actually runs. Every fixture-declared
-    /// engine outside this set is recorded as an explicit skip, never run.
-    pub selected_engines: Vec<Engine>,
-    /// Root directory holding `<schema_profile>/<engine>.sql` live schema
-    /// files (`testing_data/nullability_live/_schemas` in this repo).
+    /// Root directory holding `<schema_profile>.sql` live schema files
+    /// (`testing_data/nullability_live/_schemas` in this repo).
     pub schemas_root: PathBuf,
-    /// `postgres://` connection URL. Required iff `Engine::Postgresql` is selected.
+    /// `postgres://` connection URL. [`run`] fails fast when it is unset.
     pub postgres_url: Option<String>,
 }
 
 impl RunnerConfig {
-    /// Build a config from `SQLKIT_CONFORMANCE_*` environment variables.
-    /// Connection URLs that are unset become `None`; [`ensure_available`]
-    /// (called from [`run`]) is what turns "selected but unset" into a
-    /// hard error, not this constructor.
-    pub fn from_env(selected_engines: Vec<Engine>, schemas_root: PathBuf) -> Self {
+    /// Build a config, reading the connection URL from
+    /// `SQLKIT_CONFORMANCE_POSTGRES_URL`. An unset variable becomes `None`;
+    /// [`run`] is what turns that into a hard error, not this constructor.
+    pub fn from_env(schemas_root: PathBuf) -> Self {
         Self {
-            selected_engines,
             schemas_root,
             postgres_url: std::env::var("SQLKIT_CONFORMANCE_POSTGRES_URL").ok(),
         }
     }
 }
 
-/// One (fixture, engine) leg that was **not** run, and why. Always
-/// constructed explicitly and pushed onto [`RunReport::skipped`] -- never
-/// simply omitted -- so a skip is always visible in the report.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SkippedLeg {
-    pub fixture: String,
-    pub engine: Engine,
-    pub reason: String,
-}
-
-/// The outcome of one [`run`] invocation: every leg that actually ran (as a
-/// real [`Verdict`], post-[`crate::divergence::reconcile`]) plus every leg
-/// that was explicitly skipped.
+/// The outcome of one [`run`] invocation: one real [`Verdict`] per fixture,
+/// post-[`crate::divergence::reconcile`].
 #[derive(Debug, Clone, Default)]
 pub struct RunReport {
     pub verdicts: Vec<Verdict>,
-    pub skipped: Vec<SkippedLeg>,
 }
 
 impl RunReport {
-    /// Whether every leg that ran passed. Deliberately independent of
-    /// `skipped`: a report with only skips (e.g. no engine selected) is
-    /// vacuously "passing" by this method alone -- callers that care about
-    /// that distinction should also check `skipped`/`verdicts` directly,
-    /// which is why both are public fields rather than folded into one
-    /// opaque pass/fail bit.
+    /// Whether every fixture passed. Vacuously true for an empty report --
+    /// callers that care should also check that `verdicts` is non-empty.
     pub fn is_pass(&self) -> bool {
         self.verdicts.iter().all(Verdict::is_pass)
     }
 
-    /// A human-readable summary listing every failure and every skip by
-    /// name -- suitable for CI logs. Never silently drops a skip: that is
-    /// the entire point of this type.
+    /// A human-readable summary listing every failure by fixture name --
+    /// suitable for CI logs.
     pub fn summary(&self) -> String {
         use std::fmt::Write as _;
 
@@ -121,20 +76,16 @@ impl RunReport {
         let mut out = String::new();
         let _ = writeln!(
             out,
-            "{} leg(s) ran ({} passed, {} failed), {} leg(s) skipped",
+            "{} fixture(s) ran ({} passed, {} failed)",
             self.verdicts.len(),
             self.verdicts.len() - failed.len(),
             failed.len(),
-            self.skipped.len()
         );
         for verdict in &failed {
-            let _ = writeln!(out, "  FAIL {} / {}", verdict.fixture, verdict.engine);
+            let _ = writeln!(out, "  FAIL {}", verdict.fixture);
             for failure in &verdict.failures {
                 let _ = writeln!(out, "    - {failure:?}");
             }
-        }
-        for skip in &self.skipped {
-            let _ = writeln!(out, "  SKIP {} / {}: {}", skip.fixture, skip.engine, skip.reason);
         }
         out
     }
@@ -142,93 +93,74 @@ impl RunReport {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RunnerError {
-    #[error("engine {engine} was selected to run, but this crate was not compiled with its {feature:?} feature")]
-    EngineNotCompiled { engine: Engine, feature: &'static str },
-    #[error("engine {engine} was selected to run, but no connection configuration was provided for it")]
-    MissingConnectionConfig { engine: Engine },
-    #[error("fixture {fixture:?} on engine {engine}: connecting: {reason}")]
-    Connect {
-        fixture: String,
-        engine: Engine,
-        reason: String,
-    },
-    #[error("fixture {fixture:?} on engine {engine}: analyzing schema_sql/query_sql: {source}")]
+    #[error("this crate was not compiled with its \"pg\" feature, so it cannot reach PostgreSQL")]
+    DriverNotCompiled,
+    #[error("no PostgreSQL connection URL was configured (set SQLKIT_CONFORMANCE_POSTGRES_URL)")]
+    MissingConnectionConfig,
+    #[error("fixture {fixture:?}: connecting: {reason}")]
+    Connect { fixture: String, reason: String },
+    #[error("fixture {fixture:?}: analyzing schema_sql/query_sql: {source}")]
     Analysis {
         fixture: String,
-        engine: Engine,
         #[source]
         source: sqlkit_core::errors::SqlkitError,
     },
-    #[error("fixture {fixture:?} on engine {engine}: resolving generated columns: {source}")]
+    #[error("fixture {fixture:?}: resolving generated columns: {source}")]
     Resolve {
         fixture: String,
-        engine: Engine,
         #[source]
         source: sqlkit_core::errors::SqlkitError,
     },
-    #[error("fixture {fixture:?} on engine {engine}: reading live schema {path:?}: {source}")]
+    #[error("fixture {fixture:?}: reading live schema {path:?}: {source}")]
     ReadSchema {
         fixture: String,
-        engine: Engine,
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
-    #[error("fixture {fixture:?} on engine {engine}: driver operation failed: {source}")]
+    #[error("fixture {fixture:?}: driver operation failed: {source}")]
     Driver {
         fixture: String,
-        engine: Engine,
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
-    #[error("fixture {fixture:?} on engine {engine}: {source}")]
+    #[error("fixture {fixture:?}: {source}")]
     RowCount {
         fixture: String,
-        engine: Engine,
         #[source]
         source: FixtureRowCountMismatch,
     },
     #[error(
-        "fixture {fixture:?} on engine {engine}: expected.query.columns declares {column:?}, which the analyzer \
-         produced no matching column for -- the fixture and query_sql have drifted apart"
+        "fixture {fixture:?}: expected.query.columns declares {column:?}, which the analyzer produced no matching \
+         column for -- the fixture and query_sql have drifted apart"
     )]
-    DeclaredColumnNotAnalyzed {
-        fixture: String,
-        engine: Engine,
-        column: String,
-    },
+    DeclaredColumnNotAnalyzed { fixture: String, column: String },
     #[error(
-        "fixture {fixture:?} on engine {engine}: run {run:?} row {row} column {column:?}: the fixture declares this value {declared} but the engine returned it {observed}"
+        "fixture {fixture:?}: run {run:?} row {row} column {column:?}: the fixture declares this value {declared} but the database returned it {observed}"
     )]
     RowNullnessMismatch {
         fixture: String,
-        engine: Engine,
         run: String,
         row: usize,
         column: String,
         declared: &'static str,
         observed: &'static str,
     },
-    #[error(
-        "fixture {fixture:?} on engine {engine}: the live engine's row does not carry an expected column: {source}"
-    )]
+    #[error("fixture {fixture:?}: the returned row does not carry an expected column: {source}")]
     MissingObservedColumn {
         fixture: String,
-        engine: Engine,
         #[source]
         source: MissingColumn,
     },
-    #[error("fixture {fixture:?} on engine {engine}: {source}")]
+    #[error("fixture {fixture:?}: {source}")]
     Facts {
         fixture: String,
-        engine: Engine,
         #[source]
         source: FactsRowCountMismatch,
     },
-    #[error("fixture {fixture:?} on engine {engine}: {source}")]
+    #[error("fixture {fixture:?}: {source}")]
     ColumnFacts {
         fixture: String,
-        engine: Engine,
         #[source]
         source: ColumnFactsError,
     },
@@ -236,62 +168,11 @@ pub enum RunnerError {
     Divergence(#[from] DivergenceError),
 }
 
-/// Whether a driver for `engine` is compiled into this build, purely from
-/// active Cargo features -- `cfg!()` evaluates to a compile-time-constant
-/// bool, so this function is exhaustive and correct regardless of which
-/// features are active, without itself needing `#[cfg(feature = ...)]`.
-fn is_compiled(engine: Engine) -> bool {
-    match engine {
-        Engine::Postgresql => cfg!(feature = "pg"),
-    }
-}
-
-/// The Cargo feature that compiles `engine`'s driver in, named in the
-/// `EngineNotCompiled` error so the fix is stated rather than guessed at.
-fn feature_for(engine: Engine) -> &'static str {
-    match engine {
-        Engine::Postgresql => "pg",
-    }
-}
-
-/// The codegen backend whose rendered output stands in for "what sqlkit
-/// actually generates" when computing G for `engine`.
+/// Run every fixture against PostgreSQL, apply the divergence registry, and
+/// return the combined report.
 ///
-/// Every arm is a *Rust* backend, and every one of their manifests renders
-/// an optional column as `Option<{T}>`. That is what makes G comparable
-/// across engines: A1 fidelity and A2 soundness both ask whether the
-/// generated code wraps a column, so if two engines were checked against
-/// backends in different target languages, a difference in G could just be
-/// a difference in how those languages spell "optional" rather than a
-/// difference in sqlkit's inference.
-fn representative_backend(engine: Engine) -> &'static str {
-    match engine {
-        Engine::Postgresql => "rust-sqlx",
-    }
-}
-
-/// Validates that `engine` can actually run under `config`: compiled in,
-/// and (for network engines) has connection configuration. Called for
-/// every selected engine *before* [`run`] evaluates a single fixture, so a
-/// misconfigured batch fails fast instead of partway through.
-fn ensure_available(engine: Engine, config: &RunnerConfig) -> Result<(), RunnerError> {
-    if !is_compiled(engine) {
-        return Err(RunnerError::EngineNotCompiled {
-            engine,
-            feature: feature_for(engine),
-        });
-    }
-    let has_connection_config = match engine {
-        Engine::Postgresql => config.postgres_url.is_some(),
-    };
-    if !has_connection_config {
-        return Err(RunnerError::MissingConnectionConfig { engine });
-    }
-    Ok(())
-}
-
-/// Run every fixture against every engine `config` selects, apply the
-/// divergence registry, and return the combined report.
+/// Fails fast -- before evaluating a single fixture -- if the `pg` driver
+/// is not compiled in or no connection URL is configured.
 ///
 /// `entries` is passed straight to [`crate::divergence::reconcile`] -- the
 /// *only* place this runner touches the divergence registry, so
@@ -303,110 +184,76 @@ pub async fn run(
     entries: &[DivergenceEntry],
     config: &RunnerConfig,
 ) -> Result<RunReport, RunnerError> {
-    for &engine in &config.selected_engines {
-        ensure_available(engine, config)?;
+    if !cfg!(feature = "pg") {
+        return Err(RunnerError::DriverNotCompiled);
     }
+    let url = config
+        .postgres_url
+        .as_deref()
+        .ok_or(RunnerError::MissingConnectionConfig)?;
 
-    let mut report = RunReport::default();
-
+    let mut verdicts = Vec::with_capacity(fixtures.len());
     for fixture in fixtures {
-        for &engine in &fixture.live.engines {
-            if !config.selected_engines.contains(&engine) {
-                report.skipped.push(SkippedLeg {
-                    fixture: fixture.name.clone(),
-                    engine,
-                    reason: "not selected for this run".to_string(),
-                });
-                continue;
-            }
-
-            let verdict = run_one_leg(fixture, engine, config).await?;
-            report.verdicts.push(verdict);
-        }
+        verdicts.push(run_one_fixture(fixture, url, config).await?);
     }
 
-    report.verdicts = crate::divergence::reconcile(entries, report.verdicts, &config.selected_engines)?;
-    Ok(report)
+    let verdicts = crate::divergence::reconcile(entries, verdicts)?;
+    Ok(RunReport { verdicts })
 }
 
-/// Dispatch to a concrete, monomorphized [`Executor`] for `engine`. This is
-/// the match the module-level docs describe: every arm either runs a real
-/// executor or returns an explicit [`RunnerError`] -- there is no `_ =>`
-/// wildcard and no arm that silently does nothing.
+/// Connect a fresh PostgreSQL executor for `fixture` and evaluate it.
 ///
-/// `fixture` and `config` go genuinely unused when no driver feature is
-/// active (every arm degenerates to its `EngineNotCompiled` branch) -- the
-/// `allow` below is scoped to exactly that configuration via `cfg_attr`, so
-/// a build with any driver feature on keeps the lint live.
+/// Without the `pg` feature, [`run`] has already returned
+/// [`RunnerError::DriverNotCompiled`], so the arguments go unused there --
+/// the `allow` below is scoped to exactly that configuration via
+/// `cfg_attr`, so a `pg` build keeps the lint live.
 #[cfg_attr(not(feature = "pg"), allow(unused_variables))]
-async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfig) -> Result<Verdict, RunnerError> {
-    match engine {
-        Engine::Postgresql => {
-            #[cfg(feature = "pg")]
-            {
-                let url = config
-                    .postgres_url
-                    .as_deref()
-                    .ok_or(RunnerError::MissingConnectionConfig { engine })?;
-                let executor = crate::executors::postgres::PgExecutor::connect(url)
-                    .await
-                    .map_err(|source| RunnerError::Connect {
-                        fixture: fixture.name.clone(),
-                        engine,
-                        reason: source.to_string(),
-                    })?;
-                evaluate_fixture(fixture, executor, config).await
-            }
-            #[cfg(not(feature = "pg"))]
-            {
-                Err(RunnerError::EngineNotCompiled { engine, feature: "pg" })
-            }
-        }
+async fn run_one_fixture(fixture: &LiveFixture, url: &str, config: &RunnerConfig) -> Result<Verdict, RunnerError> {
+    #[cfg(feature = "pg")]
+    {
+        let executor = crate::executors::postgres::PgExecutor::connect(url)
+            .await
+            .map_err(|source| RunnerError::Connect {
+                fixture: fixture.name.clone(),
+                reason: source.to_string(),
+            })?;
+        evaluate_fixture(fixture, executor, config).await
+    }
+    #[cfg(not(feature = "pg"))]
+    {
+        Err(RunnerError::DriverNotCompiled)
     }
 }
 
-/// Drive one (fixture, engine) leg end to end through an already-connected
-/// `executor`: analyze the fixture's portable `schema_sql`/`query_sql` (A),
-/// resolve generated columns against a representative backend manifest
-/// (G), seed the *live*, per-engine schema (never the analyzer's portable
-/// one -- that is the entire point of this crate), run every declared run
-/// and observe real nullness (E), and evaluate all four assertions.
+/// Drive one fixture end to end through an already-connected `executor`:
+/// analyze the fixture's portable `schema_sql`/`query_sql` (A), resolve
+/// generated columns against [`REPRESENTATIVE_BACKEND`]'s manifest (G), seed
+/// the *live* schema profile (never the analyzer's portable one -- that is
+/// the entire point of this crate), run every declared run and observe real
+/// nullness (E), and evaluate all four assertions.
 ///
-/// Only called from [`run_one_leg`]'s feature-gated branches, so it is dead
-/// code in a build with no driver feature active -- see the `allow` there.
+/// Only called from [`run_one_fixture`]'s feature-gated branch, so it is
+/// dead code in a build without the `pg` feature -- see the `allow` there.
 #[cfg_attr(not(feature = "pg"), allow(dead_code))]
 async fn evaluate_fixture<E: Executor>(
     fixture: &LiveFixture,
     mut executor: E,
     config: &RunnerConfig,
 ) -> Result<Verdict, RunnerError> {
-    let engine = E::ENGINE;
-    let err_ctx = || (fixture.name.clone(), engine);
+    let name = || fixture.name.clone();
 
     let schema_refs: Vec<&str> = fixture.schema_sql.iter().map(String::as_str).collect();
-    let catalog = sqlkit_core::catalog::Catalog::from_ddl(&schema_refs).map_err(|source| {
-        let (fixture, engine) = err_ctx();
-        RunnerError::Analysis {
-            fixture,
-            engine,
-            source,
-        }
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(&schema_refs).map_err(|source| RunnerError::Analysis {
+        fixture: name(),
+        source,
     })?;
-    let query = sqlkit_core::parser::parse_query(&fixture.query_sql).map_err(|source| {
-        let (fixture, engine) = err_ctx();
-        RunnerError::Analysis {
-            fixture,
-            engine,
-            source,
-        }
+    let query = sqlkit_core::parser::parse_query(&fixture.query_sql).map_err(|source| RunnerError::Analysis {
+        fixture: name(),
+        source,
     })?;
-    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).map_err(|source| {
-        let (fixture, engine) = err_ctx();
-        RunnerError::Analysis {
-            fixture,
-            engine,
-            source,
-        }
+    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).map_err(|source| RunnerError::Analysis {
+        fixture: name(),
+        source,
     })?;
 
     // ~keep Every column `expected.query.columns` names must actually be one
@@ -422,111 +269,85 @@ async fn evaluate_fixture<E: Executor>(
     // `query_sql`, which is only known here.
     for expected_column in &fixture.expected.query.columns {
         if !analyzed.columns.iter().any(|c| c.name == expected_column.name) {
-            let (fixture, engine) = err_ctx();
             return Err(RunnerError::DeclaredColumnNotAnalyzed {
-                fixture,
-                engine,
+                fixture: name(),
                 column: expected_column.name.clone(),
             });
         }
     }
 
     // Representative backend for computing G (rendered nullability).
-    let backend = sqlkit_codegen::get_backend(representative_backend(engine)).map_err(|source| {
-        let (fixture, engine) = err_ctx();
-        RunnerError::Resolve {
-            fixture,
-            engine,
-            source,
-        }
+    let backend = sqlkit_codegen::get_backend(REPRESENTATIVE_BACKEND).map_err(|source| RunnerError::Resolve {
+        fixture: name(),
+        source,
     })?;
     let manifest = backend.manifest();
     let resolved = sqlkit_codegen::resolve::resolve_columns(&analyzed.columns, manifest, &[]).map_err(|source| {
-        let (fixture, engine) = err_ctx();
         RunnerError::Resolve {
-            fixture,
-            engine,
+            fixture: name(),
             source,
         }
     })?;
 
-    let schema_path = config
-        .schemas_root
-        .join(&fixture.live.schema_profile)
-        .join(engine.schema_file_name());
-    let live_schema_sql = std::fs::read_to_string(&schema_path).map_err(|source| {
-        let (fixture, engine) = err_ctx();
-        RunnerError::ReadSchema {
-            fixture,
-            engine,
-            path: schema_path,
-            source,
-        }
+    let schema_path = fixture.live.schema_path(&config.schemas_root);
+    let live_schema_sql = std::fs::read_to_string(&schema_path).map_err(|source| RunnerError::ReadSchema {
+        fixture: name(),
+        path: schema_path,
+        source,
     })?;
-    executor.seed_schema(&live_schema_sql).await.map_err(|source| {
-        let (fixture, engine) = err_ctx();
-        RunnerError::Driver {
-            fixture,
-            engine,
+    executor
+        .seed_schema(&live_schema_sql)
+        .await
+        .map_err(|source| RunnerError::Driver {
+            fixture: name(),
             source: Box::new(source),
-        }
-    })?;
+        })?;
 
     let mut observed_nulls: AHashMap<String, Vec<bool>> = AHashMap::new();
     let mut row_count = 0usize;
 
     for run in &fixture.live.runs {
-        let seed_statements = run.seed.resolve(engine).expect(
-            "the fixture loader already validated that every declared engine has resolvable seed SQL for every run",
-        );
-        executor.seed_run(seed_statements).await.map_err(|source| {
-            let (fixture, engine) = err_ctx();
-            RunnerError::Driver {
-                fixture,
-                engine,
+        executor
+            .seed_run(&run.seed)
+            .await
+            .map_err(|source| RunnerError::Driver {
+                fixture: name(),
                 source: Box::new(source),
-            }
-        })?;
+            })?;
 
-        let observed_rows = executor.query_nullness(&fixture.query_sql).await.map_err(|source| {
-            let (fixture, engine) = err_ctx();
-            RunnerError::Driver {
-                fixture,
-                engine,
-                source: Box::new(source),
-            }
-        })?;
+        let observed_rows =
+            executor
+                .query_nullness(&fixture.query_sql)
+                .await
+                .map_err(|source| RunnerError::Driver {
+                    fixture: name(),
+                    source: Box::new(source),
+                })?;
 
-        let resolved_rows = crate::expectation::resolve_run_rows(&fixture.live, run, engine);
-        run.check_row_count(resolved_rows, observed_rows.len())
-            .map_err(|source| {
-                let (fixture, engine) = err_ctx();
-                RunnerError::RowCount {
-                    fixture,
-                    engine,
-                    source,
-                }
+        run.check_row_count(observed_rows.len())
+            .map_err(|source| RunnerError::RowCount {
+                fixture: name(),
+                source,
             })?;
 
         for (row_index, observed_row) in observed_rows.iter().enumerate() {
             // Safe to index: check_row_count above already proved the two
             // lengths agree, and rows are matched ordinally against the
             // query's mandatory ORDER BY.
-            let declared_row = &resolved_rows[row_index];
+            let declared_row = &run.rows[row_index];
             for column in &analyzed.columns {
-                let is_null = observed_row.is_null(&column.name).map_err(|source| {
-                    let (fixture, engine) = err_ctx();
-                    RunnerError::MissingObservedColumn {
-                        fixture,
-                        engine,
-                        source,
-                    }
-                })?;
+                let is_null =
+                    observed_row
+                        .is_null(&column.name)
+                        .map_err(|source| RunnerError::MissingObservedColumn {
+                            fixture: name(),
+                            source,
+                        })?;
 
                 // A fixture's per-row `null`/`non_null` lists read exactly
                 // like assertions, so they must be ones. Without this, a
                 // fixture could declare a column NULL in a row where the
-                // engine returns a value and stay green -- the four
+                // database returns a value and stay green -- the four
                 // assertions below only consume the *observed* nulls, so
                 // nothing else ever reads the declaration back. `None` is
                 // a column the fixture does not mention for this row (the
@@ -536,10 +357,8 @@ async fn evaluate_fixture<E: Executor>(
                 if let Some(declared_null) = declared_row.declared_null(&column.name)
                     && declared_null != is_null
                 {
-                    let (fixture, engine) = err_ctx();
                     return Err(RunnerError::RowNullnessMismatch {
-                        fixture,
-                        engine,
+                        fixture: name(),
                         run: run.name.clone(),
                         row: row_index,
                         column: column.name.clone(),
@@ -558,25 +377,18 @@ async fn evaluate_fixture<E: Executor>(
     for (analyzed_column, resolved_column) in analyzed.columns.iter().zip(resolved.iter()) {
         let nulls = observed_nulls.remove(&analyzed_column.name).unwrap_or_default();
         let facts = ColumnFacts::from_analyzed_and_generated(analyzed_column, resolved_column, manifest, nulls)
-            .map_err(|source| {
-                let (fixture, engine) = err_ctx();
-                RunnerError::ColumnFacts {
-                    fixture,
-                    engine,
-                    source,
-                }
+            .map_err(|source| RunnerError::ColumnFacts {
+                fixture: name(),
+                source,
             })?;
         column_facts.push(facts);
     }
 
-    let facts = FixtureEngineFacts::new(fixture.name.clone(), engine, column_facts, row_count).map_err(|source| {
-        let (fixture, engine) = err_ctx();
-        RunnerError::Facts {
-            fixture,
-            engine,
+    let facts =
+        FixtureFacts::new(fixture.name.clone(), column_facts, row_count).map_err(|source| RunnerError::Facts {
+            fixture: name(),
             source,
-        }
-    })?;
+        })?;
 
     Ok(evaluate(&facts))
 }
@@ -585,13 +397,9 @@ async fn evaluate_fixture<E: Executor>(
 mod tests {
     use std::path::PathBuf;
 
-    use ahash::AHashMap;
-
     use super::*;
     use crate::executor::ObservedRow;
-    use crate::fixture::{
-        ExpectedBlock, ExpectedColumn, ExpectedQuery, LiveBlock, LiveFixture, RowExpectation, Run, SeedBlock,
-    };
+    use crate::fixture::{ExpectedBlock, ExpectedColumn, ExpectedQuery, LiveBlock, LiveFixture, RowExpectation, Run};
 
     /// A driver double that never touches a network or a file beyond the
     /// schema profile [`evaluate_fixture`] itself reads. It exists to unit
@@ -609,7 +417,6 @@ mod tests {
     struct FakeExecutorError;
 
     impl Executor for FakeExecutor {
-        const ENGINE: Engine = Engine::Postgresql;
         type Error = FakeExecutorError;
 
         async fn seed_schema(&mut self, _schema_sql: &str) -> Result<(), Self::Error> {
@@ -651,37 +458,29 @@ mod tests {
             },
             live: LiveBlock {
                 schema_profile: "profile".to_string(),
-                engines: vec![Engine::Postgresql],
                 runs: vec![Run {
                     name: "run1".to_string(),
-                    seed: SeedBlock {
-                        default: vec!["INSERT INTO t VALUES (1, NULL)".to_string()],
-                        per_engine: AHashMap::new(),
-                    },
+                    seed: vec!["INSERT INTO t VALUES (1, NULL)".to_string()],
                     rows,
                 }],
                 null_together: vec![],
-                engine_expectations: AHashMap::new(),
             },
             file_path: PathBuf::new(),
         }
     }
 
-    /// Builds a `RunnerConfig` and writes a matching `profile/postgresql.sql`
+    /// Builds a `RunnerConfig` and writes a matching `profile.sql`
     /// live schema file under a fresh temp directory -- `evaluate_fixture`
     /// reads that file from disk before ever calling the executor.
     fn config_with_schema(schemas_root: &std::path::Path) -> RunnerConfig {
-        let dir = schemas_root.join("profile");
-        std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
-            dir.join("postgresql.sql"),
+            schemas_root.join("profile.sql"),
             "CREATE TABLE t (id INTEGER, total INTEGER);",
         )
         .unwrap();
         RunnerConfig {
-            selected_engines: vec![Engine::Postgresql],
             schemas_root: schemas_root.to_path_buf(),
-            ..Default::default()
+            postgres_url: None,
         }
     }
 
@@ -823,57 +622,34 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "pg"))]
     #[tokio::test]
-    async fn run_skips_every_leg_when_no_engine_is_selected() {
-        let fixture = fixture_with_rows(vec![RowExpectation {
-            non_null: vec!["id".to_string()],
-            null: vec!["total".to_string()],
-        }]);
-        let fixtures = [fixture];
+    async fn run_fails_fast_when_the_pg_driver_is_not_compiled() {
+        // ~keep This crate's default feature set is `[]` (see Cargo.toml), so
+        // `pg` is off unless a caller explicitly opts in. A run that cannot
+        // reach PostgreSQL must be a hard error, never a vacuous pass.
         let config = RunnerConfig {
-            selected_engines: vec![],
             schemas_root: PathBuf::new(),
-            ..Default::default()
+            postgres_url: Some("postgres://unused".to_string()),
         };
 
-        let report = run(&fixtures, &[], &config)
-            .await
-            .expect("no engine selected must not error");
+        let result = run(&[], &[], &config).await;
 
-        assert_eq!(
-            report.skipped,
-            vec![SkippedLeg {
-                fixture: "live_runner_test".to_string(),
-                engine: Engine::Postgresql,
-                reason: "not selected for this run".to_string(),
-            }]
-        );
-        assert!(report.verdicts.is_empty());
-        assert!(report.is_pass(), "a report with only skips is vacuously passing");
+        assert!(matches!(result, Err(RunnerError::DriverNotCompiled)), "{result:?}");
     }
 
+    #[cfg(feature = "pg")]
     #[tokio::test]
-    async fn run_fails_fast_when_a_selected_engines_driver_is_not_compiled() {
-        // ~keep This crate's default feature set is `[]` (see Cargo.toml), so
-        // `pg` is off unless a caller explicitly opts in -- exercising the
-        // "selected but not runnable" hard-error branch the module docs
-        // describe, distinct from the silent-skip branch above.
+    async fn run_fails_fast_when_no_connection_url_is_configured() {
         let config = RunnerConfig {
-            selected_engines: vec![Engine::Postgresql],
             schemas_root: PathBuf::new(),
-            ..Default::default()
+            postgres_url: None,
         };
 
         let result = run(&[], &[], &config).await;
 
         assert!(
-            matches!(
-                result,
-                Err(RunnerError::EngineNotCompiled {
-                    engine: Engine::Postgresql,
-                    feature: "pg"
-                })
-            ),
+            matches!(result, Err(RunnerError::MissingConnectionConfig)),
             "{result:?}"
         );
     }

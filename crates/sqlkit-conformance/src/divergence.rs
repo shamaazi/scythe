@@ -1,11 +1,11 @@
 //! The divergence registry: `testing_data/nullability_live/DIVERGENCES.toml`.
 //!
 //! This is a narrow escape hatch for one specific, legitimate situation:
-//! the analyzer is more pessimistic than reality on some engine (it marked
-//! a column nullable, but no live run has ever demonstrated a NULL for it
-//! there), and that's accepted rather than fixed. It can never explain away
-//! an A2 soundness failure -- there is only one legal [`DivergenceKind`],
-//! and it is not capable of expressing that suppression, so a mistaken or
+//! the analyzer is more pessimistic than PostgreSQL (it marked a column
+//! nullable, but no live run has ever demonstrated a NULL for it), and
+//! that's accepted rather than fixed. It can never explain away an A2
+//! soundness failure -- there is only one legal [`DivergenceKind`], and it
+//! is not capable of expressing that suppression, so a mistaken or
 //! malicious entry cannot silence a real crash-on-decode bug.
 //!
 //! A registered divergence that stops reproducing fails the build: fixing
@@ -15,12 +15,11 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::fixture::Engine;
 use crate::verdict::{Failure, Verdict};
 
 /// Hard cap on the number of entries the registry may hold, enforced by a
 /// test in this crate. Kept low on purpose -- every entry is a known gap
-/// between the analyzer and one engine's behavior, and a growing list is a
+/// between the analyzer and PostgreSQL's behavior, and a growing list is a
 /// growing liability, not a convenience. This constant may only ever be
 /// lowered; raising it is a deliberate policy change and must be visible in
 /// code review (see `committed_registry_cap_may_only_ever_be_lowered`
@@ -28,7 +27,7 @@ use crate::verdict::{Failure, Verdict};
 pub const MAX_ENTRIES: usize = 25;
 
 /// The only legal reason to register a divergence: the analyzer is more
-/// pessimistic than the live engine actually is. There is no variant for
+/// pessimistic than PostgreSQL actually is. There is no variant for
 /// "the analyzer is more optimistic than reality" (an A2 failure) -- that
 /// case has no legal `kind`, so the loader rejects it by construction: an
 /// unrecognized `kind` string fails to deserialize.
@@ -42,7 +41,6 @@ pub enum DivergenceKind {
 #[serde(deny_unknown_fields)]
 pub struct DivergenceEntry {
     pub fixture: String,
-    pub engine: Engine,
     pub column: String,
     pub kind: DivergenceKind,
     /// URL to the tracking issue -- required so every accepted gap has an
@@ -72,21 +70,16 @@ pub enum DivergenceError {
         #[source]
         source: toml::de::Error,
     },
-    #[error("divergence entry for {fixture}/{engine}/{column} has a non-URL issue: {issue:?}")]
+    #[error("divergence entry for {fixture}/{column} has a non-URL issue: {issue:?}")]
     InvalidIssueUrl {
         fixture: String,
-        engine: Engine,
         column: String,
         issue: String,
     },
     #[error("divergence registry has {count} entries, exceeding the cap of {max}")]
     TooManyEntries { count: usize, max: usize },
-    #[error("divergence for {fixture}/{engine}/{column} no longer reproduces; remove it")]
-    Stale {
-        fixture: String,
-        engine: Engine,
-        column: String,
-    },
+    #[error("divergence for {fixture}/{column} no longer reproduces; remove it")]
+    Stale { fixture: String, column: String },
 }
 
 /// Load and validate the registry at `path`: every issue must look like a
@@ -114,7 +107,6 @@ pub fn load(path: &Path) -> Result<Vec<DivergenceEntry>, DivergenceError> {
         if !(entry.issue.starts_with("https://") || entry.issue.starts_with("http://")) {
             return Err(DivergenceError::InvalidIssueUrl {
                 fixture: entry.fixture.clone(),
-                engine: entry.engine,
                 column: entry.column.clone(),
                 issue: entry.issue.clone(),
             });
@@ -142,7 +134,7 @@ fn kind_suppresses(kind: DivergenceKind, failure: &Failure, column: &str) -> boo
 }
 
 /// Suppress only the specific `Failure::VacuousNullable` (A3) failures that
-/// `entries` registers for a matching (fixture, engine, column). Every
+/// `entries` registers for a matching (fixture, column). Every
 /// other failure variant -- including `Failure::UnsoundNullability` (A2) --
 /// passes through untouched; see [`kind_suppresses`].
 ///
@@ -156,21 +148,21 @@ pub fn apply(entries: &[DivergenceEntry], verdicts: Vec<Verdict>) -> Vec<Verdict
             let failures = verdict
                 .failures
                 .into_iter()
-                .filter(|failure| !is_registered(entries, &verdict.fixture, verdict.engine, failure))
+                .filter(|failure| !is_registered(entries, &verdict.fixture, failure))
                 .collect();
             Verdict { failures, ..verdict }
         })
         .collect()
 }
 
-fn is_registered(entries: &[DivergenceEntry], fixture: &str, engine: Engine, failure: &Failure) -> bool {
-    entries.iter().any(|entry| {
-        entry.fixture == fixture && entry.engine == engine && kind_suppresses(entry.kind, failure, &entry.column)
-    })
+fn is_registered(entries: &[DivergenceEntry], fixture: &str, failure: &Failure) -> bool {
+    entries
+        .iter()
+        .any(|entry| entry.fixture == fixture && kind_suppresses(entry.kind, failure, &entry.column))
 }
 
 /// Fails the build if a registered divergence no longer reproduces in
-/// `verdicts`, for any engine actually present in `engines_run`.
+/// `verdicts`.
 ///
 /// `verdicts` must be the *raw* output of [`crate::verdict::evaluate`] --
 /// i.e. **not** yet passed through [`apply`]. `apply` removes exactly the
@@ -178,26 +170,10 @@ fn is_registered(entries: &[DivergenceEntry], fixture: &str, engine: Engine, fai
 /// every entry look stale regardless of whether it still reproduces. Use
 /// [`reconcile`] to get this ordering for free instead of relying on
 /// callers to remember it.
-///
-/// An entry for an engine that isn't in `engines_run` at all (a partial
-/// run, e.g. only Postgres was dialed this time) is skipped rather than
-/// treated as stale: "we didn't check" and "it no longer reproduces" are
-/// different facts, and conflating them would make every entry for an
-/// untested engine fail on every partial run.
-pub fn check_staleness(
-    entries: &[DivergenceEntry],
-    verdicts: &[Verdict],
-    engines_run: &[Engine],
-) -> Result<(), DivergenceError> {
+pub fn check_staleness(entries: &[DivergenceEntry], verdicts: &[Verdict]) -> Result<(), DivergenceError> {
     for entry in entries {
-        let entry_engine_was_run = engines_run.contains(&entry.engine);
-        if !entry_engine_was_run {
-            continue;
-        }
-
         let still_reproduces = verdicts.iter().any(|verdict| {
             verdict.fixture == entry.fixture
-                && verdict.engine == entry.engine
                 && verdict
                     .failures
                     .iter()
@@ -206,7 +182,6 @@ pub fn check_staleness(
         if !still_reproduces {
             return Err(DivergenceError::Stale {
                 fixture: entry.fixture.clone(),
-                engine: entry.engine,
                 column: entry.column.clone(),
             });
         }
@@ -222,24 +197,18 @@ pub fn check_staleness(
 /// before suppression -- structural rather than a convention callers have
 /// to remember: see [`check_staleness`] for why calling it after [`apply`]
 /// makes every entry look stale.
-pub fn reconcile(
-    entries: &[DivergenceEntry],
-    verdicts: Vec<Verdict>,
-    engines_run: &[Engine],
-) -> Result<Vec<Verdict>, DivergenceError> {
-    check_staleness(entries, &verdicts, engines_run)?;
+pub fn reconcile(entries: &[DivergenceEntry], verdicts: Vec<Verdict>) -> Result<Vec<Verdict>, DivergenceError> {
+    check_staleness(entries, &verdicts)?;
     Ok(apply(entries, verdicts))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixture::Engine;
 
-    fn entry(fixture: &str, engine: Engine, column: &str) -> DivergenceEntry {
+    fn entry(fixture: &str, column: &str) -> DivergenceEntry {
         DivergenceEntry {
             fixture: fixture.to_string(),
-            engine,
             column: column.to_string(),
             kind: DivergenceKind::AnalyzerOverPessimistic,
             issue: "https://github.com/shamaazi/scythe/issues/1".to_string(),
@@ -247,20 +216,18 @@ mod tests {
         }
     }
 
-    fn verdict(fixture: &str, engine: Engine, failures: Vec<Failure>) -> Verdict {
+    fn verdict(fixture: &str, failures: Vec<Failure>) -> Verdict {
         Verdict {
             fixture: fixture.to_string(),
-            engine,
             failures,
         }
     }
 
     #[test]
     fn apply_suppresses_a_matching_vacuity_failure() {
-        let entries = vec![entry("live_x", Engine::Postgresql, "notes")];
+        let entries = vec![entry("live_x", "notes")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Postgresql,
             vec![Failure::VacuousNullable {
                 column: "notes".to_string(),
             }],
@@ -271,10 +238,9 @@ mod tests {
 
     #[test]
     fn apply_never_suppresses_unsound_nullability() {
-        let entries = vec![entry("live_x", Engine::Postgresql, "id")];
+        let entries = vec![entry("live_x", "id")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Postgresql,
             vec![Failure::UnsoundNullability {
                 column: "id".to_string(),
                 row: 0,
@@ -286,10 +252,9 @@ mod tests {
 
     #[test]
     fn apply_never_suppresses_fidelity_mismatch() {
-        let entries = vec![entry("live_x", Engine::Postgresql, "id")];
+        let entries = vec![entry("live_x", "id")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Postgresql,
             vec![Failure::FidelityMismatch {
                 column: "id".to_string(),
                 analyzed_nullable: true,
@@ -302,10 +267,9 @@ mod tests {
 
     #[test]
     fn apply_never_suppresses_join_group_incoherent() {
-        let entries = vec![entry("live_x", Engine::Postgresql, "id")];
+        let entries = vec![entry("live_x", "id")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Postgresql,
             vec![Failure::JoinGroupIncoherent {
                 group: "o".to_string(),
                 row: 0,
@@ -333,9 +297,8 @@ mod tests {
         let toml = r#"
 [[entry]]
 fixture = "live_x"
-engine = "postgresql"
 column = "notes"
-kind = "engine_more_permissive"
+kind = "analyzer_over_optimistic"
 issue = "https://github.com/shamaazi/scythe/issues/1"
 reason = "test"
 "#;
@@ -348,7 +311,6 @@ reason = "test"
         let toml = r#"
 [[entry]]
 fixture = "live_x"
-engine = "postgresql"
 column = "notes"
 kind = "analyzer_over_pessimistic"
 issue = "https://github.com/shamaazi/scythe/issues/1"
@@ -369,7 +331,6 @@ suppresses_soundness = true
         let toml = r#"
 [[entries]]
 fixture = "live_x"
-engine = "postgresql"
 column = "notes"
 kind = "analyzer_over_pessimistic"
 issue = "https://github.com/shamaazi/scythe/issues/1"
@@ -383,35 +344,6 @@ reason = "test"
     }
 
     #[test]
-    fn loader_rejects_an_unknown_engine_name() {
-        // ~keep Before `engine` was typed as `Engine`, a typo here (e.g.
-        // "postgres" instead of "postgresql") would deserialize as a plain
-        // `String` and simply never match any `Verdict`, forever, with no
-        // diagnostic -- the entry would sit in the registry looking active
-        // while suppressing nothing.
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("DIVERGENCES.toml");
-        std::fs::write(
-            &path,
-            r#"
-[[entry]]
-fixture = "live_x"
-engine = "postgres"
-column = "notes"
-kind = "analyzer_over_pessimistic"
-issue = "https://github.com/shamaazi/scythe/issues/1"
-reason = "test"
-"#,
-        )
-        .unwrap();
-        let result = load(&path);
-        assert!(
-            matches!(result, Err(DivergenceError::Parse { .. })),
-            "a typo'd engine name must fail to deserialize, not silently match nothing: {result:?}"
-        );
-    }
-
-    #[test]
     fn loader_rejects_a_non_url_issue() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("DIVERGENCES.toml");
@@ -420,7 +352,6 @@ reason = "test"
             r#"
 [[entry]]
 fixture = "live_x"
-engine = "postgresql"
 column = "notes"
 kind = "analyzer_over_pessimistic"
 issue = "not-a-url"
@@ -437,7 +368,7 @@ reason = "test"
         let mut toml = String::new();
         for i in 0..(MAX_ENTRIES + 1) {
             toml.push_str(&format!(
-                "[[entry]]\nfixture = \"live_{i}\"\nengine = \"postgresql\"\ncolumn = \"c\"\nkind = \"analyzer_over_pessimistic\"\nissue = \"https://github.com/shamaazi/scythe/issues/{i}\"\nreason = \"test\"\n\n"
+                "[[entry]]\nfixture = \"live_{i}\"\ncolumn = \"c\"\nkind = \"analyzer_over_pessimistic\"\nissue = \"https://github.com/shamaazi/scythe/issues/{i}\"\nreason = \"test\"\n\n"
             ));
         }
         let dir = tempfile::tempdir().unwrap();
@@ -456,7 +387,6 @@ reason = "test"
             r#"
 [[entry]]
 fixture = "live_right_side_not_null_becomes_nullable"
-engine = "postgresql"
 column = "notes"
 kind = "analyzer_over_pessimistic"
 issue = "https://github.com/shamaazi/scythe/issues/42"
@@ -468,7 +398,6 @@ reason = "PostgreSQL never returns NULL for this synthetic column in any live ru
         assert_eq!(entries.len(), 1);
         let parsed = &entries[0];
         assert_eq!(parsed.fixture, "live_right_side_not_null_becomes_nullable");
-        assert_eq!(parsed.engine, Engine::Postgresql);
         assert_eq!(parsed.column, "notes");
         assert_eq!(parsed.kind, DivergenceKind::AnalyzerOverPessimistic);
         assert_eq!(parsed.issue, "https://github.com/shamaazi/scythe/issues/42");
@@ -480,23 +409,22 @@ reason = "PostgreSQL never returns NULL for this synthetic column in any live ru
 
     #[test]
     fn check_staleness_fails_when_a_registered_divergence_no_longer_reproduces() {
-        let entries = vec![entry("live_x", Engine::Postgresql, "notes")];
-        let verdicts = vec![verdict("live_x", Engine::Postgresql, vec![])];
-        let result = check_staleness(&entries, &verdicts, &[Engine::Postgresql]);
+        let entries = vec![entry("live_x", "notes")];
+        let verdicts = vec![verdict("live_x", vec![])];
+        let result = check_staleness(&entries, &verdicts);
         assert!(matches!(result, Err(DivergenceError::Stale { .. })));
     }
 
     #[test]
     fn check_staleness_passes_when_the_divergence_still_reproduces() {
-        let entries = vec![entry("live_x", Engine::Postgresql, "notes")];
+        let entries = vec![entry("live_x", "notes")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Postgresql,
             vec![Failure::VacuousNullable {
                 column: "notes".to_string(),
             }],
         )];
-        let result = check_staleness(&entries, &verdicts, &[Engine::Postgresql]);
+        let result = check_staleness(&entries, &verdicts);
         assert!(result.is_ok());
     }
 
@@ -505,43 +433,41 @@ reason = "PostgreSQL never returns NULL for this synthetic column in any live ru
         // Calling check_staleness on the *raw* verdicts (before apply) must
         // succeed for an entry that still reproduces, regardless of what
         // apply would later do to those same verdicts.
-        let entries = vec![entry("live_x", Engine::Postgresql, "notes")];
+        let entries = vec![entry("live_x", "notes")];
         let raw_verdicts = vec![verdict(
             "live_x",
-            Engine::Postgresql,
             vec![Failure::VacuousNullable {
                 column: "notes".to_string(),
             }],
         )];
-        assert!(check_staleness(&entries, &raw_verdicts, &[Engine::Postgresql]).is_ok());
+        assert!(check_staleness(&entries, &raw_verdicts).is_ok());
 
         // The same verdicts, post-apply, would (incorrectly, if reused)
         // report every entry as stale -- demonstrating why `reconcile`
         // exists instead of leaving the ordering to convention.
         let applied = apply(&entries, raw_verdicts);
         assert!(applied[0].is_pass());
-        assert!(check_staleness(&entries, &applied, &[Engine::Postgresql]).is_err());
+        assert!(check_staleness(&entries, &applied).is_err());
     }
 
     #[test]
     fn reconcile_checks_staleness_before_suppressing_regardless_of_call_site_order() {
-        let entries = vec![entry("live_x", Engine::Postgresql, "notes")];
+        let entries = vec![entry("live_x", "notes")];
         let verdicts = vec![verdict(
             "live_x",
-            Engine::Postgresql,
             vec![Failure::VacuousNullable {
                 column: "notes".to_string(),
             }],
         )];
-        let result = reconcile(&entries, verdicts, &[Engine::Postgresql]).expect("a still-reproducing entry must pass");
+        let result = reconcile(&entries, verdicts).expect("a still-reproducing entry must pass");
         assert!(result[0].is_pass(), "{:?}", result[0].failures);
     }
 
     #[test]
     fn reconcile_fails_for_a_stale_entry_instead_of_silently_suppressing_nothing() {
-        let entries = vec![entry("live_x", Engine::Postgresql, "notes")];
-        let verdicts = vec![verdict("live_x", Engine::Postgresql, vec![])];
-        let result = reconcile(&entries, verdicts, &[Engine::Postgresql]);
+        let entries = vec![entry("live_x", "notes")];
+        let verdicts = vec![verdict("live_x", vec![])];
+        let result = reconcile(&entries, verdicts);
         assert!(matches!(result, Err(DivergenceError::Stale { .. })));
     }
 

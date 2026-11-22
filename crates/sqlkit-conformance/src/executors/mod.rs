@@ -1,17 +1,15 @@
-//! Per-engine live drivers, each behind its own Cargo feature so
+//! The live PostgreSQL driver, behind the `pg` Cargo feature so
 //! `cargo test --workspace` and `cargo clippy --workspace -- -D warnings`
 //! never link a database driver by default. See [`crate::runner`] for how
-//! these are dispatched -- [`crate::executor::Executor`] is not
-//! dyn-compatible, so callers select a concrete type per engine rather than
-//! holding these behind a trait object.
+//! it is driven.
 
 #[cfg(feature = "pg")]
 pub mod postgres;
 
 /// A namespace name (a PostgreSQL schema) unique to this call, for an executor to isolate itself into.
 ///
-/// It must be unique per *connection*, not per process. `run_one_leg`
-/// connects once per (fixture, engine), and the test binary runs its
+/// It must be unique per *connection*, not per process. `runner::run_one_fixture`
+/// connects once per fixture, and the test binary runs its
 /// `#[tokio::test]`s in parallel by default -- so a fixed name meant two
 /// concurrent tests issued `DROP ... IF EXISTS` / `CREATE ...` against the
 /// same namespace and dropped it out from under each other mid-run. That

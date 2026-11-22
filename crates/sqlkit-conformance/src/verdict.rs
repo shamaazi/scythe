@@ -1,6 +1,6 @@
 //! The four-assertion comparison at the heart of this crate.
 //!
-//! Per (fixture, engine, column), three facts are compared:
+//! Per (fixture, column), three facts are compared:
 //!
 //! - **A** -- the analyzer's `AnalyzedColumn::nullable`
 //! - **G** -- whether the generated code's `ResolvedColumn::full_type` is
@@ -8,7 +8,7 @@
 //!   [`ColumnFacts::from_analyzed_and_generated`] -- this is *not* the same
 //!   as `ResolvedColumn::nullable`, which is copied verbatim from `A` and so
 //!   can never disagree with it)
-//! - **E** -- the engine's observed per-row nullness
+//! - **E** -- PostgreSQL's observed per-row nullness
 //!
 //! Every function here is pure and operates on already-computed facts --
 //! there is no database access in this module, which is what keeps it
@@ -19,12 +19,10 @@ use sqlkit_backend::manifest::BackendManifest;
 use sqlkit_codegen::backend_trait::ResolvedColumn;
 use sqlkit_core::analyzer::AnalyzedColumn;
 
-use crate::fixture::Engine;
-
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-/// Per-(fixture, engine, column) facts needed to evaluate the four
+/// Per-(fixture, column) facts needed to evaluate the four
 /// assertions. Build from real analyzer/codegen output via
 /// [`ColumnFacts::from_analyzed_and_generated`], or directly in tests.
 #[derive(Debug, Clone)]
@@ -45,7 +43,7 @@ pub struct ColumnFacts {
     pub join_group: Option<String>,
     pub nullable_before_join: bool,
     /// E: one entry per observed row (across all of a fixture's runs, in a
-    /// fixed order), `true` when the engine returned NULL for this column
+    /// fixed order), `true` when PostgreSQL returned NULL for this column
     /// in that row.
     pub observed_nulls: Vec<bool>,
 }
@@ -100,41 +98,39 @@ pub enum ColumnFactsError {
     },
 }
 
-/// All column facts for one (fixture, engine) pair, aligned by row index:
+/// All column facts for one fixture, aligned by row index:
 /// `columns()[i].observed_nulls[r]` and `columns()[j].observed_nulls[r]`
 /// refer to the same observed row `r`. Constructed only via
-/// [`FixtureEngineFacts::new`], which enforces that invariant, so a
+/// [`FixtureFacts::new`], which enforces that invariant, so a
 /// short-or-long `observed_nulls` vector can never reach [`evaluate`].
 #[derive(Debug, Clone)]
-pub struct FixtureEngineFacts {
+pub struct FixtureFacts {
     fixture: String,
-    engine: Engine,
     columns: Vec<ColumnFacts>,
     row_count: usize,
 }
 
 /// `column` declares a number of observed rows that doesn't match
-/// `row_count` for the rest of the [`FixtureEngineFacts`] it was built into.
+/// `row_count` for the rest of the [`FixtureFacts`] it was built into.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("column {column:?} has {actual} observed row(s) but this fixture/engine declares {expected}")]
+#[error("column {column:?} has {actual} observed row(s) but this fixture declares {expected}")]
 pub struct RowCountMismatch {
     pub column: String,
     pub expected: usize,
     pub actual: usize,
 }
 
-impl FixtureEngineFacts {
+impl FixtureFacts {
     /// Validating constructor: every column's `observed_nulls` must have
     /// exactly `row_count` entries. Before this constructor existed,
     /// [`check_join_group_coherence`] filled short vectors in with
     /// `unwrap_or(false)` -- silently treating "we never observed this row
     /// for this column" as "observed non-null", which both fabricates
     /// coherence and masks the underlying data bug. Going through `new` is
-    /// the only way to build a [`FixtureEngineFacts`], so that case is now
+    /// the only way to build a [`FixtureFacts`], so that case is now
     /// unreachable by construction rather than merely untested.
     pub fn new(
         fixture: impl Into<String>,
-        engine: Engine,
         columns: Vec<ColumnFacts>,
         row_count: usize,
     ) -> Result<Self, RowCountMismatch> {
@@ -149,7 +145,6 @@ impl FixtureEngineFacts {
         }
         Ok(Self {
             fixture: fixture.into(),
-            engine,
             columns,
             row_count,
         })
@@ -157,10 +152,6 @@ impl FixtureEngineFacts {
 
     pub fn fixture(&self) -> &str {
         &self.fixture
-    }
-
-    pub fn engine(&self) -> Engine {
-        self.engine
     }
 
     pub fn columns(&self) -> &[ColumnFacts] {
@@ -187,7 +178,7 @@ pub enum Failure {
         analyzed_nullable: bool,
         generated_nullable: bool,
     },
-    /// A2 soundness: the engine produced NULL in a column the generated
+    /// A2 soundness: PostgreSQL returned NULL in a column the generated
     /// code renders as non-optional -- it would non-optionally decode a
     /// NULL and crash. Keyed on `generated_nullable`, not
     /// `analyzed_nullable`: the crash is a property of what code actually
@@ -210,12 +201,10 @@ pub enum Failure {
     },
 }
 
-/// The outcome of evaluating all four assertions for one (fixture, engine)
-/// pair.
+/// The outcome of evaluating all four assertions for one fixture.
 #[derive(Debug, Clone)]
 pub struct Verdict {
     pub fixture: String,
-    pub engine: Engine,
     pub failures: Vec<Failure>,
 }
 
@@ -228,7 +217,7 @@ impl Verdict {
 /// Evaluate all four assertions for `facts`, returning one [`Verdict`] with
 /// every failure found -- nothing here short-circuits on the first failure,
 /// so a report shows the full picture in one pass.
-pub fn evaluate(facts: &FixtureEngineFacts) -> Verdict {
+pub fn evaluate(facts: &FixtureFacts) -> Verdict {
     let mut failures = Vec::new();
 
     for column in facts.columns() {
@@ -240,7 +229,6 @@ pub fn evaluate(facts: &FixtureEngineFacts) -> Verdict {
 
     Verdict {
         fixture: facts.fixture().to_string(),
-        engine: facts.engine(),
         failures,
     }
 }
@@ -257,7 +245,7 @@ fn check_fidelity(column: &ColumnFacts) -> Option<Failure> {
     })
 }
 
-/// A2: `engine_returned_null(i) => G`, for every observed row. See
+/// A2: `observed_null(i) => G`, for every observed row. See
 /// [`Failure::UnsoundNullability`] for why this keys on `generated_nullable`
 /// rather than `analyzed_nullable`.
 fn check_soundness(column: &ColumnFacts) -> Vec<Failure> {
@@ -292,7 +280,7 @@ fn check_anti_vacuity(column: &ColumnFacts) -> Option<Failure> {
 /// order, so failures come back in a stable, reproducible sequence.
 ///
 /// `row_count` and every column's `observed_nulls` length are guaranteed
-/// equal by [`FixtureEngineFacts::new`], so indexing `observed_nulls[row]`
+/// equal by [`FixtureFacts::new`], so indexing `observed_nulls[row]`
 /// directly (rather than falling back to a default on a short vector) can
 /// never panic and never fabricates a "non-null" that was never observed.
 fn check_join_group_coherence(columns: &[ColumnFacts], row_count: usize) -> Vec<Failure> {
@@ -348,8 +336,8 @@ mod tests {
         }
     }
 
-    fn facts(columns: Vec<ColumnFacts>, row_count: usize) -> FixtureEngineFacts {
-        FixtureEngineFacts::new("live_test", Engine::Postgresql, columns, row_count)
+    fn facts(columns: Vec<ColumnFacts>, row_count: usize) -> FixtureFacts {
+        FixtureFacts::new("live_test", columns, row_count)
             .expect("test fixtures must have consistent observed_nulls lengths")
     }
 
@@ -483,18 +471,13 @@ row_suffix = "Row"
         );
     }
 
-    fn facts_from(columns: Vec<ColumnFacts>, row_count: usize) -> FixtureEngineFacts {
-        FixtureEngineFacts::new("live_test", Engine::Postgresql, columns, row_count).unwrap()
+    fn facts_from(columns: Vec<ColumnFacts>, row_count: usize) -> FixtureFacts {
+        FixtureFacts::new("live_test", columns, row_count).unwrap()
     }
 
     #[test]
     fn new_rejects_a_column_whose_observed_nulls_length_disagrees_with_row_count() {
-        let result = FixtureEngineFacts::new(
-            "live_test",
-            Engine::Postgresql,
-            vec![column("total", true, true, vec![true])],
-            2,
-        );
+        let result = FixtureFacts::new("live_test", vec![column("total", true, true, vec![true])], 2);
         assert_eq!(
             result.unwrap_err(),
             RowCountMismatch {
@@ -563,7 +546,7 @@ row_suffix = "Row"
     fn a2_does_not_fire_when_generated_is_nullable_even_if_analyzed_is_not() {
         // analyzed says non-nullable, generated renders optional (codegen
         // erred safe) -- no crash risk, so A2 must stay quiet even though
-        // the engine returned NULL.
+        // the database returned NULL.
         let v = evaluate(&facts(vec![column("total", false, true, vec![true])], 1));
         assert!(
             !v.failures.contains(&Failure::UnsoundNullability {

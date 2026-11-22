@@ -25,16 +25,13 @@
   "source": "original",
   "live": {
     "schema_profile": "accounts",
-    "engines": ["postgresql"],
     "runs": [
       {
         "name": "one_deleted_one_null",
-        "seed": {
-          "default": [
-            "INSERT INTO accounts (id, deleted_at) VALUES (1, now() - interval '1 day')",
-            "INSERT INTO accounts (id, deleted_at) VALUES (2, NULL)"
-          ]
-        },
+        "seed": [
+          "INSERT INTO accounts (id, deleted_at) VALUES (1, now() - interval '1 day')",
+          "INSERT INTO accounts (id, deleted_at) VALUES (2, NULL)"
+        ],
         "rows": [
           { "non_null": ["id", "elapsed"], "null": [] },
           { "non_null": ["id"], "null": ["elapsed"] }

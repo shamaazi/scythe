@@ -37,18 +37,15 @@
   },
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql"],
     "runs": [
       {
         "name": "unmatched_on_each_side",
-        "seed": {
-          "default": [
-            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
-            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', 'grace@example.com')",
-            "INSERT INTO tags (id, name) VALUES (2, 'mathematician')",
-            "INSERT INTO tags (id, name) VALUES (3, 'compiler')"
-          ]
-        },
+        "seed": [
+          "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+          "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', 'grace@example.com')",
+          "INSERT INTO tags (id, name) VALUES (2, 'mathematician')",
+          "INSERT INTO tags (id, name) VALUES (3, 'compiler')"
+        ],
         "rows": [
           { "non_null": ["user_name"], "null": ["tag_name"] },
           { "non_null": ["user_name", "tag_name"], "null": [] },

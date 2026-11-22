@@ -31,16 +31,13 @@
   },
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql"],
     "runs": [
       {
         "name": "one_matching_one_not",
-        "seed": {
-          "default": [
-            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
-            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', 'grace@example.com')"
-          ]
-        },
+        "seed": [
+          "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+          "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', 'grace@example.com')"
+        ],
         "rows": [
           { "non_null": ["id"], "null": ["maybe_name"] },
           { "non_null": ["id", "maybe_name"], "null": [] }

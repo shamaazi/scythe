@@ -28,11 +28,11 @@ pub struct Fixture {
     #[serde(default)]
     pub sqlc_comparison: Option<SqlcComparison>,
 
-    /// The `testing_data/nullability_live/**` seed/run corpus (`schema_profile`, `engines`,
-    /// `runs`). Accepted, not modeled or consumed: no code in this repo reads it yet -- a live
-    /// fixture runner is separate, larger work than the typo-tolerance fix this field exists to
-    /// unblock. Kept opaque (`Value`, not a dedicated struct) on purpose, so `deny_unknown_fields`
-    /// on `Fixture` doesn't reject these 16 fixtures while that runner doesn't exist. See #156.
+    /// The `testing_data/nullability_live/**` seed/run corpus (`schema_profile`, `runs`,
+    /// `null_together`). Accepted but not modeled here: `crates/sqlkit-conformance` owns and
+    /// validates its shape (`fixture::LiveBlock`). Kept opaque (`Value`, not a dedicated struct) so
+    /// `deny_unknown_fields` on `Fixture` doesn't reject these fixtures and the two crates can't
+    /// drift apart on its schema. See #156.
     #[serde(default)]
     pub live: Option<serde_json::Value>,
 
@@ -475,8 +475,8 @@ mod tests {
         );
     }
 
-    /// The `testing_data/nullability_live/**` corpus carries a top-level `live` block that no
-    /// code in this repo consumes yet (see `Fixture::live`'s doc comment). It must still load
+    /// The `testing_data/nullability_live/**` corpus carries a top-level `live` block that this
+    /// tool does not consume (see `Fixture::live`'s doc comment). It must still load
     /// under `deny_unknown_fields` rather than be treated as an unrecognised key.
     #[test]
     fn load_fixtures_accepts_a_live_block_without_rejecting_it() {
@@ -488,7 +488,7 @@ mod tests {
   "schema_sql": ["CREATE TABLE t (id INT)"],
   "expected": { "success": true },
   "source": "original",
-  "live": { "schema_profile": "x", "engines": ["postgresql"], "runs": [] }
+  "live": { "schema_profile": "x", "runs": [] }
 }"#;
         std::fs::write(dir.path().join("f.json"), json).unwrap();
 

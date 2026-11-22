@@ -12,7 +12,6 @@ use tokio_postgres::types::{FromSql, Type};
 use tokio_postgres::{Client, NoTls};
 
 use crate::executor::{Executor, ObservedRow};
-use crate::fixture::Engine;
 
 /// Catch-all `FromSql` adapter: decodes any Postgres value into just its
 /// nullness, without needing to know -- or decode -- its concrete type.
@@ -79,7 +78,6 @@ impl PgExecutor {
 }
 
 impl Executor for PgExecutor {
-    const ENGINE: Engine = Engine::Postgresql;
     type Error = PgError;
 
     async fn seed_schema(&mut self, schema_sql: &str) -> Result<(), Self::Error> {

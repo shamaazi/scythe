@@ -31,16 +31,13 @@
   "source": "original",
   "live": {
     "schema_profile": "measurements",
-    "engines": ["postgresql"],
     "runs": [
       {
         "name": "one_value_one_null",
-        "seed": {
-          "default": [
-            "INSERT INTO measurements (id, value) VALUES (1, 4.0)",
-            "INSERT INTO measurements (id, value) VALUES (2, NULL)"
-          ]
-        },
+        "seed": [
+          "INSERT INTO measurements (id, value) VALUES (1, 4.0)",
+          "INSERT INTO measurements (id, value) VALUES (2, NULL)"
+        ],
         "rows": [
           { "non_null": ["id", "squared", "root"], "null": [] },
           { "non_null": ["id"], "null": ["squared", "root"] }

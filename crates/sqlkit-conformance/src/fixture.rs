@@ -1,11 +1,11 @@
 //! The `LiveFixture` model: JSON fixtures under `testing_data/nullability_live/`
-//! that describe a live-engine nullability scenario, plus the loader that
-//! validates them before any container is touched.
+//! that describe a live PostgreSQL nullability scenario, plus the loader that
+//! validates them before any database is touched.
 //!
 //! Every fixture file on disk also parses as a `tools/test-generator`
-//! `Fixture` -- that tool has no `#[serde(deny_unknown_fields)]`, so the
-//! `live` block this module reads is purely additive and requires zero
-//! changes to that tool.
+//! `Fixture` -- that tool accepts the `live` block as an opaque JSON value
+//! (see its `Fixture::live`), so the block's shape is owned by this module
+//! alone.
 
 use std::path::{Path, PathBuf};
 
@@ -17,41 +17,6 @@ use crate::query_shape::{self, QueryShape};
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-/// The database engine the live suite targets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Engine {
-    Postgresql,
-}
-
-impl Engine {
-    pub const ALL: [Engine; 1] = [Engine::Postgresql];
-
-    /// The key used for this engine in `seed` overrides and
-    /// `engine_expectations`.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Engine::Postgresql => "postgresql",
-        }
-    }
-
-    /// The schema-profile filename for this engine, e.g. `postgresql.sql`.
-    /// Every engine resolves to its own literal
-    /// file; there is deliberately no fallback to a "similar" engine.
-    pub fn schema_file_name(self) -> String {
-        format!("{}.sql", self.as_str())
-    }
-}
-
-impl std::fmt::Display for Engine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-
 /// A JSON fixture under `testing_data/nullability_live/<rule>/`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LiveFixture {
@@ -59,9 +24,9 @@ pub struct LiveFixture {
     pub category: String,
     /// The portable (`tools/test-generator`-flavored) DDL statements the
     /// analyzer sees. Deliberately distinct from `live.schema_profile`'s
-    /// per-engine files under `_schemas/` -- the analyzer runs against
-    /// this, the live engine runs against those, and reconciling the two
-    /// is `crate::runner`'s job, not this module's (see
+    /// file under `_schemas/` -- the analyzer runs against this, the live
+    /// database runs against that, and reconciling the two is
+    /// `crate::runner`'s job, not this module's (see
     /// `validate_schema_reconciliation`, which checks *declared columns*
     /// exist in the live schema, independent of this field).
     pub schema_sql: Vec<String>,
@@ -92,44 +57,40 @@ pub struct ExpectedColumn {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LiveBlock {
+    /// Names the live schema file `_schemas/<schema_profile>.sql`.
     pub schema_profile: String,
-    pub engines: Vec<Engine>,
     pub runs: Vec<Run>,
     #[serde(default)]
     pub null_together: Vec<Vec<String>>,
-    /// Legitimate per-engine semantic differences (e.g. a server setting that changes a
-    /// result) -- not a place to explain away a failure. See
-    /// [`crate::divergence`] for that.
-    #[serde(default)]
-    pub engine_expectations: AHashMap<Engine, EngineExpectation>,
+}
+
+impl LiveBlock {
+    /// The live schema file this block runs against:
+    /// `<schemas_root>/<schema_profile>.sql`.
+    pub fn schema_path(&self, schemas_root: &Path) -> PathBuf {
+        schemas_root.join(format!("{}.sql", self.schema_profile))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Run {
     pub name: String,
-    pub seed: SeedBlock,
+    /// The SQL statements that seed this run's data, executed in order.
+    pub seed: Vec<String>,
     pub rows: Vec<RowExpectation>,
 }
 
 impl Run {
-    /// Fails if the live engine returned a different number of rows than
-    /// `resolved_rows` (the per-engine-resolved row expectations from
-    /// [`crate::expectation::resolve_run_rows`], not necessarily
-    /// `self.rows`: an `engine_expectations` override can declare a
-    /// different row list for this run/engine). `resolved_rows` is matched
-    /// ordinally against `query_sql`'s `ORDER BY`, so a count mismatch means
-    /// the fixture (or its seed data) has drifted -- it is always a hard
-    /// failure, never a skip.
-    pub fn check_row_count(
-        &self,
-        resolved_rows: &[RowExpectation],
-        observed_row_count: usize,
-    ) -> Result<(), RowCountMismatch> {
-        if resolved_rows.len() != observed_row_count {
+    /// Fails if the database returned a different number of rows than this
+    /// run declares. `rows` is matched ordinally against `query_sql`'s
+    /// `ORDER BY`, so a count mismatch means the fixture (or its seed data)
+    /// has drifted -- it is always a hard failure, never a skip.
+    pub fn check_row_count(&self, observed_row_count: usize) -> Result<(), RowCountMismatch> {
+        if self.rows.len() != observed_row_count {
             return Err(RowCountMismatch {
                 run: self.name.clone(),
-                declared: resolved_rows.len(),
+                declared: self.rows.len(),
                 observed: observed_row_count,
             });
         }
@@ -138,36 +99,11 @@ impl Run {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("run {run:?} declares {declared} row(s) but the engine returned {observed}")]
+#[error("run {run:?} declares {declared} row(s) but the database returned {observed}")]
 pub struct RowCountMismatch {
     pub run: String,
     pub declared: usize,
     pub observed: usize,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SeedBlock {
-    #[serde(default)]
-    pub default: Vec<String>,
-    #[serde(flatten)]
-    pub per_engine: AHashMap<String, Vec<String>>,
-}
-
-impl SeedBlock {
-    /// Resolve the seed SQL statements for `engine`: a per-engine override
-    /// if one is present, otherwise the shared `default`. `None` means
-    /// neither yields any statements -- callers must treat that as a load
-    /// error, never as "this engine has no seed, skip it".
-    pub fn resolve(&self, engine: Engine) -> Option<&[String]> {
-        if let Some(stmts) = self.per_engine.get(engine.as_str()) {
-            return if stmts.is_empty() { None } else { Some(stmts) };
-        }
-        if self.default.is_empty() {
-            None
-        } else {
-            Some(&self.default)
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -191,14 +127,6 @@ impl RowExpectation {
             None
         }
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EngineExpectation {
-    pub reason: String,
-    #[serde(default)]
-    pub runs: AHashMap<String, Vec<RowExpectation>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -241,25 +169,20 @@ pub enum FixtureError {
     },
     #[error("fixture {name:?} at {path}: query_sql must contain a top-level ORDER BY -- rows are matched ordinally")]
     MissingOrderBy { name: String, path: PathBuf },
-    #[error("fixture {name:?} at {path}: live.engines must not be empty -- an empty list asserts nothing")]
-    EmptyEngines { name: String, path: PathBuf },
     #[error("fixture {name:?} at {path}: live.runs must not be empty -- an empty list asserts nothing")]
     EmptyRuns { name: String, path: PathBuf },
     #[error(
         "fixture {name:?} at {path}: expected.query.columns must not be empty -- an empty list makes every column-level assertion vacuous"
     )]
     EmptyColumns { name: String, path: PathBuf },
+    #[error("fixture {name:?} run {run:?}: rows must not be empty -- an empty list asserts nothing")]
+    EmptyRows { name: String, run: String },
     #[error(
-        "fixture {name:?} run {run:?} engine {engine}: resolved rows must not be empty -- an empty list asserts nothing"
-    )]
-    EmptyRows { name: String, run: String, engine: Engine },
-    #[error(
-        "fixture {name:?} run {run:?} engine {engine} row {row}: declared column {column:?} is not mentioned as null or non_null -- every declared column must appear in every row"
+        "fixture {name:?} run {run:?} row {row}: declared column {column:?} is not mentioned as null or non_null -- every declared column must appear in every row"
     )]
     ColumnMissingFromRow {
         name: String,
         run: String,
-        engine: Engine,
         row: usize,
         column: String,
     },
@@ -269,21 +192,10 @@ pub enum FixtureError {
         first: PathBuf,
         second: PathBuf,
     },
-    #[error("fixture {name:?}: engine {engine} is listed but has no schema at {expected}")]
-    MissingSchema {
-        name: String,
-        engine: Engine,
-        expected: PathBuf,
-    },
-    #[error("fixture {name:?} run {run:?}: engine {engine} has no resolvable seed SQL")]
-    MissingSeed { name: String, run: String, engine: Engine },
-    #[error("fixture {name:?} run {run:?}: seed.{key:?} is not a recognized engine name (expected one of {valid:?})")]
-    UnknownSeedEngine {
-        name: String,
-        run: String,
-        key: String,
-        valid: Vec<&'static str>,
-    },
+    #[error("fixture {name:?}: no live schema at {expected}")]
+    MissingSchema { name: String, expected: PathBuf },
+    #[error("fixture {name:?} run {run:?}: seed must not be empty")]
+    EmptySeed { name: String, run: String },
     #[error("fixture {name:?}: null_together group {group:?} must contain at least 2 columns")]
     NullTogetherGroupTooSmall { name: String, group: Vec<String> },
     #[error(
@@ -295,36 +207,27 @@ pub enum FixtureError {
         column: String,
     },
     #[error(
-        "fixture {name:?} run {run:?} engine {engine} row {row}: null_together group {group:?} is split -- {column} disagrees with the rest of the group"
+        "fixture {name:?} run {run:?} row {row}: null_together group {group:?} is split -- {column} disagrees with the rest of the group"
     )]
     NullTogetherViolation {
         name: String,
         run: String,
-        engine: Engine,
         row: usize,
         group: Vec<String>,
         column: String,
     },
-    #[error("fixture {name:?}: {source}")]
-    Expectation {
-        name: String,
-        #[source]
-        source: crate::expectation::ExpectationError,
-    },
-    #[error("fixture {name:?}: parsing live schema for engine {engine} at {path}: {source}")]
+    #[error("fixture {name:?}: parsing live schema at {path}: {source}")]
     LiveSchemaParse {
         name: String,
-        engine: Engine,
         path: PathBuf,
         #[source]
         source: sqlkit_core::errors::SqlkitError,
     },
     #[error(
-        "fixture {name:?}: declared column {column:?} resolves to schema column {physical_column:?}, which does not exist in the live schema for engine {engine} at {path} -- the analyzer's schema_sql and the live schema have drifted apart"
+        "fixture {name:?}: declared column {column:?} resolves to schema column {physical_column:?}, which does not exist in the live schema at {path} -- the analyzer's schema_sql and the live schema have drifted apart"
     )]
     LiveSchemaColumnMissing {
         name: String,
-        engine: Engine,
         column: String,
         physical_column: String,
         path: PathBuf,
@@ -332,10 +235,10 @@ pub enum FixtureError {
 }
 
 /// Recursively loads all `.json` fixtures under `fixtures_root`, validating
-/// every rule this module enforces before returning. Every engine a fixture
-/// lists must have resolvable DDL under `schemas_root` and resolvable seed
-/// SQL for every run -- checked here, before any container is touched.
-/// Returns fixtures sorted by `(category, name)`.
+/// every rule this module enforces before returning. Every fixture must have
+/// its live schema file under `schemas_root` and non-empty seed SQL for
+/// every run -- checked here, before any database is touched. Returns
+/// fixtures sorted by `(category, name)`.
 ///
 /// Any path component starting with `_` (e.g. `_schemas/`) *below
 /// `fixtures_root`* is excluded from the glob, so a directory that holds
@@ -417,12 +320,6 @@ fn validate_fixture(fixture: &LiveFixture, schemas_root: &Path) -> Result<(), Fi
         });
     }
 
-    if fixture.live.engines.is_empty() {
-        return Err(FixtureError::EmptyEngines {
-            name: fixture.name.clone(),
-            path: fixture.file_path.clone(),
-        });
-    }
     if fixture.live.runs.is_empty() {
         return Err(FixtureError::EmptyRuns {
             name: fixture.name.clone(),
@@ -436,85 +333,55 @@ fn validate_fixture(fixture: &LiveFixture, schemas_root: &Path) -> Result<(), Fi
         });
     }
 
-    for &engine in &fixture.live.engines {
-        let schema_path = schemas_root
-            .join(&fixture.live.schema_profile)
-            .join(engine.schema_file_name());
-        if !schema_path.is_file() {
-            return Err(FixtureError::MissingSchema {
-                name: fixture.name.clone(),
-                engine,
-                expected: schema_path,
-            });
-        }
-
-        for run in &fixture.live.runs {
-            if run.seed.resolve(engine).is_none() {
-                return Err(FixtureError::MissingSeed {
-                    name: fixture.name.clone(),
-                    run: run.name.clone(),
-                    engine,
-                });
-            }
-        }
+    let schema_path = fixture.live.schema_path(schemas_root);
+    if !schema_path.is_file() {
+        return Err(FixtureError::MissingSchema {
+            name: fixture.name.clone(),
+            expected: schema_path,
+        });
     }
 
     for run in &fixture.live.runs {
-        for key in run.seed.per_engine.keys() {
-            if !Engine::ALL.iter().any(|e| e.as_str() == key) {
-                return Err(FixtureError::UnknownSeedEngine {
-                    name: fixture.name.clone(),
-                    run: run.name.clone(),
-                    key: key.clone(),
-                    valid: Engine::ALL.iter().map(|e| e.as_str()).collect(),
-                });
-            }
+        if run.seed.is_empty() {
+            return Err(FixtureError::EmptySeed {
+                name: fixture.name.clone(),
+                run: run.name.clone(),
+            });
         }
     }
 
-    crate::expectation::validate(&fixture.live).map_err(|source| FixtureError::Expectation {
-        name: fixture.name.clone(),
-        source,
-    })?;
-
     validate_row_coverage(fixture)?;
     validate_null_together(fixture)?;
-    validate_schema_reconciliation(fixture, schemas_root, &shape)?;
+    validate_schema_reconciliation(fixture, &schema_path, &shape)?;
 
     Ok(())
 }
 
-/// Rejects an empty resolved row list for any (run, engine) pair, and
-/// requires every declared column (`expected.query.columns`) to be
-/// mentioned -- as null or non-null -- in every resolved row. A row that
-/// doesn't mention a declared column asserts nothing about it, which is
-/// exactly the fixture-level vacuity this crate exists to prevent (A3
-/// already catches this at the column level; this catches it at the
-/// fixture level).
+/// Rejects an empty row list for any run, and requires every declared
+/// column (`expected.query.columns`) to be mentioned -- as null or
+/// non-null -- in every row. A row that doesn't mention a declared column
+/// asserts nothing about it, which is exactly the fixture-level vacuity
+/// this crate exists to prevent (A3 already catches this at the column
+/// level; this catches it at the fixture level).
 fn validate_row_coverage(fixture: &LiveFixture) -> Result<(), FixtureError> {
     let declared: Vec<&str> = fixture.expected.query.columns.iter().map(|c| c.name.as_str()).collect();
 
-    for &engine in &fixture.live.engines {
-        for run in &fixture.live.runs {
-            let rows = crate::expectation::resolve_run_rows(&fixture.live, run, engine);
-            if rows.is_empty() {
-                return Err(FixtureError::EmptyRows {
-                    name: fixture.name.clone(),
-                    run: run.name.clone(),
-                    engine,
-                });
-            }
-            for (row_idx, row) in rows.iter().enumerate() {
-                for &column in &declared {
-                    if row.declared_null(column).is_none() {
-                        return Err(FixtureError::ColumnMissingFromRow {
-                            name: fixture.name.clone(),
-                            run: run.name.clone(),
-                            engine,
-                            row: row_idx,
-                            column: column.to_string(),
-                        });
-                    }
+    for run in &fixture.live.runs {
+        if run.rows.is_empty() {
+            return Err(FixtureError::EmptyRows {
+                name: fixture.name.clone(),
+                run: run.name.clone(),
+            });
+        }
+        for (row_idx, row) in run.rows.iter().enumerate() {
+            for &column in &declared {
+                if row.declared_null(column).is_none() {
+                    return Err(FixtureError::ColumnMissingFromRow {
+                        name: fixture.name.clone(),
+                        run: run.name.clone(),
+                        row: row_idx,
+                        column: column.to_string(),
+                    });
                 }
             }
         }
@@ -526,10 +393,8 @@ fn validate_row_coverage(fixture: &LiveFixture) -> Result<(), FixtureError> {
 /// columns (a group of 1 validates trivially and asserts nothing), every
 /// column named must be a declared column (an unknown/typo'd name would
 /// otherwise validate forever, since [`RowExpectation::declared_null`]
-/// returns `None` for it and the old check just skipped `None`s), and the
-/// coherence check itself runs against each engine's *resolved* rows
-/// (honoring `engine_expectations` overrides) rather than only the base
-/// `run.rows` -- an override used to bypass this check entirely.
+/// returns `None` for it and the old check just skipped `None`s), and no
+/// declared row may split a group.
 fn validate_null_together(fixture: &LiveFixture) -> Result<(), FixtureError> {
     let declared: AHashSet<&str> = fixture.expected.query.columns.iter().map(|c| c.name.as_str()).collect();
 
@@ -550,29 +415,25 @@ fn validate_null_together(fixture: &LiveFixture) -> Result<(), FixtureError> {
             }
         }
 
-        for &engine in &fixture.live.engines {
-            for run in &fixture.live.runs {
-                let rows = crate::expectation::resolve_run_rows(&fixture.live, run, engine);
-                for (row_idx, row) in rows.iter().enumerate() {
-                    let mut declared_for_row: Option<(bool, &str)> = None;
-                    for column in group {
-                        let Some(is_null) = row.declared_null(column) else {
-                            continue;
-                        };
-                        match declared_for_row {
-                            None => declared_for_row = Some((is_null, column)),
-                            Some((expected, _)) if expected != is_null => {
-                                return Err(FixtureError::NullTogetherViolation {
-                                    name: fixture.name.clone(),
-                                    run: run.name.clone(),
-                                    engine,
-                                    row: row_idx,
-                                    group: group.clone(),
-                                    column: column.clone(),
-                                });
-                            }
-                            _ => {}
+        for run in &fixture.live.runs {
+            for (row_idx, row) in run.rows.iter().enumerate() {
+                let mut declared_for_row: Option<(bool, &str)> = None;
+                for column in group {
+                    let Some(is_null) = row.declared_null(column) else {
+                        continue;
+                    };
+                    match declared_for_row {
+                        None => declared_for_row = Some((is_null, column)),
+                        Some((expected, _)) if expected != is_null => {
+                            return Err(FixtureError::NullTogetherViolation {
+                                name: fixture.name.clone(),
+                                run: run.name.clone(),
+                                row: row_idx,
+                                group: group.clone(),
+                                column: column.clone(),
+                            });
                         }
+                        _ => {}
                     }
                 }
             }
@@ -582,11 +443,11 @@ fn validate_null_together(fixture: &LiveFixture) -> Result<(), FixtureError> {
 }
 
 /// Reconciles the analyzer-facing `schema_sql` implicitly used by the query
-/// with the live `_schemas/<profile>/<engine>.sql` this fixture actually
-/// runs against. Without this, nothing stops the two from drifting: the
-/// analyzer would be checked against one schema while the live run checks
-/// against another, which is the exact failure this crate exists to detect
-/// -- inverted.
+/// with the live `_schemas/<profile>.sql` this fixture actually runs
+/// against. Without this, nothing stops the two from drifting: the analyzer
+/// would be checked against one schema while the live run checks against
+/// another, which is the exact failure this crate exists to detect --
+/// inverted.
 ///
 /// For each declared column (`expected.query.columns`, plus anything named
 /// in row expectations), `shape` is used to find the physical source
@@ -595,10 +456,10 @@ fn validate_null_together(fixture: &LiveFixture) -> Result<(), FixtureError> {
 /// resolve to a single physical column are skipped -- a false "missing
 /// column" on an expression would be worse than not checking it. Every
 /// resolvable column must exist, under that name, somewhere in the live
-/// per-engine schema.
+/// schema.
 fn validate_schema_reconciliation(
     fixture: &LiveFixture,
-    schemas_root: &Path,
+    schema_path: &Path,
     shape: &QueryShape,
 ) -> Result<(), FixtureError> {
     let mut declared: Vec<&str> = fixture.expected.query.columns.iter().map(|c| c.name.as_str()).collect();
@@ -612,37 +473,29 @@ fn validate_schema_reconciliation(
         }
     }
 
-    for &engine in &fixture.live.engines {
-        let schema_path = schemas_root
-            .join(&fixture.live.schema_profile)
-            .join(engine.schema_file_name());
-        let contents = std::fs::read_to_string(&schema_path).map_err(|source| FixtureError::Io {
-            path: schema_path.clone(),
+    let contents = std::fs::read_to_string(schema_path).map_err(|source| FixtureError::Io {
+        path: schema_path.to_path_buf(),
+        source,
+    })?;
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(&[contents.as_str()]).map_err(|source| {
+        FixtureError::LiveSchemaParse {
+            name: fixture.name.clone(),
+            path: schema_path.to_path_buf(),
             source,
-        })?;
-        let catalog = sqlkit_core::catalog::Catalog::from_ddl(&[contents.as_str()]).map_err(|source| {
-            FixtureError::LiveSchemaParse {
-                name: fixture.name.clone(),
-                engine,
-                path: schema_path.clone(),
-                source,
-            }
-        })?;
+        }
+    })?;
 
-        for &column in &declared {
-            let Some(source) = shape.source_column(column) else {
-                continue;
-            };
-            let found = query_shape::column_exists(&catalog, shape, source);
-            if !found {
-                return Err(FixtureError::LiveSchemaColumnMissing {
-                    name: fixture.name.clone(),
-                    engine,
-                    column: column.to_string(),
-                    physical_column: source.column.to_string(),
-                    path: schema_path,
-                });
-            }
+    for &column in &declared {
+        let Some(source) = shape.source_column(column) else {
+            continue;
+        };
+        if !query_shape::column_exists(&catalog, shape, source) {
+            return Err(FixtureError::LiveSchemaColumnMissing {
+                name: fixture.name.clone(),
+                column: column.to_string(),
+                physical_column: source.column.to_string(),
+                path: schema_path.to_path_buf(),
+            });
         }
     }
     Ok(())
@@ -652,17 +505,15 @@ fn validate_schema_reconciliation(
 mod tests {
     use super::*;
 
-    fn write_schema(schemas_root: &Path, profile: &str, engine: Engine) {
-        let dir = schemas_root.join(profile);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(engine.schema_file_name()), "CREATE TABLE t (id INT);").unwrap();
+    fn write_schema(schemas_root: &Path, profile: &str) {
+        std::fs::write(schemas_root.join(format!("{profile}.sql")), "CREATE TABLE t (id INT);").unwrap();
     }
 
     fn write_fixture(fixtures_root: &Path, file_name: &str, contents: &str) {
         std::fs::write(fixtures_root.join(file_name), contents).unwrap();
     }
 
-    fn minimal_fixture_json(name: &str, query_sql: &str, engines: &str, seed_default: &str) -> String {
+    fn minimal_fixture_json(name: &str, query_sql: &str, seed: &str) -> String {
         format!(
             r#"{{
   "name": "{name}",
@@ -672,11 +523,10 @@ mod tests {
   "expected": {{ "query": {{ "columns": [{{ "name": "id", "nullable": false }}] }} }},
   "live": {{
     "schema_profile": "profile",
-    "engines": [{engines}],
     "runs": [
       {{
         "name": "run1",
-        "seed": {{ "default": [{seed_default}] }},
+        "seed": [{seed}],
         "rows": [{{ "non_null": ["id"], "null": [] }}]
       }}
     ]
@@ -686,50 +536,15 @@ mod tests {
     }
 
     #[test]
-    fn seed_resolve_prefers_engine_override_over_default() {
-        let seed = SeedBlock {
-            default: vec!["INSERT default".to_string()],
-            per_engine: [("postgresql".to_string(), vec!["INSERT postgresql".to_string()])]
-                .into_iter()
-                .collect(),
+    fn schema_path_is_the_profile_dot_sql_under_the_schemas_root() {
+        let live = LiveBlock {
+            schema_profile: "users_orders".to_string(),
+            runs: vec![],
+            null_together: vec![],
         };
         assert_eq!(
-            seed.resolve(Engine::Postgresql),
-            Some(&["INSERT postgresql".to_string()][..])
-        );
-    }
-
-    #[test]
-    fn seed_resolve_falls_back_to_default() {
-        let seed = SeedBlock {
-            default: vec!["INSERT default".to_string()],
-            per_engine: Default::default(),
-        };
-        assert_eq!(
-            seed.resolve(Engine::Postgresql),
-            Some(&["INSERT default".to_string()][..])
-        );
-    }
-
-    #[test]
-    fn seed_resolve_returns_none_when_neither_is_present() {
-        let seed = SeedBlock {
-            default: vec![],
-            per_engine: Default::default(),
-        };
-        assert_eq!(seed.resolve(Engine::Postgresql), None);
-    }
-
-    #[test]
-    fn seed_resolve_treats_an_empty_override_as_unresolved() {
-        let seed = SeedBlock {
-            default: vec!["INSERT default".to_string()],
-            per_engine: [("postgresql".to_string(), vec![])].into_iter().collect(),
-        };
-        assert_eq!(
-            seed.resolve(Engine::Postgresql),
-            None,
-            "an explicit empty override must not silently fall back"
+            live.schema_path(Path::new("/schemas")),
+            Path::new("/schemas/users_orders.sql")
         );
     }
 
@@ -744,29 +559,17 @@ mod tests {
         assert_eq!(row.declared_null("notes"), None);
     }
 
-    // -- Engine ------------------------------------------------------------
-
-    #[test]
-    fn engine_schema_file_name_is_engine_dot_sql() {
-        assert_eq!(Engine::Postgresql.schema_file_name(), "postgresql.sql");
-    }
-
     // -- load_fixtures: validation rules -----------------------------------
 
     #[test]
     fn load_fixtures_rejects_name_without_live_prefix() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         write_fixture(
             fixtures_root.path(),
             "f.json",
-            &minimal_fixture_json(
-                "not_prefixed",
-                "SELECT id FROM t ORDER BY id",
-                r#""postgresql""#,
-                r#""INSERT""#,
-            ),
+            &minimal_fixture_json("not_prefixed", "SELECT id FROM t ORDER BY id", r#""INSERT""#),
         );
         let result = load_fixtures(fixtures_root.path(), schemas_root.path());
         assert!(
@@ -779,11 +582,11 @@ mod tests {
     fn load_fixtures_rejects_query_without_order_by() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         write_fixture(
             fixtures_root.path(),
             "f.json",
-            &minimal_fixture_json("live_x", "SELECT id FROM t", r#""postgresql""#, r#""INSERT""#),
+            &minimal_fixture_json("live_x", "SELECT id FROM t", r#""INSERT""#),
         );
         let result = load_fixtures(fixtures_root.path(), schemas_root.path());
         assert!(matches!(result, Err(FixtureError::MissingOrderBy { .. })), "{result:?}");
@@ -793,11 +596,11 @@ mod tests {
     fn load_fixtures_rejects_a_query_that_fails_to_parse() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         write_fixture(
             fixtures_root.path(),
             "f.json",
-            &minimal_fixture_json("live_x", "SELECT FROM WHERE ORDER BY", r#""postgresql""#, r#""INSERT""#),
+            &minimal_fixture_json("live_x", "SELECT FROM WHERE ORDER BY", r#""INSERT""#),
         );
         let result = load_fixtures(fixtures_root.path(), schemas_root.path());
         assert!(matches!(result, Err(FixtureError::QueryParse { .. })), "{result:?}");
@@ -811,14 +614,13 @@ mod tests {
         // still undefined.
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         write_fixture(
             fixtures_root.path(),
             "f.json",
             &minimal_fixture_json(
                 "live_x",
                 "SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS rn FROM t",
-                r#""postgresql""#,
                 r#""INSERT""#,
             ),
         );
@@ -830,65 +632,50 @@ mod tests {
     fn load_fixtures_accepts_an_order_by_split_across_lines() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         write_fixture(
             fixtures_root.path(),
             "f.json",
-            &minimal_fixture_json(
-                "live_x",
-                "SELECT id FROM t ORDER\\n  BY id",
-                r#""postgresql""#,
-                r#""INSERT""#,
-            ),
+            &minimal_fixture_json("live_x", "SELECT id FROM t ORDER\\n  BY id", r#""INSERT""#),
         );
         let result = load_fixtures(fixtures_root.path(), schemas_root.path());
         assert!(result.is_ok(), "{result:?}");
     }
 
     #[test]
-    fn load_fixtures_rejects_engine_with_missing_schema_file() {
+    fn load_fixtures_rejects_a_missing_schema_file() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
         // Deliberately do not write a schema file.
         write_fixture(
             fixtures_root.path(),
             "f.json",
-            &minimal_fixture_json(
-                "live_x",
-                "SELECT id FROM t ORDER BY id",
-                r#""postgresql""#,
-                r#""INSERT""#,
-            ),
+            &minimal_fixture_json("live_x", "SELECT id FROM t ORDER BY id", r#""INSERT""#),
         );
         let result = load_fixtures(fixtures_root.path(), schemas_root.path());
         assert!(matches!(result, Err(FixtureError::MissingSchema { .. })), "{result:?}");
     }
 
     #[test]
-    fn load_fixtures_rejects_run_with_no_resolvable_seed() {
+    fn load_fixtures_rejects_a_run_with_an_empty_seed() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         write_fixture(
             fixtures_root.path(),
             "f.json",
-            &minimal_fixture_json("live_x", "SELECT id FROM t ORDER BY id", r#""postgresql""#, ""),
+            &minimal_fixture_json("live_x", "SELECT id FROM t ORDER BY id", ""),
         );
         let result = load_fixtures(fixtures_root.path(), schemas_root.path());
-        assert!(matches!(result, Err(FixtureError::MissingSeed { .. })), "{result:?}");
+        assert!(matches!(result, Err(FixtureError::EmptySeed { .. })), "{result:?}");
     }
 
     #[test]
     fn load_fixtures_rejects_duplicate_names() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
-        let json = minimal_fixture_json(
-            "live_dup",
-            "SELECT id FROM t ORDER BY id",
-            r#""postgresql""#,
-            r#""INSERT""#,
-        );
+        write_schema(schemas_root.path(), "profile");
+        let json = minimal_fixture_json("live_dup", "SELECT id FROM t ORDER BY id", r#""INSERT""#);
         write_fixture(fixtures_root.path(), "a.json", &json);
         write_fixture(fixtures_root.path(), "b.json", &json);
         let result = load_fixtures(fixtures_root.path(), schemas_root.path());
@@ -899,14 +686,13 @@ mod tests {
     fn load_fixtures_accepts_a_well_formed_fixture() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         write_fixture(
             fixtures_root.path(),
             "f.json",
             &minimal_fixture_json(
                 "live_ok",
                 "SELECT id FROM t ORDER BY id",
-                r#""postgresql""#,
                 r#""INSERT INTO t VALUES (1)""#,
             ),
         );
@@ -919,16 +705,11 @@ mod tests {
     fn load_fixtures_excludes_underscore_prefixed_directories_from_the_glob() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         write_fixture(
             fixtures_root.path(),
             "f.json",
-            &minimal_fixture_json(
-                "live_ok",
-                "SELECT id FROM t ORDER BY id",
-                r#""postgresql""#,
-                r#""INSERT""#,
-            ),
+            &minimal_fixture_json("live_ok", "SELECT id FROM t ORDER BY id", r#""INSERT""#),
         );
         let underscore_dir = fixtures_root.path().join("_schemas");
         std::fs::create_dir_all(&underscore_dir).unwrap();
@@ -954,16 +735,11 @@ mod tests {
         let fixtures_root = underscore_ancestor.join("testing_data");
         std::fs::create_dir_all(&fixtures_root).unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         write_fixture(
             &fixtures_root,
             "f.json",
-            &minimal_fixture_json(
-                "live_ok",
-                "SELECT id FROM t ORDER BY id",
-                r#""postgresql""#,
-                r#""INSERT""#,
-            ),
+            &minimal_fixture_json("live_ok", "SELECT id FROM t ORDER BY id", r#""INSERT""#),
         );
 
         let result = load_fixtures(&fixtures_root, schemas_root.path())
@@ -978,23 +754,10 @@ mod tests {
     // -- validate_fixture: emptiness rejections ----------------------------
 
     #[test]
-    fn load_fixtures_rejects_empty_engines() {
-        let fixtures_root = tempfile::tempdir().unwrap();
-        let schemas_root = tempfile::tempdir().unwrap();
-        write_fixture(
-            fixtures_root.path(),
-            "f.json",
-            &minimal_fixture_json("live_x", "SELECT id FROM t ORDER BY id", "", r#""INSERT""#),
-        );
-        let result = load_fixtures(fixtures_root.path(), schemas_root.path());
-        assert!(matches!(result, Err(FixtureError::EmptyEngines { .. })), "{result:?}");
-    }
-
-    #[test]
     fn load_fixtures_rejects_empty_columns() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1003,9 +766,8 @@ mod tests {
   "expected": { "query": { "columns": [] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": [] }] }
+      { "name": "run1", "seed": ["INSERT"], "rows": [{ "non_null": ["id"], "null": [] }] }
     ]
   }
 }"#;
@@ -1018,7 +780,7 @@ mod tests {
     fn load_fixtures_rejects_empty_runs() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1027,7 +789,6 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": []
   }
 }"#;
@@ -1040,7 +801,7 @@ mod tests {
     fn load_fixtures_rejects_empty_rows() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1049,9 +810,8 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [] }
+      { "name": "run1", "seed": ["INSERT"], "rows": [] }
     ]
   }
 }"#;
@@ -1064,7 +824,7 @@ mod tests {
     fn load_fixtures_rejects_a_row_missing_a_declared_column() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1073,9 +833,8 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }, { "name": "total", "nullable": true }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": [] }] }
+      { "name": "run1", "seed": ["INSERT"], "rows": [{ "non_null": ["id"], "null": [] }] }
     ]
   }
 }"#;
@@ -1088,10 +847,14 @@ mod tests {
     }
 
     #[test]
-    fn load_fixtures_rejects_an_unknown_seed_engine_key() {
+    fn load_fixtures_rejects_a_seed_that_is_not_a_list_of_statements() {
+        // ~keep `seed` is a plain list of statements; the keyed-object form
+        // (`{ "default": [...] }`) must fail to parse rather than be
+        // reinterpreted.
+
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1100,25 +863,21 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"], "postgres": ["INSERT wrong key"] }, "rows": [{ "non_null": ["id"], "null": [] }] }
+      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": [] }] }
     ]
   }
 }"#;
         write_fixture(fixtures_root.path(), "f.json", json);
         let result = load_fixtures(fixtures_root.path(), schemas_root.path());
-        assert!(
-            matches!(result, Err(FixtureError::UnknownSeedEngine { .. })),
-            "{result:?}"
-        );
+        assert!(matches!(result, Err(FixtureError::Parse { .. })), "{result:?}");
     }
 
     #[test]
     fn load_fixtures_rejects_a_null_together_group_that_disagrees_on_a_row() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_incoherent",
   "category": "nullability_live/test",
@@ -1131,11 +890,10 @@ mod tests {
   ] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
       {
         "name": "run1",
-        "seed": { "default": ["INSERT"] },
+        "seed": ["INSERT"],
         "rows": [{ "non_null": ["id", "a"], "null": ["b"] }]
       }
     ],
@@ -1154,7 +912,7 @@ mod tests {
     fn load_fixtures_rejects_a_null_together_group_of_one_column() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1163,9 +921,8 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": [] }] }
+      { "name": "run1", "seed": ["INSERT"], "rows": [{ "non_null": ["id"], "null": [] }] }
     ],
     "null_together": [["id"]]
   }
@@ -1182,7 +939,7 @@ mod tests {
     fn load_fixtures_rejects_a_null_together_group_with_an_unknown_column() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1191,9 +948,8 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }, { "name": "a", "nullable": true }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id", "a"], "null": [] }] }
+      { "name": "run1", "seed": ["INSERT"], "rows": [{ "non_null": ["id", "a"], "null": [] }] }
     ],
     "null_together": [["a", "totally_typoed_column"]]
   }
@@ -1212,10 +968,12 @@ mod tests {
     fn load_fixtures_rejects_a_column_missing_from_the_live_schema() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        let dir = schemas_root.path().join("profile");
-        std::fs::create_dir_all(&dir).unwrap();
         // The live schema is missing `total`, which the query selects.
-        std::fs::write(dir.join("postgresql.sql"), "CREATE TABLE t (id INT NOT NULL);").unwrap();
+        std::fs::write(
+            schemas_root.path().join("profile.sql"),
+            "CREATE TABLE t (id INT NOT NULL);",
+        )
+        .unwrap();
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1224,9 +982,8 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }, { "name": "total", "nullable": true }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": ["total"] }] }
+      { "name": "run1", "seed": ["INSERT"], "rows": [{ "non_null": ["id"], "null": ["total"] }] }
     ]
   }
 }"#;
@@ -1242,10 +999,8 @@ mod tests {
     fn load_fixtures_accepts_an_aliased_column_that_resolves_to_a_real_schema_column() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        let dir = schemas_root.path().join("profile");
-        std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
-            dir.join("postgresql.sql"),
+            schemas_root.path().join("profile.sql"),
             "CREATE TABLE users (id INT NOT NULL); CREATE TABLE orders (id INT NOT NULL, created_at TIMESTAMPTZ);",
         )
         .unwrap();
@@ -1257,9 +1012,8 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }, { "name": "order_created_at", "nullable": true }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": ["order_created_at"] }] }
+      { "name": "run1", "seed": ["INSERT"], "rows": [{ "non_null": ["id"], "null": ["order_created_at"] }] }
     ]
   }
 }"#;
@@ -1272,12 +1026,12 @@ mod tests {
 
     #[test]
     fn load_fixtures_rejects_an_unknown_field_in_the_live_block() {
-        // ~keep `null_together` and `engine_expectations` are `#[serde(default)]`,
-        // so without `deny_unknown_fields` a typo in either key silently
-        // evaporates the whole block instead of failing to parse.
+        // ~keep `null_together` is `#[serde(default)]`, so without
+        // `deny_unknown_fields` a typo in its key silently evaporates the
+        // whole block instead of failing to parse.
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1286,9 +1040,8 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": [] }] }
+      { "name": "run1", "seed": ["INSERT"], "rows": [{ "non_null": ["id"], "null": [] }] }
     ],
     "null_togehter": [["id"]]
   }
@@ -1305,7 +1058,7 @@ mod tests {
     fn load_fixtures_rejects_an_unknown_field_in_a_run() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1314,11 +1067,10 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
       {
         "name": "run1",
-        "seed": { "default": ["INSERT"] },
+        "seed": ["INSERT"],
         "rows": [{ "non_null": ["id"], "null": [] }],
         "unexpected_field": 1
       }
@@ -1337,7 +1089,7 @@ mod tests {
     fn load_fixtures_rejects_an_unknown_field_in_a_row_expectation() {
         let fixtures_root = tempfile::tempdir().unwrap();
         let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        write_schema(schemas_root.path(), "profile");
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
@@ -1346,11 +1098,10 @@ mod tests {
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
     "schema_profile": "profile",
-    "engines": ["postgresql"],
     "runs": [
       {
         "name": "run1",
-        "seed": { "default": ["INSERT"] },
+        "seed": ["INSERT"],
         "rows": [{ "non_null": ["id"], "null": [], "extra_key": "oops" }]
       }
     ]
@@ -1361,36 +1112,6 @@ mod tests {
         assert!(
             matches!(result, Err(FixtureError::Parse { .. })),
             "a typo'd row-expectation field must fail to parse: {result:?}"
-        );
-    }
-
-    #[test]
-    fn load_fixtures_rejects_an_unknown_field_in_an_engine_expectation() {
-        let fixtures_root = tempfile::tempdir().unwrap();
-        let schemas_root = tempfile::tempdir().unwrap();
-        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
-        let json = r#"{
-  "name": "live_x",
-  "category": "nullability_live/test",
-  "schema_sql": ["CREATE TABLE t (id INT)"],
-  "query_sql": "SELECT id FROM t ORDER BY id",
-  "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
-  "live": {
-    "schema_profile": "profile",
-    "engines": ["postgresql"],
-    "runs": [
-      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": [] }] }
-    ],
-    "engine_expectations": {
-      "postgresql": { "reason": "test", "runs": {}, "unexpected": true }
-    }
-  }
-}"#;
-        write_fixture(fixtures_root.path(), "f.json", json);
-        let result = load_fixtures(fixtures_root.path(), schemas_root.path());
-        assert!(
-            matches!(result, Err(FixtureError::Parse { .. })),
-            "a typo'd engine-expectation field must fail to parse: {result:?}"
         );
     }
 

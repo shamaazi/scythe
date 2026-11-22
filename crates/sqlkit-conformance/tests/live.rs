@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use sqlkit_conformance::{Engine, RunnerConfig, fixture, run};
+use sqlkit_conformance::{RunnerConfig, fixture, run};
 
 fn testing_data_root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testing_data/nullability_live")
@@ -23,12 +23,13 @@ fn load_fixtures_and_divergences() -> (Vec<fixture::LiveFixture>, Vec<sqlkit_con
 
 #[cfg(feature = "pg")]
 #[tokio::test]
-async fn postgres_leg_is_sound() {
-    let url = std::env::var("SQLKIT_CONFORMANCE_POSTGRES_URL")
-        .expect("SQLKIT_CONFORMANCE_POSTGRES_URL must be set to run this leg");
+async fn postgres_is_sound() {
+    let config = RunnerConfig::from_env(testing_data_root().join("_schemas"));
+    assert!(
+        config.postgres_url.is_some(),
+        "SQLKIT_CONFORMANCE_POSTGRES_URL must be set to run the live suite"
+    );
     let (fixtures, divergences) = load_fixtures_and_divergences();
-    let mut config = RunnerConfig::from_env(vec![Engine::Postgresql], testing_data_root().join("_schemas"));
-    config.postgres_url = Some(url);
     let report = run(&fixtures, &divergences, &config)
         .await
         .expect("run must not hard-error");
@@ -36,6 +37,6 @@ async fn postgres_leg_is_sound() {
     assert!(report.is_pass(), "{}", report.summary());
     assert!(
         !report.verdicts.is_empty(),
-        "expected at least one PostgreSQL leg to actually run"
+        "expected at least one fixture to actually run"
     );
 }

@@ -1,6 +1,7 @@
-//! Live-database conformance suite for sqlkit's nullability inference.
+//! Live-database conformance suite for sqlkit's nullability inference,
+//! run against PostgreSQL.
 //!
-//! This crate compares three facts per (fixture, engine, column):
+//! This crate compares three facts per (fixture, column):
 //!
 //! - **A** -- the analyzer's [`sqlkit_core::analyzer::AnalyzedColumn::nullable`]
 //! - **G** -- whether the generated code actually *renders* the column as
@@ -9,8 +10,8 @@
 //!   deliberately not `ResolvedColumn::nullable`, which
 //!   [`sqlkit_codegen::resolve::resolve_columns`] copies verbatim from `A`
 //!   and so can never disagree with it
-//! - **E** -- the engine's observed per-row nullness, from a real query run
-//!   against a live database
+//! - **E** -- the observed per-row nullness, from a real query run against
+//!   a live PostgreSQL database
 //!
 //! against four assertions (see [`verdict`] for the full definitions):
 //! fidelity (A1, `A == G`), soundness (A2, an observed NULL implies the
@@ -20,19 +21,19 @@
 //! join-group coherence (A4, sibling columns widened by the same outer join
 //! go NULL together).
 //!
-//! No default feature links a database driver: [`fixture`], [`expectation`],
-//! [`verdict`], [`divergence`], and [`query_shape`] are pure and DB-free, so
+//! No default feature links a database driver: [`fixture`], [`verdict`],
+//! [`divergence`], and [`query_shape`] are pure and DB-free, so
 //! `cargo test --workspace` and `cargo clippy --workspace -- -D warnings`
-//! exercise them without a container. The PostgreSQL driver lives in
-//! [`executors`], behind the `pg` Cargo feature plus the `live-tests` gate for actually dialing a database. [`runner`] wires
-//! a driver, the analyzer, codegen, and the four assertions together into
-//! real verdicts -- see its module docs for how it handles an engine that
-//! cannot run.
+//! exercise them without a database. The PostgreSQL driver lives in
+//! [`executors`], behind the `pg` Cargo feature plus the `live-tests` gate
+//! for actually dialing a database. [`runner`] wires the driver, the
+//! analyzer, codegen, and the four assertions together into real verdicts
+//! -- see its module docs for why a run that cannot reach PostgreSQL is a
+//! hard error rather than a skip.
 
 pub mod divergence;
 pub mod executor;
 pub mod executors;
-pub mod expectation;
 pub mod fixture;
 pub mod query_shape;
 pub mod runner;
@@ -40,7 +41,6 @@ pub mod verdict;
 
 pub use divergence::{DivergenceEntry, DivergenceError, DivergenceKind};
 pub use executor::{Executor, MissingColumn, ObservedRow};
-pub use expectation::ExpectationError;
-pub use fixture::{Engine, FixtureError, LiveFixture};
-pub use runner::{RunReport, RunnerConfig, RunnerError, SkippedLeg, run};
-pub use verdict::{ColumnFacts, ColumnFactsError, Failure, FixtureEngineFacts, Verdict};
+pub use fixture::{FixtureError, LiveFixture};
+pub use runner::{RunReport, RunnerConfig, RunnerError, run};
+pub use verdict::{ColumnFacts, ColumnFactsError, Failure, FixtureFacts, Verdict};

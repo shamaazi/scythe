@@ -27,16 +27,13 @@
   "source": "original",
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql"],
     "runs": [
       {
         "name": "one_with_email_one_without",
-        "seed": {
-          "default": [
-            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
-            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', NULL)"
-          ]
-        },
+        "seed": [
+          "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+          "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', NULL)"
+        ],
         "rows": [
           { "non_null": ["id", "email"], "null": [] },
           { "non_null": ["id"], "null": ["email"] }
