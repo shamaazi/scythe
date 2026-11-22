@@ -6,8 +6,8 @@ use crate::errors::SqlkitError;
 use super::builtins::{builtin_from_columns, builtin_relation};
 use super::expressions::{CallOutcome, CallResolution, catalog_function_return_neutral};
 use super::helpers::{
-    UNRESOLVED_EXPR_MARKER, function_arg_exprs, ident_name, object_name_to_string, unresolved_type_error,
-    widen_neutral_type,
+    UNRESOLVED_EXPR_MARKER, function_arg_exprs, ident_name, object_column_name, object_name_to_string, relation_alias,
+    unresolved_type_error, widen_neutral_type,
 };
 use super::type_conversion::{datatype_to_neutral, sql_type_to_neutral};
 use super::types::*;
@@ -119,16 +119,20 @@ impl<'a> Analyzer<'a> {
                 with_ordinality,
                 ..
             } => {
-                let table_name = object_name_to_string(name).to_lowercase();
-                let alias_name = alias.as_ref().map(|a| ident_name(&a.name)).unwrap_or_else(|| {
-                    table_name
-                        .rsplit_once('.')
-                        .map(|(_, n)| n.to_string())
-                        .unwrap_or_else(|| table_name.clone())
-                });
+                // A CTE is named as the query wrote it; a catalog relation or
+                // function by the catalog's lower-case key.
+                let cte_cols = self.ctes.get(&object_column_name(name)).cloned();
+                let table_name = match cte_cols {
+                    Some(_) => object_column_name(name),
+                    None => object_name_to_string(name).to_lowercase(),
+                };
+                let alias_name = alias
+                    .as_ref()
+                    .map(|a| ident_name(&a.name))
+                    .unwrap_or_else(|| relation_alias(name));
 
-                let scope_cols = if let Some(cte_cols) = self.ctes.get(&table_name) {
-                    cte_cols.clone()
+                let scope_cols = if let Some(cte_cols) = cte_cols {
+                    cte_cols
                 } else if let Some(table) = self.catalog.get_table(&table_name) {
                     table
                         .columns
@@ -303,7 +307,7 @@ impl<'a> Analyzer<'a> {
                 let alias_name = alias
                     .as_ref()
                     .map(|a| ident_name(&a.name))
-                    .unwrap_or_else(|| object_name_to_string(name).to_lowercase());
+                    .unwrap_or_else(|| relation_alias(name));
 
                 let func_name = object_name_to_string(name).to_lowercase();
                 let is_catalog_function = self.catalog.get_functions(&func_name).is_some();

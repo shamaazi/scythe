@@ -56,14 +56,14 @@ impl<'a> Analyzer<'a> {
         let keep_table_row_type = std::mem::take(&mut self.keep_table_row_type);
         if let Some(with) = &query.with {
             for cte in &with.cte_tables {
-                let cte_name = cte.alias.name.value.to_lowercase();
+                let cte_name = ident_name(&cte.alias.name);
                 if with.recursive {
                     let is_union = matches!(cte.query.body.as_ref(), SetExpr::SetOperation { .. });
                     if !is_union {
                         let body_sql = format!("{}", cte.query);
                         let body_lower = body_sql.to_lowercase();
-                        if body_lower.contains(&format!("from {}", cte_name))
-                            || body_lower.contains(&format!("join {}", cte_name))
+                        if body_lower.contains(&format!("from {}", cte_name.to_lowercase()))
+                            || body_lower.contains(&format!("join {}", cte_name.to_lowercase()))
                         {
                             return Err(SqlkitError::invalid_recursion(format!(
                                 "recursive CTE \"{}\" has no non-recursive base case",
@@ -469,7 +469,14 @@ impl<'a> Analyzer<'a> {
 
         let target_scope = self.build_target_scope(
             &table_name,
-            insert.table_alias.as_ref().map(|alias| ident_name(&alias.alias)),
+            insert
+                .table_alias
+                .as_ref()
+                .map(|alias| ident_name(&alias.alias))
+                .or_else(|| match &insert.table {
+                    ast::TableObject::TableName(name) => Some(relation_alias(name)),
+                    _ => None,
+                }),
         )?;
         let target_cols: Vec<String> = insert.columns.iter().map(object_column_name).collect();
 

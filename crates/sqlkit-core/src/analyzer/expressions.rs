@@ -1423,12 +1423,12 @@ pub(super) fn catalog_call_arguments_from_args(arguments: &[FunctionArg]) -> Opt
                 name,
                 arg: FunctionArgExpr::Expr(expression),
                 ..
-            } => Some((Some(name.value.to_lowercase()), expression)),
+            } => Some((Some(ident_name(name)), expression)),
             FunctionArg::ExprNamed {
                 name: Expr::Identifier(name),
                 arg: FunctionArgExpr::Expr(expression),
                 ..
-            } => Some((Some(name.value.to_lowercase()), expression)),
+            } => Some((Some(ident_name(name)), expression)),
             _ => None,
         })
         .collect()
@@ -1659,12 +1659,7 @@ fn expr_is_column_of_relation(expr: &Expr, alias: &str) -> bool {
     let Some(qualifier) = parts.len().checked_sub(2).and_then(|i| parts.get(i)) else {
         return false;
     };
-    let qualifier_name = if qualifier.quote_style.is_some() {
-        qualifier.value.clone()
-    } else {
-        qualifier.value.to_lowercase()
-    };
-    qualifier_name == alias
+    ident_name(qualifier) == alias
 }
 
 /// Whether [`Analyzer::infer_nested_aggregate_type`] wraps its placeholder in

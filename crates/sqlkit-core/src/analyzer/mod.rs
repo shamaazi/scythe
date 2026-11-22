@@ -2969,6 +2969,40 @@ SELECT id, moods FROM t WHERE id = $1;",
         assert_eq!(names, ["userId_1", "topic", "userId_2"]);
     }
 
+    /// Relation names fold like column names: a quoted CTE name or table
+    /// keeps its case as a qualifier, and an unquoted one does not name it.
+    #[test]
+    fn should_keep_the_case_of_quoted_relation_names() {
+        let catalog = reminder_catalog();
+        let query = parse_query(
+            "-- @name Recent\n-- @returns :many\n\
+             WITH \"Recent\" AS (SELECT topic FROM reminders) \
+             SELECT \"Recent\".topic, \"Users\".email FROM \"Recent\", \"users\" AS \"Users\";",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("quoted relation names resolve as written");
+        let names: Vec<_> = result.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["topic", "email"]);
+
+        let query = parse_query(
+            "-- @name Folded\n-- @returns :many\n\
+             WITH \"Recent\" AS (SELECT topic FROM reminders) SELECT topic FROM recent;",
+        )
+        .expect("query should parse");
+        assert!(
+            analyze(&catalog, &query).is_err(),
+            "an unquoted recent folds to a name the quoted CTE does not have"
+        );
+
+        let query = parse_query(
+            "-- @name Update\n-- @returns :exec\n\
+             UPDATE \"reminders\" SET topic = $1 WHERE \"reminders\".\"userId\" = $2;",
+        )
+        .expect("query should parse");
+        let result = analyze(&catalog, &query).expect("a quoted target qualifies its columns");
+        assert_eq!(param_types(&result), [(1, "string"), (2, "string")]);
+    }
+
     #[test]
     fn should_fold_unquoted_identifiers_that_name_a_quoted_column() {
         let catalog = reminder_catalog();

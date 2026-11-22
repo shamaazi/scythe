@@ -290,11 +290,31 @@ pub(super) fn table_factor_name(tf: &TableFactor) -> String {
     }
 }
 
-/// The alias a DML target table is given (`UPDATE schedules s`), folded by
-/// [`ident_name`].
+/// The name a relation without an alias is referred to by: its last part,
+/// folded by [`ident_name`], so `FROM "Users"` is qualified as `"Users"`.
+///
+/// Names follow one rule, PostgreSQL's: an unquoted identifier folds to lower
+/// case, a quoted one keeps its case. Names a query defines (aliases, CTEs,
+/// columns, named arguments) are compared by it. Relations and functions are
+/// looked up in the catalog, which keys them case-insensitively, and are
+/// recorded by its lower-case key.
+pub(super) fn relation_alias(name: &ObjectName) -> String {
+    name.0
+        .iter()
+        .rev()
+        .find_map(|part| match part {
+            ast::ObjectNamePart::Identifier(ident) => Some(ident_name(ident)),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// The name a DML target table is referred to by: its alias (`UPDATE
+/// schedules s`), else its own name, folded by [`ident_name`].
 pub(super) fn table_factor_alias(tf: &TableFactor) -> Option<String> {
     match tf {
         TableFactor::Table { alias: Some(alias), .. } => Some(ident_name(&alias.name)),
+        TableFactor::Table { name, .. } => Some(relation_alias(name)),
         _ => None,
     }
 }
