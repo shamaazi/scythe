@@ -40,7 +40,7 @@ sqlkit = pkgs.rustPlatform.buildRustPackage (final: {
   src = pkgs.fetchFromGitHub {
     owner = "shamaazi";
     repo = "scythe";
-    rev = "<commit on the shamaazi branch>";
+    rev = "<commit on main>";
     hash = "<nix flake prefetch --json github:shamaazi/scythe/<commit>>";
   };
   cargoLock.lockFile = "${final.src}/Cargo.lock";

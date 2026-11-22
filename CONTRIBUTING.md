@@ -2,8 +2,7 @@
 
 ## Branches
 
-`shamaazi` carries the work and `main` follows it: commit to `shamaazi`, one logical change per
-commit, and fast-forward `main` when a set of changes is ready. sqlkit started as a fork of
+All work goes on `main`, one logical change per commit. sqlkit started as a fork of
 [Scythe](https://github.com/Goldziher/scythe) (the `upstream` remote) but has since diverged: the
 crates are renamed and every non-PostgreSQL dialect is gone, so upstream changes no longer merge
 and are ported by hand when wanted.

@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Security fixes are applied to the `shamaazi` branch.
+Security fixes are applied to `main`.
 
 ## Reporting a Vulnerability
 
