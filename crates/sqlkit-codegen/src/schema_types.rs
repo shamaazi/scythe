@@ -96,20 +96,12 @@ pub fn generate_schema_types(
             let Some(constraints) = &domain.constraints else {
                 continue;
             };
-            for entry in &constraints.untranslated {
-                let constraint = if entry.constraint.is_empty() {
-                    entry.source.clone()
-                } else {
-                    format!("{} {}", entry.source, entry.constraint)
-                };
-                problems.push(format!("{constraint} is not translated: {}", entry.reason));
-            }
-            for rule in backend.inexpressible_rules(&constraints.rules, &domain.lang_type) {
-                problems.push(format!(
-                    "domain {} ({}) cannot carry {rule}",
-                    domain.sql_name, domain.lang_type
-                ));
-            }
+            problems.extend(crate::constraints::missing_from_validation(
+                backend,
+                &format!("domain {}", domain.sql_name),
+                constraints,
+                &domain.lang_type,
+            ));
         }
     }
     let warnings = match backend.constraint_policy() {

@@ -91,23 +91,13 @@ pub fn apply_constraint_policy(
         let Some(constraints) = target.constraints.as_ref() else {
             continue;
         };
-        for entry in &constraints.untranslated {
-            let constraint = if entry.constraint.is_empty() {
-                entry.source.clone()
-            } else {
-                format!("{} {}", entry.source, entry.constraint)
-            };
-            problems.push(format!(
-                "{query_name} {} '{}': {constraint} is not translated: {}",
-                target.kind, target.name, entry.reason
-            ));
-        }
-        for rule in backend.inexpressible_rules(&constraints.rules, target.lang_type) {
-            problems.push(format!(
-                "{query_name} {} '{}' ({}) cannot carry {rule}",
-                target.kind, target.name, target.lang_type
-            ));
-        }
+        let subject = format!("{query_name} {} '{}'", target.kind, target.name);
+        problems.extend(missing_from_validation(
+            backend,
+            &subject,
+            constraints,
+            target.lang_type,
+        ));
         if let Some((lang_type, full_type)) = backend.constrained_type(constraints, target.lang_type, target.nullable) {
             *target.lang_type = lang_type;
             *target.full_type = full_type;
@@ -130,4 +120,29 @@ pub fn apply_constraint_policy(
             ),
         )),
     }
+}
+
+/// Each part of `constraints` missing from `backend`'s validation of a value of
+/// `lang_type`, as one message about `subject`: a constraint with no
+/// translation, or a rule the backend cannot express on that type. Shared by
+/// query columns and parameters and the schema types module's domains.
+pub(crate) fn missing_from_validation(
+    backend: &dyn CodegenBackend,
+    subject: &str,
+    constraints: &ValueConstraints,
+    lang_type: &str,
+) -> Vec<String> {
+    let untranslated = constraints.untranslated.iter().map(|entry| {
+        let constraint = if entry.constraint.is_empty() {
+            entry.source.clone()
+        } else {
+            format!("{} {}", entry.source, entry.constraint)
+        };
+        format!("{subject}: {constraint} is not translated: {}", entry.reason)
+    });
+    let inexpressible = backend
+        .inexpressible_rules(&constraints.rules, lang_type)
+        .into_iter()
+        .map(|rule| format!("{subject} ({lang_type}) cannot carry {rule}"));
+    untranslated.chain(inexpressible).collect()
 }

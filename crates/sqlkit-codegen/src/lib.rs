@@ -153,20 +153,35 @@ pub struct NestedStructDegradation {
     pub backend: String,
 }
 
+/// Plurals the suffix rules in [`singularize`] get wrong, by ending, with the
+/// singular ending each takes instead: `-ses` words whose singular itself
+/// ends in `s`.
+const IRREGULAR_PLURALS: &[(&str, &str)] = &[
+    ("statuses", "status"),
+    ("aliases", "alias"),
+    ("biases", "bias"),
+    ("buses", "bus"),
+];
+
 /// Simple singularization: remove trailing 's'.
 ///
-/// `-ses` drops `es` only where the singular ends in `s` (`addresses`,
-/// `statuses`, `aliases`, `buses`); otherwise the `e` belongs to the
-/// singular (`causes`, `cases`, `purchases`).
+/// `-sses`, `-shes`, `-ches`, `-xes` and `-zes` drop `es` (`addresses`,
+/// `batches`); [`IRREGULAR_PLURALS`] covers the other `-ses` words whose
+/// singular ends in `s`. Elsewhere the `e` belongs to the singular (`causes`,
+/// `cases`, `purchases`).
 pub fn singularize(name: &str) -> String {
-    if let Some(stem) = name.strip_suffix("ies") {
+    if let Some((stem, singular)) = IRREGULAR_PLURALS
+        .iter()
+        .find_map(|(plural, singular)| name.strip_suffix(plural).map(|stem| (stem, singular)))
+    {
+        format!("{stem}{singular}")
+    } else if let Some(stem) = name.strip_suffix("ies") {
         format!("{stem}y")
     } else if name.ends_with("sses")
         || name.ends_with("shes")
         || name.ends_with("ches")
         || name.ends_with("xes")
         || name.ends_with("zes")
-        || ["atuses", "iases", "buses"].iter().any(|suffix| name.ends_with(suffix))
     {
         name[..name.len() - 2].to_string()
     } else if name.ends_with('s') && !name.ends_with("ss") {
