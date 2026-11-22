@@ -16,55 +16,29 @@ use super::live::{fetch_live_catalog, fetch_live_schema};
 #[cfg(feature = "postgres")]
 use super::model::SchemaDescription;
 
-/// PostgreSQL-backed live catalog source.
+/// A live PostgreSQL catalog source: a connection to read schemas through.
 #[cfg(feature = "postgres")]
 pub struct PostgresCatalogSource {
-    client: Option<Client>,
+    client: Client,
 }
 
 #[cfg(feature = "postgres")]
 impl PostgresCatalogSource {
-    /// Build an unconnected source.
-    pub fn new() -> Self {
-        Self { client: None }
-    }
-
-    /// Build a source around an established PostgreSQL client.
+    /// A source around an established PostgreSQL client.
     pub fn from_client(client: Client) -> Self {
-        Self { client: Some(client) }
+        Self { client }
     }
 
-    /// Fetch a codegen catalog from the connected database.
+    /// Connect to `url`.
     ///
     /// # Errors
     ///
-    /// Returns [`InspectError::NotConnected`] before [`Self::connect`] or
-    /// when a PostgreSQL catalog query or catalog validation fails.
-    pub async fn fetch_catalog(&mut self, declared_schemas: &[String]) -> Result<Catalog, InspectError> {
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(InspectError::NotConnected { engine: "postgres" })?;
-        fetch_live_catalog(client, declared_schemas).await
-    }
-}
-
-#[cfg(feature = "postgres")]
-impl Default for PostgresCatalogSource {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(feature = "postgres")]
-impl PostgresCatalogSource {
-    /// Open a connection using `url`, replacing any connection already held.
-    pub async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
+    /// [`InspectError::Connect`] when the connection cannot be opened.
+    pub async fn connect(url: &str) -> Result<Self, InspectError> {
         let (client, connection) =
             tokio_postgres::connect(url, NoTls)
                 .await
                 .map_err(|source| InspectError::Connect {
-                    engine: "postgres",
                     source: Box::new(source),
                 })?;
         tokio::spawn(async move {
@@ -72,8 +46,16 @@ impl PostgresCatalogSource {
                 tracing::warn!(error = %error, "PostgreSQL catalog connection terminated");
             }
         });
-        self.client = Some(client);
-        Ok(())
+        Ok(Self { client })
+    }
+
+    /// Fetch a codegen catalog from the database.
+    ///
+    /// # Errors
+    ///
+    /// When a PostgreSQL catalog query or catalog validation fails.
+    pub async fn fetch_catalog(&self, declared_schemas: &[String]) -> Result<Catalog, InspectError> {
+        fetch_live_catalog(&self.client, declared_schemas).await
     }
 
     /// Read every table this connection can see into a [`SchemaDescription`].
@@ -81,34 +63,7 @@ impl PostgresCatalogSource {
     /// `declared_schemas` is the schema-qualifier scope the committed DDL
     /// declares -- see [`fetch_live_schema`] for why it is unioned with the
     /// connection's search path.
-    pub async fn fetch_schema(&mut self, declared_schemas: &[String]) -> Result<SchemaDescription, InspectError> {
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(InspectError::NotConnected { engine: "postgres" })?;
-        fetch_live_schema(client, declared_schemas).await
-    }
-}
-
-#[cfg(all(test, feature = "postgres"))]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn fetch_schema_without_connect_errors() {
-        let error = PostgresCatalogSource::new()
-            .fetch_schema(&[])
-            .await
-            .expect_err("unconnected source must fail");
-        assert!(matches!(error, InspectError::NotConnected { engine: "postgres" }));
-    }
-
-    #[tokio::test]
-    async fn fetch_catalog_without_connect_errors() {
-        let error = PostgresCatalogSource::new()
-            .fetch_catalog(&[])
-            .await
-            .expect_err("unconnected source must fail");
-        assert!(matches!(error, InspectError::NotConnected { engine: "postgres" }));
+    pub async fn fetch_schema(&self, declared_schemas: &[String]) -> Result<SchemaDescription, InspectError> {
+        fetch_live_schema(&self.client, declared_schemas).await
     }
 }

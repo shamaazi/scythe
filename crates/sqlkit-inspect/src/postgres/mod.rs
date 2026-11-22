@@ -51,22 +51,72 @@ fn check_failure_finding(spec: &CheckSpec, error: &InspectError) -> Finding {
 /// making the scope configurable without SQL parameterisation.
 const SC_INS10_ID: &str = "SC-INS10";
 
-/// PostgreSQL driver. Holds a `tokio_postgres::Client` after `connect()`
-/// succeeds; methods that need the client return
-/// [`InspectError::NotConnected`] otherwise.
+/// An open connection to a PostgreSQL server, with the server version the
+/// checks are gated on.
+pub struct PostgresConnection {
+    client: Client,
+    /// `server_version_num`, e.g. `160004` for PostgreSQL 16.4.
+    server_version: u32,
+}
+
+impl PostgresConnection {
+    /// Connect to `url` and read the server's version.
+    ///
+    /// # Errors
+    ///
+    /// [`InspectError::Connect`] when the connection cannot be opened or the
+    /// version cannot be read.
+    pub async fn open(url: &str) -> Result<Self, InspectError> {
+        let (client, connection) = tokio_postgres::connect(url, NoTls)
+            .await
+            .map_err(|e| InspectError::Connect { source: Box::new(e) })?;
+
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("sqlkit-inspect: postgres connection task error: {e}");
+            }
+        });
+
+        let version_row = client
+            .query_one("SHOW server_version_num", &[])
+            .await
+            .map_err(|e| InspectError::Connect { source: Box::new(e) })?;
+        let version: &str = version_row
+            .try_get(0)
+            .map_err(|e| InspectError::Connect { source: Box::new(e) })?;
+        let server_version: u32 = version.parse().map_err(|e| InspectError::Connect {
+            source: Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                "failed to parse server_version_num {version:?}: {e}"
+            )),
+        })?;
+
+        Ok(Self { client, server_version })
+    }
+
+    /// The underlying client.
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
+    /// The server's `server_version_num`.
+    pub fn server_version(&self) -> u32 {
+        self.server_version
+    }
+}
+
+/// PostgreSQL driver: the check registry and how its findings are filtered.
 ///
 /// Construction is infallible and connectionless, so `--list-checks` can
-/// print the catalog without touching a database: call
-/// [`connect`](Self::connect) before [`run_all`](Self::run_all).
+/// print the catalog without touching a database. Open a
+/// [`PostgresConnection`] and pass it to [`run_checks`](Self::run_checks);
+/// [`connect`](Self::connect) and [`run_all`](Self::run_all) do the same in
+/// two steps, holding the connection in the driver.
 pub struct PostgresDriver {
-    client: Option<Client>,
+    /// The connection [`connect`](Self::connect) opened, for
+    /// [`run_all`](Self::run_all).
+    connection: Option<PostgresConnection>,
     /// Canonical check registry, built at `new()`.
     registry: CheckRegistry,
-    /// Postgres server version number (e.g. `160004` for PG 16.4).
-    ///
-    /// `None` until `connect()` succeeds and `SHOW server_version_num` is
-    /// queried; used to gate `min_pg_version` checks.
-    pg_version: Option<u32>,
     /// Suppression engine built from `[[inspect.suppression]]` rules.
     ///
     /// `None` means no suppression rules are configured.
@@ -88,15 +138,14 @@ impl PostgresDriver {
     /// severity overrides and user checks from `[inspect]` config).
     pub fn with_registry(registry: CheckRegistry) -> Self {
         Self {
-            client: None,
+            connection: None,
             registry,
-            pg_version: None,
             suppression: None,
             api_schemas: Vec::new(),
         }
     }
 
-    /// Set the suppression engine.  Call before `connect()` / `run_all()`.
+    /// Set the suppression engine.
     ///
     /// The engine is bound to this driver's registry here, which is what tells
     /// it *which* result column `[[inspect.suppression]] object = "…"` and
@@ -114,62 +163,35 @@ impl PostgresDriver {
         self.api_schemas = schemas;
     }
 
-    /// Borrow the underlying client (test/inspection helper).
+    /// Borrow the client [`connect`](Self::connect) opened (test/inspection
+    /// helper).
     pub fn client(&self) -> Option<&Client> {
-        self.client.as_ref()
+        self.connection.as_ref().map(PostgresConnection::client)
     }
 
-    /// Open a connection to `url` and store the client, replacing any held one.
-    /// Errors are returned as [`InspectError::Connect`].
+    /// Open a connection to `url` for [`run_all`](Self::run_all), replacing
+    /// any held one. Errors are returned as [`InspectError::Connect`].
     pub async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
-        let (client, connection) = tokio_postgres::connect(url, NoTls)
-            .await
-            .map_err(|e| InspectError::Connect {
-                engine: "postgres",
-                source: Box::new(e),
-            })?;
-
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("sqlkit-inspect: postgres connection task error: {e}");
-            }
-        });
-
-        let version_row =
-            client
-                .query_one("SHOW server_version_num", &[])
-                .await
-                .map_err(|e| InspectError::Connect {
-                    engine: "postgres",
-                    source: Box::new(e),
-                })?;
-        let version_str: &str = version_row.get(0);
-        let pg_version: u32 = version_str.parse().map_err(|e| InspectError::Connect {
-            engine: "postgres",
-            source: Box::<dyn std::error::Error + Send + Sync>::from(format!(
-                "failed to parse server_version_num {version_str:?}: {e}"
-            )),
-        })?;
-
-        self.client = Some(client);
-        self.pg_version = Some(pg_version);
+        self.connection = Some(PostgresConnection::open(url).await?);
         Ok(())
     }
 
-    /// Run every check in the registry and return their findings.
+    /// [`run_checks`](Self::run_checks) on the connection
+    /// [`connect`](Self::connect) opened.
     ///
     /// Returns [`InspectError::NotConnected`] if `connect` has not succeeded.
+    pub async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError> {
+        let connection = self.connection.as_ref().ok_or(InspectError::NotConnected)?;
+        self.run_checks(connection).await
+    }
+
+    /// Run every check in the registry against `connection` and return their
+    /// findings.
+    ///
     /// A per-check failure degrades to a single warning [`Finding`] naming the
     /// check instead of stopping the run, so one bad query never loses the
     /// rest of the report.
-    pub async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError> {
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(InspectError::NotConnected { engine: "postgres" })?;
-
-        let pg_version = self.pg_version.unwrap_or(u32::MAX);
-
+    pub async fn run_checks(&self, connection: &PostgresConnection) -> Result<Vec<Finding>, InspectError> {
         let effective_api_schemas: Vec<&str> = if self.api_schemas.is_empty() {
             vec!["public"]
         } else {
@@ -178,14 +200,14 @@ impl PostgresDriver {
 
         let mut all_pairs = Vec::new();
 
-        for spec in self.registry.for_engine("postgres") {
+        for spec in self.registry.all() {
             if let Some(min_major) = spec.min_pg_version
-                && pg_version < min_major.saturating_mul(10_000)
+                && connection.server_version < min_major.saturating_mul(10_000)
             {
                 continue;
             }
 
-            let pairs = match runner::run_check_with_bindings(client, spec).await {
+            let pairs = match runner::run_check_with_bindings(&connection.client, spec).await {
                 Ok(pairs) => pairs,
                 Err(error) => {
                     all_pairs.push((check_failure_finding(spec, &error), HashMap::new()));
@@ -237,7 +259,7 @@ mod tests {
     #[test]
     fn no_check_calls_two_arg_round_on_a_float() {
         let registry = CheckRegistry::canonical();
-        for spec in registry.for_engine("postgres") {
+        for spec in registry.all() {
             assert!(
                 !spec.sql.contains("round((last_value::float8"),
                 "check {} calls round() on a float8 — PostgreSQL has no round(double precision, integer)",
@@ -251,7 +273,7 @@ mod tests {
     #[test]
     fn failed_check_becomes_a_warning_finding() {
         let registry = CheckRegistry::canonical();
-        let spec = registry.for_engine("postgres").next().expect("at least one check");
+        let spec = registry.all().first().expect("at least one check");
 
         let error = InspectError::MessageBindingMissing {
             check_id: spec.id.clone(),
@@ -273,7 +295,7 @@ mod tests {
     async fn run_all_without_connect_errors() {
         let mut d = PostgresDriver::new();
         let err = d.run_all().await.unwrap_err();
-        assert!(matches!(err, InspectError::NotConnected { engine: "postgres" }));
+        assert!(matches!(err, InspectError::NotConnected));
     }
 
     /// Sanity-check the major-version × 10_000 conversion used to gate

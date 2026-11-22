@@ -134,7 +134,6 @@ fn render_message(template: &str, bindings: &RowBindings, check_id: &str) -> Res
                 return Err(InspectError::UnrenderableBinding {
                     check_id: check_id.to_string(),
                     binding: var_name.to_string(),
-                    engine: "postgres",
                     type_name: bindings.unrenderable[var_name].clone(),
                 });
             }
@@ -179,7 +178,6 @@ pub async fn run_check_with_bindings(
         .query(spec.sql.as_str(), &[])
         .await
         .map_err(|e| InspectError::Query {
-            engine: "postgres",
             check_id: spec.id.clone(),
             source: Box::new(e),
         })?;
@@ -292,7 +290,6 @@ mod tests {
         let InspectError::UnrenderableBinding {
             check_id,
             binding,
-            engine,
             type_name,
         } = &err
         else {
@@ -300,7 +297,6 @@ mod tests {
         };
         assert_eq!(check_id, "USER-INS-001");
         assert_eq!(binding, "ratio");
-        assert_eq!(*engine, "postgres");
         assert_eq!(type_name, "numeric");
         assert!(err.to_string().contains("re-alias it as `ratio`"), "{err}");
     }

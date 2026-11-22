@@ -34,6 +34,8 @@ impl CheckRegistry {
             .expect("canonical postgres/checks.toml must parse correctly");
 
         for spec in &checks {
+            spec.validate_engines()
+                .unwrap_or_else(|e| panic!("canonical check {id} has invalid engines: {e}", id = spec.id));
             validate_message_bindings(spec)
                 .unwrap_or_else(|e| panic!("canonical check {id} has invalid message bindings: {e}", id = spec.id));
             // Required, not optional, for canonical checks: a missing or
@@ -56,6 +58,7 @@ impl CheckRegistry {
     /// Each user check must:
     /// - Have an ID prefixed with `USER-INS-`.
     /// - Not collide with any canonical ID.
+    /// - Declare `engines = ["postgres"]`.
     /// - Have all `{var}` placeholders in `message` present in the SQL
     ///   projection.
     ///
@@ -97,7 +100,8 @@ impl CheckRegistry {
     /// Iterate checks that apply to `engine`.
     ///
     /// `engine` is matched case-sensitively against the `engines` list of each
-    /// spec, e.g. `"postgres"`.
+    /// spec. Every check a registry loads declares `["postgres"]`, so this is
+    /// [`Self::all`] for `"postgres"` and nothing otherwise.
     pub fn for_engine<'a>(&'a self, engine: &'a str) -> impl Iterator<Item = &'a CheckSpec> {
         self.checks
             .iter()
@@ -156,31 +160,6 @@ mod tests {
         use crate::spec::CANONICAL_CHECK_IDS;
         let reg = CheckRegistry::canonical();
         assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());
-    }
-
-    #[test]
-    fn for_engine_filters_by_engine() {
-        use crate::spec::CANONICAL_CHECK_IDS;
-        let mut reg = CheckRegistry::canonical();
-        reg.checks.push(CheckSpec {
-            id: "USER-INS-OTHER-01".to_string(),
-            name: "other-engine-only".to_string(),
-            category: crate::spec::CheckCategory::Schema,
-            severity: sqlkit_lint::types::Severity::Warn,
-            engines: vec!["nosuchdb".to_string()],
-            description: "test".to_string(),
-            message: "test".to_string(),
-            sql: "SELECT 1 AS x".to_string(),
-            cwe: vec![],
-            explanation: None,
-            remediation: None,
-            min_pg_version: None,
-            object_binding: None,
-            schema_binding: None,
-        });
-
-        assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());
-        assert_eq!(reg.for_engine("nosuchdb").count(), 1);
     }
 
     #[test]

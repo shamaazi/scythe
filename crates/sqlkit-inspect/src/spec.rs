@@ -70,7 +70,11 @@ pub struct CheckSpec {
     pub category: CheckCategory,
     /// Default severity.
     pub severity: Severity,
-    /// Engine names this check applies to, e.g. `["postgres"]`.
+    /// The engines this check applies to, as the check file declares them.
+    ///
+    /// sqlkit inspects PostgreSQL only, so this must be `["postgres"]`
+    /// ([`CheckSpec::validate_engines`]); it stays part of the check file
+    /// format, and is kept for display.
     pub engines: Vec<String>,
     /// One-line description used in `--list-checks` output.
     pub description: String,
@@ -166,11 +170,27 @@ pub enum SpecValidationError {
          `[[inspect.suppression]] object = \"…\"` has a column to compare against"
     )]
     MissingObjectBinding { check_id: String },
+    /// `engines` names an engine other than PostgreSQL, or none.
+    #[error("check {check_id:?}: engines = {engines:?} must be [\"postgres\"]: sqlkit inspects PostgreSQL only")]
+    UnsupportedEngines { check_id: String, engines: Vec<String> },
 }
 
 impl CheckSpec {
+    /// Validate that the check declares PostgreSQL, the one engine sqlkit
+    /// inspects, as its only engine.
+    pub fn validate_engines(&self) -> Result<(), SpecValidationError> {
+        if self.engines.is_empty() || self.engines.iter().any(|engine| engine != "postgres") {
+            return Err(SpecValidationError::UnsupportedEngines {
+                check_id: self.id.clone(),
+                engines: self.engines.clone(),
+            });
+        }
+        Ok(())
+    }
+
     /// Validate that a user-supplied check carries the required `USER-INS-`
-    /// prefix and does not collide with any canonical ID.
+    /// prefix and does not collide with any canonical ID, and declares
+    /// PostgreSQL as its engine ([`Self::validate_engines`]).
     pub fn validate_user_check(&self) -> Result<(), SpecValidationError> {
         if !self.id.starts_with("USER-INS-") {
             return Err(SpecValidationError::MissingUserPrefix(self.id.clone()));
@@ -178,7 +198,7 @@ impl CheckSpec {
         if CANONICAL_CHECK_IDS.contains(&self.id.as_str()) {
             return Err(SpecValidationError::CanonicalIdCollision(self.id.clone()));
         }
-        Ok(())
+        self.validate_engines()
     }
 }
 
@@ -573,5 +593,20 @@ mod tests {
     fn validate_user_check_accepts_valid_user_id() {
         let spec = make_spec("USER-INS-001", "msg {x}", "SELECT 1 AS x");
         assert!(spec.validate_user_check().is_ok());
+    }
+
+    #[test]
+    fn validate_user_check_requires_postgres_as_the_only_engine() {
+        for engines in [vec![], vec!["mysql"], vec!["postgres", "mysql"]] {
+            let mut spec = make_spec("USER-INS-001", "msg {x}", "SELECT 1 AS x");
+            spec.engines = engines.iter().map(ToString::to_string).collect();
+            assert!(
+                matches!(
+                    spec.validate_user_check(),
+                    Err(SpecValidationError::UnsupportedEngines { .. })
+                ),
+                "{engines:?}"
+            );
+        }
     }
 }

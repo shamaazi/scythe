@@ -30,7 +30,7 @@ pub use config::{InspectConfig, SuppressionRule, parse_inspect_section};
 pub use error::InspectError;
 pub use neutral::normalize_neutral_type;
 #[cfg(feature = "postgres")]
-pub use postgres::PostgresDriver;
+pub use postgres::{PostgresConnection, PostgresDriver};
 pub use registry::CheckRegistry;
 pub use schema_diff::{
     CompositeDescription, CompositeFieldDescription, DriftSeverities, SchemaDescription, describe_catalog, diff_schemas,

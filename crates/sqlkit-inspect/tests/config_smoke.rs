@@ -248,3 +248,24 @@ fn multiple_overrides_applied_together() {
         "SC-INS02 (untouched) must still be present"
     );
 }
+
+/// sqlkit inspects PostgreSQL only: a user check declaring another engine is
+/// rejected rather than silently never run.
+#[test]
+fn user_check_for_another_engine_errors_clearly() {
+    let toml = r#"
+[[inspect.check]]
+id          = "USER-INS-001"
+name        = "other-engine"
+category    = "schema"
+severity    = "warn"
+engines     = ["mysql"]
+description = "test"
+message     = "msg"
+sql         = "SELECT 1 AS x"
+"#;
+    let (_dir, config_path) = write_sqlkit_toml(toml);
+
+    let err = parse_inspect_section(&config_path).expect_err("must fail for another engine");
+    assert!(err.to_string().contains("postgres"), "{err}");
+}

@@ -125,7 +125,8 @@ pub struct InspectConfig {
 /// - `Err(ConfigError)` if the TOML is malformed or validation fails.
 ///
 /// User-defined `[[inspect.check]]` blocks must:
-/// 1. Pass `CheckSpec::validate_user_check` (ID must start with `USER-INS-`).
+/// 1. Pass `CheckSpec::validate_user_check` (ID must start with `USER-INS-`;
+///    `engines` must be `["postgres"]`).
 /// 2. Pass `validate_message_bindings` (all `{var}` placeholders present in SQL).
 ///
 /// Checks loaded from `extra_rules` files go through the same validation.

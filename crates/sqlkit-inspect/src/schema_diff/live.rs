@@ -273,7 +273,6 @@ pub async fn fetch_live_catalog(client: &Client, declared_schemas: &[String]) ->
     }
 
     builder.build().map_err(|source| InspectError::CatalogConstruction {
-        engine: "postgres",
         operation: "building the live catalog",
         source,
     })
@@ -345,7 +344,6 @@ fn schema_scope(search_path: &[String], declared_schemas: &[String]) -> Vec<Stri
 /// which grant is missing.
 fn query_error(step: &'static str, error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> InspectError {
     InspectError::Query {
-        engine: "postgres",
         check_id: format!("{DRIFT_CHECK_ID}/{step}"),
         source: error.into(),
     }

@@ -23,10 +23,8 @@ pub fn error_chain(error: &dyn std::error::Error) -> String {
 #[derive(Debug, Error)]
 pub enum InspectError {
     /// Engine introspection produced definitions rejected by the catalog boundary.
-    #[error("{engine} catalog construction failed while {operation}: {source}")]
+    #[error("postgres catalog construction failed while {operation}: {source}")]
     CatalogConstruction {
-        /// Engine whose inspected definitions were rejected.
-        engine: &'static str,
         /// Introspection operation in progress.
         operation: &'static str,
         /// Catalog validation error.
@@ -40,10 +38,8 @@ pub enum InspectError {
     /// `tokio_postgres::Error` displays as a bare `"db error"`, which makes a
     /// wrong password, a missing database and a missing role indistinguishable.
     /// The server's `FATAL: ...` text lives one level further down the chain.
-    #[error("connection to {engine} failed: {}", error_chain(&**source))]
+    #[error("connection to postgres failed: {}", error_chain(&**source))]
     Connect {
-        /// Engine that was being connected to (e.g. `"postgres"`).
-        engine: &'static str,
         /// Underlying driver error.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
@@ -54,10 +50,8 @@ pub enum InspectError {
     /// Rendered through [`error_chain`] for the same reason as
     /// [`InspectError::Connect`]: the SQLSTATE and the server's message are
     /// not in the top-level `Display`.
-    #[error("{engine} catalog query {check_id} failed: {}", error_chain(&**source))]
+    #[error("postgres catalog query {check_id} failed: {}", error_chain(&**source))]
     Query {
-        /// Engine that ran the query.
-        engine: &'static str,
         /// Identifier of the check whose SQL failed.
         check_id: String,
         /// Underlying driver error.
@@ -74,7 +68,7 @@ pub enum InspectError {
     /// looking like it worked.
     #[error(
         "check {check_id}: message placeholder '{{{binding}}}' is bound to column `{binding}` of \
-         {engine} type `{type_name}`, which cannot be rendered as text — cast it to text in the \
+         postgres type `{type_name}`, which cannot be rendered as text — cast it to text in the \
          check's SQL and re-alias it as `{binding}`"
     )]
     UnrenderableBinding {
@@ -82,8 +76,6 @@ pub enum InspectError {
         check_id: String,
         /// The `{var}` name, which is also the projected column name.
         binding: String,
-        /// Engine that reported the type (`"postgres"`).
-        engine: &'static str,
         /// The driver-reported type name for that column.
         type_name: String,
     },
@@ -123,11 +115,8 @@ pub enum InspectError {
     UrlMissing,
 
     /// A driver method was called before `connect` succeeded.
-    #[error("driver {engine} is not connected — call connect() before run_all()")]
-    NotConnected {
-        /// Engine whose method was called.
-        engine: &'static str,
-    },
+    #[error("driver postgres is not connected — call connect() before run_all()")]
+    NotConnected,
 
     /// A message template `{var}` placeholder had no matching column in the
     /// SQL row.  The canonical-time binding validation in
@@ -217,7 +206,6 @@ mod tests {
     #[test]
     fn should_render_the_server_message_when_a_connection_fails() {
         let error = InspectError::Connect {
-            engine: "postgres",
             source: opaque("FATAL: database \"does_not_exist\" does not exist"),
         };
         assert_eq!(
@@ -229,7 +217,6 @@ mod tests {
     #[test]
     fn should_render_the_server_message_when_a_catalog_query_fails() {
         let error = InspectError::Query {
-            engine: "postgres",
             check_id: "SC-INS01".to_string(),
             source: opaque("ERROR: permission denied for table pg_constraint"),
         };
@@ -245,7 +232,6 @@ mod tests {
         let error = InspectError::UnrenderableBinding {
             check_id: "USER-INS-001".to_string(),
             binding: "ratio".to_string(),
-            engine: "postgres",
             type_name: "numeric".to_string(),
         };
         assert_eq!(

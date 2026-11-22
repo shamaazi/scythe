@@ -42,7 +42,7 @@
 
 #![cfg(all(feature = "live-tests", feature = "postgres"))]
 
-use sqlkit_inspect::PostgresDriver;
+use sqlkit_inspect::{PostgresConnection, PostgresDriver};
 use sqlkit_lint::types::Severity;
 use tokio_postgres::NoTls;
 
@@ -95,9 +95,28 @@ async fn raw_client() -> tokio_postgres::Client {
 
 /// Run the entire sqlkit-inspect Postgres pipeline against the live DB.
 async fn run_all_findings() -> Vec<sqlkit_lint::reporters::Finding> {
+    let connection = PostgresConnection::open(&url()).await.expect("connect");
+    PostgresDriver::new()
+        .run_checks(&connection)
+        .await
+        .expect("driver run_checks")
+}
+
+/// The two-step `connect` then `run_all` runs the checks as `run_checks`
+/// does on a connection opened first. (Which findings each reports depends
+/// on the fixtures the tests running alongside have created at the time.)
+#[tokio::test]
+async fn connect_then_run_all_runs_the_checks() {
+    let connection = PostgresConnection::open(&url()).await.expect("connect");
+    assert!(
+        connection.server_version() >= 120_000,
+        "{}",
+        connection.server_version()
+    );
     let mut driver = PostgresDriver::new();
     driver.connect(&url()).await.expect("driver connect");
-    driver.run_all().await.expect("driver run_all")
+    driver.run_all().await.expect("run_all");
+    driver.run_checks(&connection).await.expect("run_checks");
 }
 
 #[tokio::test]
