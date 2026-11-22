@@ -48,10 +48,10 @@ fn severity_override_off_silences_check() {
         registry.get("SC-INS01").is_some(),
         "SC-INS01 must still be in the registry"
     );
-    let ids: Vec<_> = registry.for_engine("postgres").map(|s| s.id.as_str()).collect();
+    let ids: Vec<_> = registry.all().iter().map(|s| s.id.as_str()).collect();
     assert!(
         !ids.contains(&"SC-INS04"),
-        "SC-INS04 must not appear in for_engine('postgres'); ids: {ids:?}"
+        "SC-INS04 must not appear in the registry; ids: {ids:?}"
     );
 }
 
@@ -85,7 +85,7 @@ fn severity_override_warn_to_error_changes_severity() {
 }
 
 /// An inline `[[inspect.check]]` with a valid `USER-INS-` id must be loaded
-/// and appear in `registry.for_engine("postgres")`.
+/// and appear in `registry.all()`.
 #[test]
 fn user_check_appears_in_list() {
     let toml = r#"
@@ -115,10 +115,10 @@ sql         = "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_
         "USER-INS-001 must be in the registry after with_inline_checks"
     );
 
-    let ids: Vec<_> = registry.for_engine("postgres").map(|s| s.id.as_str()).collect();
+    let ids: Vec<_> = registry.all().iter().map(|s| s.id.as_str()).collect();
     assert!(
         ids.contains(&"USER-INS-001"),
-        "USER-INS-001 must appear in for_engine('postgres'); ids: {ids:?}"
+        "USER-INS-001 must appear in the registry; ids: {ids:?}"
     );
     assert!(
         ids.contains(&"SC-INS01"),

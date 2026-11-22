@@ -114,10 +114,6 @@ pub enum InspectError {
     #[error("no database URL provided — pass a positional URL, set DATABASE_URL, or set SQLKIT_DATABASE_URL")]
     UrlMissing,
 
-    /// A driver method was called before `connect` succeeded.
-    #[error("driver postgres is not connected — call connect() before run_all()")]
-    NotConnected,
-
     /// A message template `{var}` placeholder had no matching column in the
     /// SQL row.  The canonical-time binding validation in
     /// [`crate::spec::validate_message_bindings`] should make this unreachable

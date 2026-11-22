@@ -4,7 +4,7 @@
 //! Each test creates its own schema, runs the relevant check, and drops the
 //! schema on the way out. Tests are independent and may run concurrently
 //! (the default `cargo test` behaviour): the per-test schema bounds the
-//! *fixture*, not the *assertion* — `run_all()` inspects every schema in the
+//! *fixture*, not the *assertion* — `run_checks()` inspects every schema in the
 //! database, so a concurrently-running test's fixture can show up in
 //! `findings`, but every assertion below filters `findings` down to the
 //! schema/table name that test itself created, so unrelated fixtures never
@@ -102,21 +102,18 @@ async fn run_all_findings() -> Vec<sqlkit_lint::reporters::Finding> {
         .expect("driver run_checks")
 }
 
-/// The two-step `connect` then `run_all` runs the checks as `run_checks`
-/// does on a connection opened first. (Which findings each reports depends
-/// on the fixtures the tests running alongside have created at the time.)
+/// An opened connection reads the server version that gates
+/// `min_pg_version`, and the checks run on it. (Which findings they report
+/// depends on the fixtures the tests running alongside have created.)
 #[tokio::test]
-async fn connect_then_run_all_runs_the_checks() {
+async fn open_then_run_checks() {
     let connection = PostgresConnection::open(&url()).await.expect("connect");
     assert!(
         connection.server_version() >= 120_000,
         "{}",
         connection.server_version()
     );
-    let mut driver = PostgresDriver::new();
-    driver.connect(&url()).await.expect("driver connect");
-    driver.run_all().await.expect("run_all");
-    driver.run_checks(&connection).await.expect("run_checks");
+    PostgresDriver::new().run_checks(&connection).await.expect("run_checks");
 }
 
 #[tokio::test]

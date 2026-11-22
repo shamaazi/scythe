@@ -97,17 +97,6 @@ impl CheckRegistry {
         self.checks.iter().find(|c| c.id == id)
     }
 
-    /// Iterate checks that apply to `engine`.
-    ///
-    /// `engine` is matched case-sensitively against the `engines` list of each
-    /// spec. Every check a registry loads declares `["postgres"]`, so this is
-    /// [`Self::all`] for `"postgres"` and nothing otherwise.
-    pub fn for_engine<'a>(&'a self, engine: &'a str) -> impl Iterator<Item = &'a CheckSpec> {
-        self.checks
-            .iter()
-            .filter(move |c| c.engines.iter().any(|e| e == engine))
-    }
-
     /// Return all checks in the registry, in load order.
     pub fn all(&self) -> &[CheckSpec] {
         &self.checks
@@ -159,7 +148,8 @@ mod tests {
     fn canonical_registry_has_canonical_postgres_checks() {
         use crate::spec::CANONICAL_CHECK_IDS;
         let reg = CheckRegistry::canonical();
-        assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());
+        assert_eq!(reg.all().len(), CANONICAL_CHECK_IDS.len());
+        assert!(reg.all().iter().all(|spec| spec.engines == ["postgres"]));
     }
 
     #[test]

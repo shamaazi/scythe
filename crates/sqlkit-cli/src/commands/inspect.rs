@@ -17,14 +17,15 @@ use std::path::Path;
 
 use sqlkit_inspect::{CheckRegistry, InspectConfig, InspectError, parse_inspect_section};
 #[cfg(feature = "postgres")]
-use sqlkit_inspect::{PostgresDriver, SuppressionEngine};
+use sqlkit_inspect::{PostgresConnection, PostgresDriver, SuppressionEngine};
 use sqlkit_lint::reporters::{Finding, Format};
 use sqlkit_lint::{Severity, emit_findings};
 
 const TOOL_NAME: &str = "sqlkit-inspect";
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The engine name the inspect check specs declare (`engines = ["postgres"]`).
+/// The engine every inspect check declares (`engines = ["postgres"]`, checked
+/// at load), which heads the catalog.
 const CHECK_ENGINE: &str = "postgres";
 
 /// Inputs to [`run_inspect`]. Mirrors the clap `Commands::Inspect` shape.
@@ -150,8 +151,8 @@ pub(crate) fn live_findings(
 
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     Ok(runtime.block_on(async {
-        driver.connect(url).await?;
-        driver.run_all().await
+        let connection = PostgresConnection::open(url).await?;
+        driver.run_checks(&connection).await
     })?)
 }
 
@@ -241,7 +242,7 @@ fn print_check_catalog_from_registry(
     registry: &CheckRegistry,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let checks: Vec<_> = registry.for_engine(CHECK_ENGINE).collect();
+    let checks = registry.all();
     if checks.is_empty() {
         writeln!(out, "no checks available")?;
         return Ok(());
@@ -278,7 +279,6 @@ pub(crate) fn print_explanation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let spec = registry
         .get(id)
-        .filter(|s| s.engines.iter().any(|e| e == CHECK_ENGINE))
         .ok_or_else(|| format!("no check with id '{id}' — try `sqlkit inspect --list-checks`"))?;
 
     writeln!(out, "{} — {}", spec.id, spec.name)?;

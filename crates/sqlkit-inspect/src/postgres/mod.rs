@@ -108,13 +108,8 @@ impl PostgresConnection {
 ///
 /// Construction is infallible and connectionless, so `--list-checks` can
 /// print the catalog without touching a database. Open a
-/// [`PostgresConnection`] and pass it to [`run_checks`](Self::run_checks);
-/// [`connect`](Self::connect) and [`run_all`](Self::run_all) do the same in
-/// two steps, holding the connection in the driver.
+/// [`PostgresConnection`] and pass it to [`run_checks`](Self::run_checks).
 pub struct PostgresDriver {
-    /// The connection [`connect`](Self::connect) opened, for
-    /// [`run_all`](Self::run_all).
-    connection: Option<PostgresConnection>,
     /// Canonical check registry, built at `new()`.
     registry: CheckRegistry,
     /// Suppression engine built from `[[inspect.suppression]]` rules.
@@ -129,7 +124,7 @@ pub struct PostgresDriver {
 }
 
 impl PostgresDriver {
-    /// Construct an unconnected driver with the canonical check registry.
+    /// Construct a driver with the canonical check registry.
     pub fn new() -> Self {
         Self::with_registry(CheckRegistry::canonical())
     }
@@ -138,7 +133,6 @@ impl PostgresDriver {
     /// severity overrides and user checks from `[inspect]` config).
     pub fn with_registry(registry: CheckRegistry) -> Self {
         Self {
-            connection: None,
             registry,
             suppression: None,
             api_schemas: Vec::new(),
@@ -161,28 +155,6 @@ impl PostgresDriver {
     /// falls back to `["public"]`.
     pub fn set_api_schemas(&mut self, schemas: Vec<String>) {
         self.api_schemas = schemas;
-    }
-
-    /// Borrow the client [`connect`](Self::connect) opened (test/inspection
-    /// helper).
-    pub fn client(&self) -> Option<&Client> {
-        self.connection.as_ref().map(PostgresConnection::client)
-    }
-
-    /// Open a connection to `url` for [`run_all`](Self::run_all), replacing
-    /// any held one. Errors are returned as [`InspectError::Connect`].
-    pub async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
-        self.connection = Some(PostgresConnection::open(url).await?);
-        Ok(())
-    }
-
-    /// [`run_checks`](Self::run_checks) on the connection
-    /// [`connect`](Self::connect) opened.
-    ///
-    /// Returns [`InspectError::NotConnected`] if `connect` has not succeeded.
-    pub async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError> {
-        let connection = self.connection.as_ref().ok_or(InspectError::NotConnected)?;
-        self.run_checks(connection).await
     }
 
     /// Run every check in the registry against `connection` and return their
@@ -289,13 +261,6 @@ mod tests {
             "message should explain the check did not run: {}",
             finding.message
         );
-    }
-
-    #[tokio::test]
-    async fn run_all_without_connect_errors() {
-        let mut d = PostgresDriver::new();
-        let err = d.run_all().await.unwrap_err();
-        assert!(matches!(err, InspectError::NotConnected));
     }
 
     /// Sanity-check the major-version × 10_000 conversion used to gate
