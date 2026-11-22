@@ -17,26 +17,23 @@ use sqlkit_lint::reporters::Finding;
 use sqlkit_lint::types::RuleCategory;
 use sqlkit_lint::{
     AuditConfigError, LintContext, MatcherRegistry, RuleRegistry, RuleSpec, Severity, SuppressionSet, default_registry,
-    extract_cwe, load_rules_from_file, register_user_rules,
+    extract_cwe, load_rules_from_file, parse_statements_lenient, register_user_rules,
 };
 
 fn run_rules(path: &str, sql: &str, catalog: &Catalog, registry: &RuleRegistry) -> Vec<Finding> {
     let rules = registry.active_rules();
     let suppressions = SuppressionSet::parse(sql);
 
-    let statements = match sqlparser::parser::Parser::parse_sql(&sqlparser::dialect::PostgreSqlDialect {}, sql) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
+    let (statements, _failures) = parse_statements_lenient(sql);
 
     let empty_annotations = Annotations::default();
     let empty_analyzed = AnalyzedQuery::default();
     let mut findings = Vec::new();
 
-    for (stmt_idx, stmt) in statements.iter().enumerate() {
+    for statement in &statements {
         let ctx = LintContext {
             sql,
-            stmt,
+            stmt: &statement.stmt,
             analyzed: &empty_analyzed,
             catalog,
             annotations: &empty_annotations,
@@ -46,9 +43,7 @@ fn run_rules(path: &str, sql: &str, catalog: &Catalog, registry: &RuleRegistry) 
                 continue;
             }
             for violation in rule.check_query(&ctx) {
-                // `SuppressionSet` is keyed by 0-based statement index, not
-                // by source line (sqlkit-lint #140).
-                if !suppressions.is_empty() && suppressions.is_suppressed(&violation.rule_id, stmt_idx) {
+                if !suppressions.is_empty() && suppressions.is_suppressed(&violation.rule_id, statement.offset) {
                     continue;
                 }
                 findings.push(Finding {

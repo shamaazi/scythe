@@ -8,8 +8,9 @@ pub mod sqruff_adapter;
 pub mod types;
 
 pub use audit::{
-    AuditConfigError, MatcherArgsError, MatcherFn, MatcherHit, MatcherRegistry, MatcherRule, RuleSpec, SuppressionSet,
-    canonical_specs, load_rules_from_file, parse_rule_file, register_user_rules, validate_matcher_args,
+    AuditConfigError, MatcherArgsError, MatcherFn, MatcherHit, MatcherRegistry, MatcherRule, ParsedStatement, RuleSpec,
+    StatementParseFailure, SuppressionSet, canonical_specs, first_token_offset, load_rules_from_file, parse_rule_file,
+    parse_statements_lenient, register_user_rules, validate_matcher_args,
 };
 pub use engine::{LintEngine, LintReport, QueryViolation};
 pub use registry::{RuleRegistry, default_registry, drift_registry, parse_registry, provenance_registry};

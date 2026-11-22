@@ -5,12 +5,34 @@ use sqlkit_inspect::parse_inspect_section;
 use sqlkit_lint::reporters::{Finding, Format};
 use sqlkit_lint::sqruff_adapter;
 use sqlkit_lint::types::Severity;
-use sqlkit_lint::{SuppressionSet, emit_findings};
+use sqlkit_lint::{SuppressionSet, emit_findings, first_token_offset};
 
 use super::inspect::{build_registry, live_findings};
 use super::shared::{
     CatalogLoadRequest, ParseSeverities, PostgresEngine, config_dir, load_catalog, resolve_globs, split_query_file,
 };
+
+/// The `-- sqlkit-audit: ignore[ID]` annotations of one `-- name:` block,
+/// which holds a single statement: [`SuppressionSet`] is keyed by where a
+/// statement starts, so the lookup uses where the block's statement starts.
+struct QuerySuppressions {
+    set: SuppressionSet,
+    statement_offset: Option<usize>,
+}
+
+impl QuerySuppressions {
+    fn parse(block: &str) -> Self {
+        Self {
+            set: SuppressionSet::parse(block),
+            statement_offset: first_token_offset(block),
+        }
+    }
+
+    fn is_suppressed(&self, rule_id: &str) -> bool {
+        self.statement_offset
+            .is_some_and(|offset| self.set.is_suppressed(rule_id, offset))
+    }
+}
 
 /// A combined lint violation that can come from either sqlkit rules, sqruff,
 /// or live-DB inspect checks.
@@ -265,7 +287,7 @@ fn lint_files(
         file: String,
         query: sqlkit_core::parser::Query,
         analyzed: sqlkit_core::analyzer::AnalyzedQuery,
-        suppressions: SuppressionSet,
+        suppressions: QuerySuppressions,
     }
     let mut prepared: Vec<PreparedQuery> = Vec::new();
 
@@ -350,7 +372,7 @@ fn lint_files(
                     Ok(parsed) => match analyze(&ctx.catalog, &parsed) {
                         Ok(analyzed) => prepared.push(PreparedQuery {
                             file: path.clone(),
-                            suppressions: SuppressionSet::parse(&block),
+                            suppressions: QuerySuppressions::parse(&block),
                             query: parsed,
                             analyzed,
                         }),
@@ -422,11 +444,9 @@ fn lint_files(
                 .map(|&i| &prepared[i]);
 
             // Honour the same `-- sqlkit-audit: ignore[ID]` annotations
-            // `lint_from_config` and `sqlkit audit` honour -- see that
-            // function's identical check for why the suppression index is
-            // always 0.
+            // `lint_from_config` and `sqlkit audit` honour.
             if let Some(origin) = origin
-                && origin.suppressions.is_suppressed(&violation.rule_id, 0)
+                && origin.suppressions.is_suppressed(&violation.rule_id)
             {
                 continue;
             }
@@ -479,7 +499,7 @@ fn lint_from_config(
         /// one statement, so the only meaningful statement index is 0 -- see
         /// where this is consulted for why the index, not the source line,
         /// is the key.
-        suppressions: SuppressionSet,
+        suppressions: QuerySuppressions,
     }
 
     #[derive(Deserialize)]
@@ -720,7 +740,7 @@ fn lint_from_config(
 
                 prepared.push(PreparedQuery {
                     file: query_file.clone(),
-                    suppressions: SuppressionSet::parse(block),
+                    suppressions: QuerySuppressions::parse(block),
                     query: parsed,
                     analyzed,
                 });
@@ -782,14 +802,9 @@ fn lint_from_config(
                 .map(|&i| &prepared[i]);
 
             // Honour the same `-- sqlkit-audit: ignore[ID]` annotations
-            // `sqlkit audit` honours, keyed by statement index exactly as
-            // `SuppressionSet` documents: the set is parsed from the query's
-            // own block, which is a single statement, so the index is 0.
-            // Keying by source line instead over-suppresses -- two
-            // statements sharing one physical line resolve to the same entry
-            // (sqlkit-lint #140).
+            // `sqlkit audit` honours, on the query block's one statement.
             if let Some(origin) = origin
-                && origin.suppressions.is_suppressed(&violation.rule_id, 0)
+                && origin.suppressions.is_suppressed(&violation.rule_id)
             {
                 continue;
             }

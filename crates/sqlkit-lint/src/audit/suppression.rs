@@ -20,23 +20,31 @@
 //! does not "reach through" the blank line). Multiple consecutive annotation
 //! lines stack their ID sets onto whatever statement follows them.
 //!
-//! # Keying: statement index, not source line
+//! # Keying: statement position, not index
 //!
-//! Suppressions are keyed by **statement index** (0-based, in file order),
-//! not by source line. Keying by line previously over-suppressed: two
-//! statements written on the same line (`DROP TABLE a; DROP TABLE b;`) share
-//! one line number, so a suppression intended only for the first spilled
-//! onto the second. A single statement spanning multiple lines still gets
-//! exactly one index — the annotation attaches at the line where the
-//! statement begins, and every later line of that same statement carries no
-//! `pending` set of its own to (re-)attach.
+//! Suppressions are keyed by the **byte offset** at which the annotated
+//! statement starts: the first non-whitespace character of the content line
+//! following the annotation. A caller looks a statement up by the offset of
+//! its first token in the same SQL string
+//! ([`ParsedStatement::offset`](super::ParsedStatement::offset), or
+//! [`first_token_offset`](super::first_token_offset) for a single-statement
+//! block), so:
 //!
-//! The statement index is computed the same way a caller iterating
-//! [`sqlparser::parser::Parser::parse_sql`]'s output would number statements:
-//! it advances by one for every top-level `;` encountered. A caller must
-//! look a suppression up by that same 0-based enumeration index (`idx` in
-//! `for (idx, stmt) in statements.iter().enumerate()`), not by a computed
-//! source line.
+//! - two statements on one line (`DROP TABLE a; DROP TABLE b;`) are told
+//!   apart -- only the first starts where the line's content does;
+//! - a statement spanning several lines is looked up once, by its start;
+//! - an annotation followed by a line that continues an earlier statement
+//!   attaches to nothing;
+//! - nothing depends on how many statements came before. Keying by a
+//!   statement *index* counted from the `;`s on each line drifted whenever
+//!   the caller numbered statements differently -- a statement that failed
+//!   to parse, an empty statement (`;;`), or a `;` inside a string literal,
+//!   comment or dollar-quoted body moved every later suppression onto the
+//!   wrong statement.
+//!
+//! Because the key is where the content line starts, the statement must
+//! begin its line: one that follows a block comment on the same line
+//! (`/* c */ SELECT ...`) does not receive the annotation.
 
 use ahash::{AHashMap, AHashSet};
 
@@ -46,8 +54,9 @@ const ANNOTATION_PREFIX: &str = "-- sqlkit-audit: ignore[";
 /// Set of per-statement rule-ID suppressions parsed from inline annotations.
 #[derive(Debug, Default)]
 pub struct SuppressionSet {
-    /// Map: 0-based statement index (in file order) → set of suppressed rule IDs.
-    by_statement: AHashMap<usize, AHashSet<String>>,
+    /// Map: byte offset where the annotated statement starts → set of
+    /// suppressed rule IDs.
+    by_offset: AHashMap<usize, AHashSet<String>>,
 }
 
 impl SuppressionSet {
@@ -55,66 +64,48 @@ impl SuppressionSet {
     /// `-- sqlkit-audit: ignore[…]` annotation found in it.
     pub fn parse(sql: &str) -> Self {
         let mut set = Self::default();
-
-        let lines: Vec<&str> = sql.split('\n').collect();
-        let n = lines.len();
-
         let mut pending: AHashSet<String> = AHashSet::new();
-        let mut stmt_index: usize = 0;
+        let mut line_start = 0;
 
-        let mut i = 0;
-        while i < n {
-            let trimmed = lines[i].trim();
+        for line in sql.split('\n') {
+            let offset = line_start;
+            line_start += line.len() + 1;
+
+            let trimmed = line.trim();
             if trimmed.is_empty() {
                 pending.clear();
-                i += 1;
                 continue;
             }
-
             if let Some(ids) = try_parse_annotation(trimmed) {
                 pending.extend(ids);
-                i += 1;
                 continue;
             }
-
             if trimmed.starts_with("--") {
-                i += 1;
                 continue;
             }
 
-            // A content line: it belongs to the statement at `stmt_index`.
-            // Attach any pending annotation to that statement exactly once
-            // -- later lines of the same (possibly multi-line) statement
-            // have no pending set left to attach.
+            // A content line: the pending annotation belongs to whichever
+            // statement starts where this line's content does.
             if !pending.is_empty() {
-                let ids_to_attach: AHashSet<String> = pending.drain().collect();
-                set.by_statement.entry(stmt_index).or_default().extend(ids_to_attach);
+                let start = offset + (line.len() - line.trim_start().len());
+                set.by_offset.entry(start).or_default().extend(pending.drain());
             }
-
-            // Advance the statement counter once per top-level `;` crossed
-            // on this line. A statement that shares a line with an earlier,
-            // annotated statement (`DROP TABLE a; DROP TABLE b;`) must land
-            // on its own, later index rather than inheriting the first
-            // statement's suppression.
-            stmt_index += lines[i].matches(';').count();
-
-            i += 1;
         }
 
         set
     }
 
-    /// Return `true` if `rule_id` is suppressed on the statement at
-    /// `stmt_index` (0-based, in file order — see the module docs).
-    pub fn is_suppressed(&self, rule_id: &str, stmt_index: usize) -> bool {
-        self.by_statement
-            .get(&stmt_index)
+    /// Return `true` if `rule_id` is suppressed on the statement whose first
+    /// token is at byte `stmt_offset` of the parsed SQL (see the module docs).
+    pub fn is_suppressed(&self, rule_id: &str, stmt_offset: usize) -> bool {
+        self.by_offset
+            .get(&stmt_offset)
             .is_some_and(|ids| ids.contains(rule_id))
     }
 
     /// Return `true` if no suppressions are recorded.
     pub fn is_empty(&self) -> bool {
-        self.by_statement.is_empty()
+        self.by_offset.is_empty()
     }
 }
 
@@ -155,22 +146,83 @@ fn is_valid_rule_id(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::parse_statements_lenient;
+
+    /// Whether `rule_id` is suppressed on the `nth` statement that parsed,
+    /// looked up the way `sqlkit audit` looks it up.
+    fn suppressed(set: &SuppressionSet, sql: &str, rule_id: &str, nth: usize) -> bool {
+        let (statements, _) = parse_statements_lenient(sql);
+        statements
+            .get(nth)
+            .is_some_and(|s| set.is_suppressed(rule_id, s.offset))
+    }
+
+    /// A statement that fails to parse must not shift a later annotation
+    /// onto the statement after the one it precedes.
+    #[test]
+    fn failed_statement_in_the_middle_does_not_shift_suppressions() {
+        let sql = "GRANT ALL ON a TO x;\nNOT A STATEMENT;\n-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON b TO y;\nGRANT ALL ON c TO z;";
+        let set = SuppressionSet::parse(sql);
+        let (statements, failures) = parse_statements_lenient(sql);
+        assert_eq!((statements.len(), failures.len()), (3, 1));
+        assert!(!suppressed(&set, sql, "SC-SEC02", 0));
+        assert!(suppressed(&set, sql, "SC-SEC02", 1), "the annotated GRANT on b");
+        assert!(!suppressed(&set, sql, "SC-SEC02", 2));
+    }
+
+    #[test]
+    fn semicolon_inside_a_string_literal_does_not_shift_suppressions() {
+        let sql = "SELECT 'a;b';\n-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON b TO y;\nGRANT ALL ON c TO z;";
+        let set = SuppressionSet::parse(sql);
+        assert!(!suppressed(&set, sql, "SC-SEC02", 0));
+        assert!(suppressed(&set, sql, "SC-SEC02", 1));
+        assert!(!suppressed(&set, sql, "SC-SEC02", 2));
+    }
+
+    #[test]
+    fn empty_statement_does_not_shift_suppressions() {
+        let sql = "SELECT 1;;\n-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON b TO y;\nGRANT ALL ON c TO z;";
+        let set = SuppressionSet::parse(sql);
+        assert!(!suppressed(&set, sql, "SC-SEC02", 0));
+        assert!(suppressed(&set, sql, "SC-SEC02", 1));
+        assert!(!suppressed(&set, sql, "SC-SEC02", 2));
+    }
+
+    #[test]
+    fn two_statements_on_one_line_after_others_only_first_is_suppressed() {
+        let sql = "SELECT 1;\n-- sqlkit-audit: ignore[SC-MIG01]\n  DROP TABLE a; DROP TABLE b;\nDROP TABLE c;";
+        let set = SuppressionSet::parse(sql);
+        assert!(!suppressed(&set, sql, "SC-MIG01", 0));
+        assert!(suppressed(&set, sql, "SC-MIG01", 1));
+        assert!(!suppressed(&set, sql, "SC-MIG01", 2));
+        assert!(!suppressed(&set, sql, "SC-MIG01", 3));
+    }
+
+    /// An annotation inside a multi-line statement precedes a continuation
+    /// line, not the start of a statement, so it attaches to nothing.
+    #[test]
+    fn annotation_before_a_continuation_line_attaches_to_nothing() {
+        let sql = "GRANT ALL\n-- sqlkit-audit: ignore[SC-SEC02]\nON a TO x;\nGRANT ALL ON b TO y;";
+        let set = SuppressionSet::parse(sql);
+        assert!(!suppressed(&set, sql, "SC-SEC02", 0));
+        assert!(!suppressed(&set, sql, "SC-SEC02", 1));
+    }
 
     #[test]
     fn single_rule_ignore_suppresses_next_statement() {
         let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON users TO bob;";
         let set = SuppressionSet::parse(sql);
-        assert!(set.is_suppressed("SC-SEC02", 0));
-        assert!(!set.is_suppressed("SC-SEC01", 0));
+        assert!(suppressed(&set, sql, "SC-SEC02", 0));
+        assert!(!suppressed(&set, sql, "SC-SEC01", 0));
     }
 
     #[test]
     fn multi_rule_ignore_suppresses_both_ids() {
         let sql = "-- sqlkit-audit: ignore[SC-SEC01,SC-SEC02]\nSELECT 1;";
         let set = SuppressionSet::parse(sql);
-        assert!(set.is_suppressed("SC-SEC01", 0));
-        assert!(set.is_suppressed("SC-SEC02", 0));
-        assert!(!set.is_suppressed("SC-SEC03", 0));
+        assert!(suppressed(&set, sql, "SC-SEC01", 0));
+        assert!(suppressed(&set, sql, "SC-SEC02", 0));
+        assert!(!suppressed(&set, sql, "SC-SEC03", 0));
     }
 
     #[test]
@@ -178,41 +230,41 @@ mod tests {
         let sql = r#"-- sqlkit-audit: ignore[SC-SEC01] reason="vetted"
 SELECT pg_read_file('foo');"#;
         let set = SuppressionSet::parse(sql);
-        assert!(set.is_suppressed("SC-SEC01", 0));
+        assert!(suppressed(&set, sql, "SC-SEC01", 0));
     }
 
     #[test]
     fn stacked_annotations_union_ids() {
         let sql = "-- sqlkit-audit: ignore[SC-SEC01]\n-- sqlkit-audit: ignore[SC-SEC02]\nSELECT 1;";
         let set = SuppressionSet::parse(sql);
-        assert!(set.is_suppressed("SC-SEC01", 0));
-        assert!(set.is_suppressed("SC-SEC02", 0));
+        assert!(suppressed(&set, sql, "SC-SEC01", 0));
+        assert!(suppressed(&set, sql, "SC-SEC02", 0));
     }
 
     #[test]
     fn multi_line_statement_suppressed_at_single_statement_index() {
         let sql = "-- sqlkit-audit: ignore[SC-SEC08]\nSELECT *\nFROM a, b\nWHERE a.id = b.id;";
         let set = SuppressionSet::parse(sql);
-        assert!(set.is_suppressed("SC-SEC08", 0));
+        assert!(suppressed(&set, sql, "SC-SEC08", 0));
         // There is only ever one statement here, so index 1 is meaningless,
         // but it must not spuriously appear suppressed either.
-        assert!(!set.is_suppressed("SC-SEC08", 1));
+        assert!(!suppressed(&set, sql, "SC-SEC08", 1));
     }
 
     #[test]
     fn blank_line_terminates_suppression_scope() {
         let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON a TO x;\n\nGRANT ALL ON b TO y;";
         let set = SuppressionSet::parse(sql);
-        assert!(set.is_suppressed("SC-SEC02", 0));
-        assert!(!set.is_suppressed("SC-SEC02", 1));
+        assert!(suppressed(&set, sql, "SC-SEC02", 0));
+        assert!(!suppressed(&set, sql, "SC-SEC02", 1));
     }
 
     #[test]
     fn semicolon_terminates_statement() {
         let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON a TO x;\nGRANT ALL ON b TO y;";
         let set = SuppressionSet::parse(sql);
-        assert!(set.is_suppressed("SC-SEC02", 0));
-        assert!(!set.is_suppressed("SC-SEC02", 1));
+        assert!(suppressed(&set, sql, "SC-SEC02", 0));
+        assert!(!suppressed(&set, sql, "SC-SEC02", 1));
     }
 
     /// Regression for #140: two statements sharing one physical line must
@@ -223,11 +275,11 @@ SELECT pg_read_file('foo');"#;
         let sql = "-- sqlkit-audit: ignore[SC-MIG01]\nDROP TABLE a; DROP TABLE b;";
         let set = SuppressionSet::parse(sql);
         assert!(
-            set.is_suppressed("SC-MIG01", 0),
+            suppressed(&set, sql, "SC-MIG01", 0),
             "the first statement on the annotated line must be suppressed"
         );
         assert!(
-            !set.is_suppressed("SC-MIG01", 1),
+            !suppressed(&set, sql, "SC-MIG01", 1),
             "the second statement sharing the line must NOT inherit the first's suppression"
         );
     }
@@ -243,7 +295,7 @@ SELECT pg_read_file('foo');"#;
         let sql = "-- sqlkit-audit: ignore[SC-SEC02]\n\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
         assert!(
-            !set.is_suppressed("SC-SEC02", 0),
+            !suppressed(&set, sql, "SC-SEC02", 0),
             "a blank line between the annotation and the statement must drop the suppression"
         );
     }
@@ -252,15 +304,15 @@ SELECT pg_read_file('foo');"#;
     fn annotation_at_eof_with_no_following_statement_is_harmless() {
         let sql = "SELECT 1;\n-- sqlkit-audit: ignore[SC-SEC02]";
         let set = SuppressionSet::parse(sql);
-        assert!(!set.is_suppressed("SC-SEC02", 0));
-        assert!(!set.is_suppressed("SC-SEC02", 1));
+        assert!(!suppressed(&set, sql, "SC-SEC02", 0));
+        assert!(!suppressed(&set, sql, "SC-SEC02", 1));
     }
 
     #[test]
     fn ordinary_comment_does_not_consume_pending_suppression() {
         let sql = "-- sqlkit-audit: ignore[SC-SEC02]\n-- just a comment\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
-        assert!(set.is_suppressed("SC-SEC02", 0));
+        assert!(suppressed(&set, sql, "SC-SEC02", 0));
     }
 
     #[test]
@@ -281,21 +333,21 @@ SELECT pg_read_file('foo');"#;
     fn is_suppressed_returns_false_for_unknown_id() {
         let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
-        assert!(!set.is_suppressed("SC-SEC99", 0));
+        assert!(!suppressed(&set, sql, "SC-SEC99", 0));
     }
 
     #[test]
     fn is_suppressed_returns_true_for_known_id_on_suppressed_statement() {
         let sql = "-- sqlkit-audit: ignore[SC-SEC02]\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
-        assert!(set.is_suppressed("SC-SEC02", 0));
+        assert!(suppressed(&set, sql, "SC-SEC02", 0));
     }
 
     #[test]
     fn unsuppressed_statement_returns_false() {
         let sql = "GRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
-        assert!(!set.is_suppressed("SC-SEC02", 0));
+        assert!(!suppressed(&set, sql, "SC-SEC02", 0));
     }
 
     #[test]

@@ -12,6 +12,7 @@ pub mod matcher_rule;
 pub mod matchers;
 pub mod registry;
 pub mod spec;
+pub mod statements;
 pub mod suppression;
 
 pub use matcher_args::{MatcherArgsError, validate_matcher_args};
@@ -21,6 +22,7 @@ pub use spec::{
     AuditConfigError, CANONICAL_RULE_IDS, RuleFile, RuleSpec, SCHEMA_VERSION, SpecValidationError,
     load_rules_from_file, parse_rule_file,
 };
+pub use statements::{ParsedStatement, StatementParseFailure, first_token_offset, parse_statements_lenient};
 pub use suppression::SuppressionSet;
 
 /// Register user-supplied rules into an existing `RuleRegistry`.

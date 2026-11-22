@@ -19,7 +19,8 @@ use sqlkit_core::parser::Annotations;
 use sqlkit_lint::reporters::{Finding, Format};
 use sqlkit_lint::{
     AuditConfigError, LintContext, LintRule, MatcherRegistry, RuleCategory, RuleRegistry, RuleSpec, Severity,
-    SuppressionSet, default_registry, emit_findings, load_rules_from_file, register_user_rules,
+    SuppressionSet, default_registry, emit_findings, load_rules_from_file, parse_statements_lenient,
+    register_user_rules,
 };
 
 use super::shared::{
@@ -599,127 +600,6 @@ pub(crate) fn audit_explicit_files(
     Ok(findings)
 }
 
-/// The byte offset in `sql` of a tokenizer location (1-based line, 1-based
-/// column counted in characters), clamped to `sql.len()`.
-fn byte_offset(sql: &str, location: sqlparser::tokenizer::Location) -> usize {
-    let line_start = if location.line <= 1 {
-        0
-    } else {
-        sql.match_indices('\n')
-            .nth(location.line as usize - 2)
-            .map_or(sql.len(), |(index, _)| index + 1)
-    };
-    sql[line_start..]
-        .char_indices()
-        .nth((location.column as usize).saturating_sub(1))
-        .map_or(sql.len(), |(index, _)| line_start + index)
-}
-
-/// One statement [`parse_statements_lenient`] could not parse: its
-/// approximate 1-based starting line and the parser's error message.
-struct StatementParseFailure {
-    line: usize,
-    message: String,
-}
-
-/// Parse `sql` into individual statements, recovering from a parse error on
-/// one statement by skipping to the next top-level `;` (or EOF) and
-/// continuing, instead of discarding every statement already parsed.
-///
-/// [`sqlparser::parser::Parser::parse_sql`] parses the whole input as one
-/// unit and fails on the first unparseable statement, taking every
-/// statement before it down too. For `sqlkit audit`, that meant a single
-/// statement using SQL syntax the parser does not yet support silently
-/// disabled every finding in the rest of the file -- including real
-/// security findings -- with only a stderr line (not visible to a CI job
-/// checking the exit code) marking what happened. See issue #208.
-///
-/// Returns each parsed statement paired with its 1-based starting line
-/// (found via the token span at the point `parse_statement` was called, so
-/// it stays correct even when earlier statements were skipped -- unlike a
-/// separate post-hoc token walk keyed by statement *index*, which would
-/// drift out of sync with `sql`'s real line numbers the moment any
-/// statement is skipped), plus every statement that could not be parsed.
-fn parse_statements_lenient(sql: &str) -> (Vec<(sqlparser::ast::Statement, usize)>, Vec<StatementParseFailure>) {
-    use sqlparser::parser::Parser;
-    use sqlparser::tokenizer::Token;
-
-    let mut parser = match Parser::new(&sqlparser::dialect::PostgreSqlDialect {}).try_with_sql(sql) {
-        Ok(p) => p,
-        Err(e) => {
-            return (
-                Vec::new(),
-                vec![StatementParseFailure {
-                    line: 1,
-                    message: e.to_string(),
-                }],
-            );
-        }
-    };
-
-    let mut statements = Vec::new();
-    let mut failures = Vec::new();
-
-    loop {
-        while parser.consume_token(&Token::SemiColon) {}
-        if matches!(parser.peek_token_ref().token, Token::EOF) {
-            break;
-        }
-
-        let start = parser.peek_token_ref().span.start;
-        let start_line = (start.line as usize).max(1);
-
-        // A statement only parsed if the parser stopped at its end: sqlparser
-        // can accept a prefix (`INSERT ... SELECT x` before `ON CONFLICT`)
-        // and leave the rest to be misread as the next statement.
-        let parsed =
-            parser
-                .parse_statement()
-                .map_err(|e| e.to_string())
-                .and_then(|stmt| match &parser.peek_token_ref().token {
-                    Token::EOF | Token::SemiColon => Ok(stmt),
-                    token => Err(format!(
-                        "sql parser error: unexpected {token} after a complete statement"
-                    )),
-                });
-        match parsed {
-            Ok(stmt) => statements.push((stmt, start_line)),
-            Err(e) => {
-                // Recover by skipping to the next top-level `;` (or EOF) so
-                // the statements after this one still get a chance to parse
-                // and be audited, rather than aborting the whole file.
-                loop {
-                    match parser.peek_token_ref().token {
-                        Token::EOF | Token::SemiColon => break,
-                        _ => {
-                            parser.next_token();
-                        }
-                    }
-                }
-                // The statement may use PostgreSQL syntax sqlparser cannot
-                // read directly (e.g. `INSERT ... SELECT ... ON CONFLICT`):
-                // retry it alone through the same rewrites `parse_query`
-                // applies, so audit and the analyzer agree on what parses.
-                let end = match parser.peek_token_ref().token {
-                    Token::EOF => sql.len(),
-                    _ => byte_offset(sql, parser.peek_token_ref().span.start),
-                };
-                let text = &sql[byte_offset(sql, start).min(end)..end];
-                let rewritten = sqlkit_core::parser::rewrite_for_sqlparser(text);
-                match Parser::parse_sql(&sqlparser::dialect::PostgreSqlDialect {}, &rewritten) {
-                    Ok(mut parsed) if parsed.len() == 1 => statements.push((parsed.remove(0), start_line)),
-                    _ => failures.push(StatementParseFailure {
-                        line: start_line,
-                        message: e.to_string(),
-                    }),
-                }
-            }
-        }
-    }
-
-    (statements, failures)
-}
-
 /// Parse `sql` statement-by-statement and run every security rule over each.
 ///
 /// # Recovery
@@ -740,12 +620,10 @@ fn parse_statements_lenient(sql: &str) -> (Vec<(sqlparser::ast::Statement, usize
 /// # Suppression
 ///
 /// A `SuppressionSet` is built once from the full SQL string and looked up by
-/// each statement's 0-based enumeration index (`idx`), matching how
-/// `SuppressionSet::parse` counts statements internally -- see its module
-/// docs. Looking it up by source line instead used to over-suppress: two
-/// statements sharing one physical line resolved to the same line-keyed
-/// entry, so a suppression meant only for the first silently covered the
-/// second too.
+/// each statement's starting byte offset ([`sqlkit_lint::ParsedStatement::offset`]) -- see
+/// its module docs. An index counted separately by `SuppressionSet` could
+/// disagree with the statements that actually parsed and move suppressions
+/// onto the wrong statement; a position cannot.
 ///
 /// # Reported line numbers
 ///
@@ -799,12 +677,10 @@ pub(crate) fn run_security_rules_over_sql(
     let empty_annotations = Annotations::default();
     let empty_analyzed = AnalyzedQuery::default();
 
-    for (idx, (stmt, stmt_line)) in statements.iter().enumerate() {
-        let stmt_line = *stmt_line;
-
+    for statement in &statements {
         let ctx = LintContext {
             sql,
-            stmt,
+            stmt: &statement.stmt,
             analyzed: &empty_analyzed,
             catalog,
             annotations: &empty_annotations,
@@ -812,14 +688,9 @@ pub(crate) fn run_security_rules_over_sql(
 
         for (rule, severity) in rules {
             for violation in rule.check_query(&ctx) {
-                // `SuppressionSet` is keyed by 0-based statement index, not
-                // by source line (sqlkit-lint #140: two statements sharing
-                // one physical line previously resolved to the same
-                // line-keyed entry and a suppression meant for the first
-                // silently covered the second too).
                 if !ignore_suppressions
                     && !suppressions.is_empty()
-                    && suppressions.is_suppressed(&violation.rule_id, idx)
+                    && suppressions.is_suppressed(&violation.rule_id, statement.offset)
                 {
                     continue;
                 }
@@ -832,7 +703,7 @@ pub(crate) fn run_security_rules_over_sql(
                     rule_description: Some(rule.description().to_string()),
                     severity: *severity,
                     message: violation.message,
-                    line: Some(stmt_line),
+                    line: Some(statement.line),
                     column: None,
                     // `LintRule::cwe()`, not `extract_cwe(rule.description())`
                     // -- the rule's declaration rather than a regex over its
@@ -846,38 +717,4 @@ pub(crate) fn run_security_rules_over_sql(
     }
 
     findings
-}
-
-#[cfg(test)]
-mod lenient_parse_tests {
-    use super::parse_statements_lenient;
-
-    /// sqlparser accepts `INSERT ... SELECT x` and stops before
-    /// `ON CONFLICT`; the statement must still be audited whole, through the
-    /// rewrites `parse_query` applies, not split into a parsed prefix and an
-    /// unparseable `CONFLICT ...` remainder.
-    #[test]
-    fn insert_select_on_conflict_parses_as_one_statement() {
-        let sql = "INSERT INTO t (a, b)\nSELECT $1, unnest($2::text[])\nON CONFLICT DO NOTHING;\n\nDELETE FROM t WHERE a = $1;\n";
-        let (statements, failures) = parse_statements_lenient(sql);
-        assert!(
-            failures.is_empty(),
-            "unexpected failures: {:?}",
-            failures.iter().map(|f| &f.message).collect::<Vec<_>>()
-        );
-        assert_eq!(statements.len(), 2);
-        assert_eq!(statements[0].1, 1);
-        assert_eq!(statements[1].1, 5);
-    }
-
-    /// A statement that no rewrite rescues is still reported, at its own
-    /// line, and the statements around it are still parsed.
-    #[test]
-    fn unparseable_statement_is_reported_and_skipped() {
-        let sql = "SELECT 1;\nNOT A STATEMENT;\nSELECT 2;\n";
-        let (statements, failures) = parse_statements_lenient(sql);
-        assert_eq!(statements.len(), 2);
-        assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0].line, 2);
-    }
 }
