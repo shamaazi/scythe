@@ -14,6 +14,11 @@ in
   languages.rust = {
     enable = true;
     toolchainFile = ./rust-toolchain.toml;
+    # Link with LLD. The default, clang driving GNU ld, cannot read LLVM bitcode, which
+    # `alloca` (criterion's dependency) compiles its C into whenever CC is clang, so the
+    # benches failed to link; LLD reads it, and links the debug binaries faster too.
+    # This only configures the development shell: mygiving's Nix build is unaffected.
+    lld.enable = true;
   };
   # OpenSSL for the database drivers; Bun for the typescript-bun integration project.
   packages = [
