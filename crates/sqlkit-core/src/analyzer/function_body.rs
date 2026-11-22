@@ -48,10 +48,8 @@ pub(crate) fn analyze_function_body(
         params: Vec::new(),
         ctes: AHashMap::new(),
         type_errors: Vec::new(),
-        positional_param_counter: 0,
         pending_nested: Vec::new(),
         next_nested_id: 0,
-        resolved_placeholders: AHashMap::new(),
         outer_sources: vec![ScopeSource {
             alias: function_name.to_string(),
             table_name: function_name.to_string(),

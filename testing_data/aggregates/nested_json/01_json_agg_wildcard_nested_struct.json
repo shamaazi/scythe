@@ -6,28 +6,7 @@
     "generated_code": {
       "rust-sqlx": { "degraded_nested_structs": [] },
       "rust-tokio-postgres": { "degraded_nested_structs": [] },
-      "python-psycopg3": { "degraded_nested_structs": [] },
-      "go-pgx": { "degraded_nested_structs": [] },
-      "elixir-postgrex": {
-        "degraded_nested_structs": [
-          { "column": "orders", "struct_name": "GetUserOrdersRowOrders", "fallback_type": "json_array" }
-        ]
-      },
-      "python-asyncpg": {
-        "degraded_nested_structs": [
-          { "column": "orders", "struct_name": "GetUserOrdersRowOrders", "fallback_type": "json_array" }
-        ]
-      },
-      "typescript-pg": { "degraded_nested_structs": [] },
-      "typescript-postgres": { "degraded_nested_structs": [] },
-      "typescript-kysely": { "degraded_nested_structs": [] },
-      "php-pdo": { "degraded_nested_structs": [] },
-      "php-amphp": { "degraded_nested_structs": [] },
-      "java-jdbc": {
-        "degraded_nested_structs": [
-          { "column": "orders", "struct_name": "GetUserOrdersRowOrders", "fallback_type": "json" }
-        ]
-      }
+      "typescript-postgres": { "degraded_nested_structs": [] }
     },
     "query": {
       "columns": [

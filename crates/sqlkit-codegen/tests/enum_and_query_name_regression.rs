@@ -11,11 +11,8 @@
 //!    `sanitize_for_identifier`) made `to_pascal_case` return `""`: every
 //!    `_`-delimited part was itself empty, and the old loop contributed
 //!    nothing for any of them. This only reaches an empty variant under
-//!    `enum_variant_case = "PascalCase"` (C#, Go, Rust, TypeScript) --
-//!    `to_snake_case`/`to_screaming_snake_case` do not collapse underscores,
-//!    so Java/Kotlin/PHP/Python/Ruby (`SCREAMING_SNAKE_CASE`) and Elixir
-//!    (`snake_case`) already produced a non-empty, if unconventional, `"___"`
-//!    before this fix.
+//!    `enum_variant_case = "PascalCase"` (Rust, TypeScript) --
+//!    `to_snake_case`/`to_screaming_snake_case` do not collapse underscores.
 //! 3. Two enums colliding under `struct_case`, or an enum colliding with the
 //!    query's own row/model type, went undetected: `generate_enum_defs_via_backend`
 //!    only deduplicated by raw SQL name, never checked the *generated* name

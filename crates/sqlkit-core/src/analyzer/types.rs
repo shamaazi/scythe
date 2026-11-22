@@ -182,9 +182,9 @@ pub struct AnalyzedColumn {
     #[cfg_attr(feature = "serde", serde(default))]
     pub nullable_before_join: bool,
     /// The raw (lowercased, precision-stripped) SQL type this column was derived
-    /// from, e.g. "clob" or "varchar2". Backends that need to distinguish
-    /// storage representations the neutral type collapses (Oracle CLOB vs.
-    /// VARCHAR2, both `neutral_type == "string"`) can match on this. Falls back
+    /// from, e.g. "xml" or "text". Backends that need to distinguish
+    /// storage representations the neutral type collapses (both
+    /// `neutral_type == "string"`) can match on this. Falls back
     /// to `neutral_type` for computed/expression columns with no single source
     /// SQL type.
     #[cfg_attr(feature = "serde", serde(default))]
@@ -485,7 +485,7 @@ impl TypeInfo {
     ///
     /// Carries four things the neutral type alone cannot express: the raw SQL
     /// type, so backends can distinguish storage representations that collapse
-    /// to the same neutral type (Oracle CLOB vs. VARCHAR2); where the column's
+    /// to the same neutral type; where the column's
     /// nullability came from, so outer-joined columns can be grouped; the
     /// owning relation's real table name (not just its query alias), so a
     /// qualified `table.column` type override can bind to it (#189); and the
@@ -525,7 +525,6 @@ impl TypeInfo {
 }
 
 use ahash::AHashMap;
-use sqlparser::tokenizer::Span;
 
 use crate::catalog::Catalog;
 
@@ -536,36 +535,13 @@ pub(super) struct Analyzer<'a> {
     pub(super) ctes: AHashMap<String, Vec<ScopeColumn>>,
     /// Collected type errors during analysis
     pub(super) type_errors: Vec<String>,
-    /// Auto-incrementing counter for MySQL `?` positional placeholders
-    pub(super) positional_param_counter: i64,
     /// Nested-struct definitions awaiting phase-2 naming. See
     /// [`PendingNestedStruct`].
     pub(super) pending_nested: Vec<PendingNestedStruct>,
     /// Auto-incrementing counter assigning `PendingNestedStruct::id`.
-    /// Threaded into a derived-subquery sub-analyzer and back (mirroring
-    /// `positional_param_counter`) so ids stay unique across a subquery
+    /// Threaded into a derived-subquery sub-analyzer and back so ids stay unique across a subquery
     /// boundary once `pending_nested` is bubbled up.
     pub(super) next_nested_id: u32,
-    /// Memoizes the position already assigned to a `?` occurrence, keyed by
-    /// that occurrence's source span. A single placeholder AST node is
-    /// visited twice per projection expression -- once by
-    /// `collect_params_from_where`, once by `infer_expr_type` -- and `?` has
-    /// no explicit position to make that idempotent the way `$N` is, so
-    /// without this memo the second visit mints a brand-new position and
-    /// the query reports the wrong parameter count (#170). Keyed by
-    /// [`Span`] rather than an occurrence index because `sqlparser` (see
-    /// `Parser::try_with_sql` -> `Tokenizer::tokenize_with_location`)
-    /// always tokenizes with real line/column locations, so every `?` in
-    /// parsed SQL carries a distinct, stable span. `Span::empty()` --
-    /// which only synthetic/test AST nodes carry, never output from
-    /// `Parser::parse_sql` -- deliberately bypasses this memo (see
-    /// `resolve_placeholder_position`) rather than being treated as a
-    /// valid key, since every such node would otherwise collapse onto the
-    /// same entry. Starts empty and is extended (not overwritten) across
-    /// a derived-subquery sub-analyzer boundary, the same way
-    /// `pending_nested` is: a subquery's placeholder spans live in a
-    /// disjoint region of the source text, so merging can never collide.
-    pub(super) resolved_placeholders: AHashMap<Span, i64>,
     /// Sources a correlated reference can name: the FROM items of every
     /// enclosing query level and, inside a `LATERAL` derived table, the FROM
     /// items before it. Innermost last. A column the current scope does not

@@ -9,9 +9,7 @@ pub mod schema_types;
 pub mod sql_literal;
 pub mod validation;
 
-pub use backend_trait::{
-    CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, ResolvedColumn, ResolvedParam,
-};
+pub use backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 pub use backends::{engine_feature, get_backend};
 pub use overrides::TypeOverride;
 
@@ -500,14 +498,10 @@ impl NestedTypeRefs {
 /// `analyzed.composites` arrives in the analyzer's breadth-first discovery
 /// order: types reached from the query's columns go in first, and a type
 /// reached only through another composite's field list is appended behind the
-/// composite that named it. That is exactly backwards for any target language
-/// where a type reference is resolved at definition time. `CREATE TYPE outer
-/// AS (inner_field inner_type)`, selected as a column, yields
-/// `[outer, inner]` -- and python's `@dataclass` annotations are evaluated
-/// when the class body runs, so the emitted module raised `NameError: name
-/// 'Inner' is not defined` on import. The languages whose declarations hoist
-/// (TypeScript types, Java/Kotlin classes, Rust items) never noticed, which is
-/// why this survived: it is invisible unless the generated file is executed.
+/// composite that named it. Emitting dependencies first keeps
+/// the output readable top to bottom (`CREATE TYPE outer AS (inner_field
+/// inner_type)`, selected as a column, yields `[outer, inner]`), although Rust
+/// and TypeScript both hoist declarations.
 ///
 /// A post-order depth-first walk puts dependencies first. Ties and unreachable
 /// entries keep their original relative order, so this only ever moves a
@@ -612,8 +606,7 @@ fn type_referenced_by_columns(analyzed: &AnalyzedQuery, prefix: &str, sql_name: 
 /// needs `inner`'s definition too, but neither `type_referenced_by_columns`
 /// nor `NestedTypeRefs::collect` looks inside a composite's own fields --
 /// without this walk `inner` stays in `analyzed.composites` (sqlkit-core
-/// recurses to collect it) with its definition silently skipped here
-/// (unfiled, found alongside the JVM composite `fromText` fix in ddb7bb00).
+/// recurses to collect it) with its definition silently skipped here.
 /// `analyzed.composites` already holds at most one entry per name (deduped by
 /// the analyzer), so this only decides which of those entries are reachable
 /// -- it does not need its own diamond guard beyond that.
@@ -831,13 +824,8 @@ pub(crate) fn nested_struct_shape(neutral_type: &str) -> Option<NestedColumnShap
 }
 
 /// Degradation pass for nested-aggregate columns (`json_agg(o.*)`,
-/// `row_to_json(u.*)`). Must run before `resolve::resolve_columns` -- every
-/// caller that resolves `AnalyzedColumn`s into a backend's types needs this,
-/// not just [`generate_with_backend_and_overrides`]: `sqlkit-cli`'s RBS
-/// signature generation (`generate_rbs_if_supported`) calls
-/// `resolve::resolve_columns` directly on a second, independent path, so it
-/// must run this pass too or it silently bypasses the byte-identity
-/// guarantee for any backend that hasn't opted in.
+/// `row_to_json(u.*)`). Must run before `resolve::resolve_columns`. Every caller that
+/// resolves `AnalyzedColumn`s into a backend's types needs it.
 ///
 /// For each entry in `nested_structs`, asks the backend whether it opts in
 /// via [`CodegenBackend::generate_nested_struct_def`]:
@@ -1657,9 +1645,7 @@ mod tests {
 
     /// The N9 regression: a user's own `@json` mapping resolves to
     /// `json_typed<...>`, a type sqlkit knows nothing about. It must not be
-    /// mistaken for a struct sqlkit synthesized, or backends keyed off this
-    /// (python-psycopg3's row construction) start calling constructors on a
-    /// type that may not have one.
+    /// mistaken for a struct sqlkit synthesized.
     #[test]
     fn test_nested_struct_shape_ignores_user_json_typed_mapping() {
         assert!(nested_struct_shape("json_typed<EventData>").is_none());
@@ -1907,8 +1893,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Unfiled: a composite reachable only as another composite's field --
-    // found alongside the JVM composite `fromText` fix in ddb7bb00.
+    // A composite reachable only as another composite's field.
     // -----------------------------------------------------------------
 
     /// Must fail before the fix: `outer_shape` is selected directly (so its own definition was
@@ -2019,12 +2004,8 @@ mod tests {
     /// Must fail before the fix: `analyzed.composites` arrives in the analyzer's
     /// breadth-first discovery order, which puts a composite *before* the nested
     /// composite its own field names -- so the emission loop, which walked that
-    /// vector directly, wrote `OuterShape` ahead of `InnerPoint`. Rust, TypeScript
-    /// and the JVM backends hoist declarations and never noticed; python's
-    /// `@dataclass` annotations are evaluated when the class body runs, so the
-    /// generated module raised `NameError` on import. Found by
-    /// `python_composite_enum_read_regression.rs`, whose `poly` pass runs ruff over
-    /// the emitted file and reported `F821 Undefined name`.
+    /// vector directly, wrote `OuterShape` ahead of `InnerPoint`. Rust and TypeScript
+    /// hoist declarations, but dependency order keeps the output readable.
     #[test]
     fn composites_are_emitted_after_the_composites_their_fields_reference() {
         use sqlkit_core::analyzer::{CompositeFieldInfo, CompositeInfo};
@@ -2290,17 +2271,7 @@ mod tests {
     /// `None` when the backend, or every engine it accepts, was left out of
     /// this build by its Cargo features.
     fn backend_for_select_star(name: &str) -> Option<Box<dyn CodegenBackend>> {
-        const ENGINES: &[&str] = &[
-            "postgresql",
-            "mysql",
-            "sqlite",
-            "mssql",
-            "mariadb",
-            "duckdb",
-            "oracle",
-            "snowflake",
-            "redshift",
-        ];
+        const ENGINES: &[&str] = &["postgresql"];
         for engine in ENGINES {
             if let Ok(backend) = get_backend(name, engine) {
                 return Some(backend);
@@ -2371,13 +2342,7 @@ mod tests {
     /// deriving another one (#164). There is no per-backend name derivation
     /// left for a 50th backend to get wrong.
     ///
-    /// It is now empty. The last entry was `kotlin-exposed`, whose
-    /// `generate_model_struct` emitted an Exposed `object XTable :
-    /// IntIdTable(...)` in place of a row type entirely, so the shared naming
-    /// fix could not reach it. It now emits both — the table object, because
-    /// that genuinely is the Exposed idiom, and the row `data class`, because
-    /// `determine_struct_name` constructs that type regardless and leaving it
-    /// undeclared is what #214 was about.
+    /// It is now empty.
     const KNOWN_DIVERGENT_BACKENDS: &[BackendNote] = &[];
 
     /// Backends this check cannot render a verdict on at all -- distinct

@@ -134,8 +134,8 @@ fn audit_from_config_rejects_unknown_engine() {
     );
 }
 
-/// A recognized alias other than the canonical spelling (`mysql`, not
-/// `mysql8`) must keep working -- the fix must add validation, not narrow
+/// A recognized alias other than the canonical spelling (`pg`, not
+/// `postgresql`) must keep working -- the fix must add validation, not narrow
 /// what `engine` accepts. Checked against the "unknown engine" failure mode
 /// specifically (rather than requiring exit 0) so this test does not become
 /// coupled to which lint rules happen to be active by default.

@@ -2,49 +2,18 @@
 //! from `-- @returns :one` in generated code.
 //!
 //! `:one` means "exactly one row, error if absent"; `:opt` means "zero or one
-//! row, return null/None/Option". Across the backend registry, the vast
-//! majority of `generate_query_fn` implementations match
-//! `QueryCommand::One | QueryCommand::Opt => { .. }` in a single arm, so the
-//! two commands render byte-identical code. Which contract silently wins
-//! depends on which behaviour that shared arm happens to implement:
+//! row, return null/None/Option". A backend that renders both from one shared
+//! match arm silently gives one command the other's contract.
 //!
-//! - `rust-tiberius` implemented the arm as "exactly one row, `.expect()` if
-//!   absent" -- so `:opt` panicked at runtime on a missing row, the exact
-//!   case `:opt` exists to handle without an error.
-//! - Most backends implemented the arm as "zero or one row, return
-//!   null/None" -- so `:opt`'s own output was correct and `:one` silently
-//!   inherited its permissiveness, never erroring on a missing row.
+//! `rust-tokio-postgres` is the reference shape: `query_one` for `:one`
+//! (errors on a missing row through the driver's own `Result`, never panics)
+//! and `query_opt` for `:opt` (returns `Option<Row>`, mapped into
+//! `Option<Struct>`).
 //!
-//! An earlier revision of this comment claimed that second bullet covered
-//! "csharp-*, python-*, elixir-*, go-*, java-*, kotlin-*, php-*, ruby-*,
-//! typescript-*, rust-sibyl". **That was wrong for go-\* and elixir-\***, 10
-//! of the 53 entries this list used to hold, and the error was found only
-//! when someone re-derived each family's arm from the code while fixing it:
-//!
-//! - `go_database_sql.rs` emitted `err := row.Scan(..); return r, err`, and
-//!   `sql.ErrNoRows` propagates through that untouched -- so `:one` was
-//!   already correct and `:opt` was the broken one, erroring on a
-//!   legitimately absent row.
-//! - Every `elixir_*.rs` emitted `{:error, :not_found}` for both commands,
-//!   the same inversion.
-//! - `go_godror.rs` really did fold the permissive way, unlike its three Go
-//!   siblings -- so even "the family behaves alike" was not safe to assume.
-//!
-//! The lesson is the one the `rust-sqlx` note below records independently: a
-//! ratchet can only check pass/fail, never *why*, so a stated reason nobody
-//! re-derives rots while the gate stays green. Re-derive before trusting a
-//! reason in this file, and prefer quoting the emitted code over describing
-//! it.
-//!
-//! `rust-tokio-postgres` was already correct throughout and is the reference
-//! shape: `query_one` for `:one` (errors on a missing row through the
-//! driver's own `Result`, never panics) and `query_opt` for `:opt` (returns
-//! `Option<Row>`, mapped into `Option<Struct>`).
-//!
-//! Every backend has since been fixed, so `KNOWN_UNDIFFERENTIATED_BACKENDS`
-//! is empty. It is kept, rather than deleted with its last entry, because
-//! the ratchet still fails in both directions and an empty list is what
-//! makes a new fold show up as a regression instead of as the status quo.
+//! Every backend now distinguishes the two, so
+//! `KNOWN_UNDIFFERENTIATED_BACKENDS` is empty. It is kept because the ratchet
+//! still fails in both directions and an empty list is what makes a new fold
+//! show up as a regression instead of as the status quo.
 
 #![cfg_attr(
     not(all(feature = "all-engines", feature = "all-languages")),
@@ -91,25 +60,13 @@ fn query_fn_for(backend_name: &str, engine: &str, command: QueryCommand) -> Stri
 }
 
 // ---------------------------------------------------------------------
-// rust-tiberius: the panic fix (crates/sqlkit-codegen/src/backends/rust_tiberius.rs)
-// ---------------------------------------------------------------------
-
-// ---------------------------------------------------------------------
 // Census: does *any* backend actually distinguish :one from :opt?
 // ---------------------------------------------------------------------
 
 /// Every backend name [`sqlkit_codegen::get_backend`] recognises as a
 /// primary (non-alias) name, mirroring `sqlkit_codegen::lib::tests::
-/// ALL_BACKEND_NAMES` (kept as an independent copy here rather than an
-/// import: that list lives in a private `#[cfg(test)] mod tests` in another
-/// agent's owned `lib.rs`, and duplicating ~50 string literals into a test
-/// file this crate already trusts is cheaper than reaching into another
-/// owner's file).
-///
-/// `ruby-rbs` is intentionally absent: it is not registered in
-/// `get_backend` at all (`ruby_rbs` is a `pub(crate)` companion generator
-/// invoked alongside `ruby-pg`/etc., not a standalone backend), so this
-/// census cannot reach it through the same code path as everything else.
+/// ALL_BACKEND_NAMES` (an independent copy, since that list lives
+/// in a private `#[cfg(test)] mod tests`).
 const ALL_BACKEND_NAMES: &[&str] = &[
     "rust-sqlx",
     "rust-tokio-postgres",
@@ -123,17 +80,7 @@ const ALL_BACKEND_NAMES: &[&str] = &[
 /// `sqlkit_codegen::lib::tests::backend_for_select_star`'s `ENGINES` list.
 /// This census cares whether `:one` and `:opt` diverge at all, not which
 /// engine it observes that on.
-const ENGINES: &[&str] = &[
-    "postgresql",
-    "mysql",
-    "sqlite",
-    "mssql",
-    "mariadb",
-    "duckdb",
-    "oracle",
-    "snowflake",
-    "redshift",
-];
+const ENGINES: &[&str] = &["postgresql"];
 
 fn first_supported_engine(name: &str) -> &'static str {
     for engine in ENGINES {
@@ -162,13 +109,8 @@ struct BackendNote {
 /// left to rot.
 ///
 /// Every entry today folds `:one` and `:opt` into ONE SHARED
-/// `QueryCommand::One | QueryCommand::Opt` match arm. Which contract wins
-/// varies by backend (see the file-level doc comment): most of these
-/// backends actually render `:opt`'s own output correctly and instead leave
-/// `:one` wrongly permissive (no error on a missing row) -- a real defect,
-/// but not the one #197 tracks, and not touched by this fix. `rust-sqlx`
-/// `rust-tiberius`, `rust-sqlx` and `rust-tokio-postgres` are deliberately
-/// absent: the first two were fixed, and the third already was correct.
+/// `QueryCommand::One | QueryCommand::Opt` match arm. `rust-sqlx` was
+/// fixed and `rust-tokio-postgres` was always correct.
 ///
 /// `rust-sqlx` is worth remembering as what this ratchet is for. It was
 /// listed here as folding the way #197 describes -- `:opt` inheriting
@@ -181,8 +123,7 @@ struct BackendNote {
 /// was in the interaction between three arms, not in any one of them.
 const KNOWN_UNDIFFERENTIATED_BACKENDS: &[BackendNote] = &[];
 
-/// Census guard for #197: does any backend other than `rust-tiberius` and
-/// `rust-tokio-postgres` actually render different code for `:one` vs.
+/// Census guard for #197: does every backend actually render different code for `:one` vs.
 /// `:opt`? Every backend not in [`KNOWN_UNDIFFERENTIATED_BACKENDS`] must
 /// differ; every backend in it must currently still be identical -- a stale
 /// entry fails exactly as loudly as a regression, so the allowlist cannot
@@ -190,9 +131,8 @@ const KNOWN_UNDIFFERENTIATED_BACKENDS: &[BackendNote] = &[];
 /// `sqlkit_codegen::lib::tests::test_select_star_declares_and_references_the_same_struct_name_across_all_backends`).
 ///
 /// This intentionally does not assert which *direction* a fold goes (`:opt`
-/// inheriting `:one`'s strictness, as `rust-sqlx` and pre-fix
-/// `rust-tiberius` do, vs. `:one` inheriting `:opt`'s permissiveness, as
-/// every other allowlisted backend does) -- both are silent downgrades of
+/// inheriting `:one`'s strictness, as pre-fix `rust-sqlx` did, or `:one`
+/// inheriting `:opt`'s permissiveness) -- both are silent downgrades of
 /// one command's contract into the other's, and both are exactly what
 /// "a backend silently downgrades :opt" (or, symmetrically, :one) means.
 #[cfg(all(feature = "lang-rust", feature = "lang-typescript", feature = "postgres"))]

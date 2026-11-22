@@ -94,7 +94,7 @@ pub struct Expected {
     #[serde(default)]
     pub lint: Option<ExpectedLint>,
     /// Backends declared to fail `sqlkit_codegen::generate_with_backend` for this fixture,
-    /// keyed by backend name (e.g. `"python-asyncpg"`). Absent for the overwhelming majority of
+    /// keyed by backend name (e.g. `"rust-tokio-postgres"`). Absent for the overwhelming majority of
     /// fixtures, where every applicable backend is expected to generate successfully -- this
     /// exists only for the genuine cases the #222 measurement finds, not as a general escape
     /// hatch to silence a failure without understanding it.
@@ -535,9 +535,9 @@ mod tests {
       { "name": "id", "type": "int4", "nullable": false }
     ] },
     "codegen_errors": {
-      "python-asyncpg": {
+      "rust-tokio-postgres": {
         "message_contains": "unsupported type",
-        "reason": "asyncpg has no mapping for this type as of #222; re-derive before editing"
+        "reason": "the driver has no mapping for this type as of #222; re-derive before editing"
       }
     }
   },
@@ -553,12 +553,12 @@ mod tests {
             .as_ref()
             .expect("codegen_errors must round-trip, not be dropped");
         let entry = codegen_errors
-            .get("python-asyncpg")
-            .expect("the python-asyncpg entry must be present");
+            .get("rust-tokio-postgres")
+            .expect("the rust-tokio-postgres entry must be present");
         assert_eq!(entry.message_contains, "unsupported type");
         assert_eq!(
             entry.reason,
-            "asyncpg has no mapping for this type as of #222; re-derive before editing"
+            "the driver has no mapping for this type as of #222; re-derive before editing"
         );
     }
 
@@ -634,7 +634,7 @@ mod tests {
       { "name": "id", "type": "int4", "nullable": false }
     ] },
     "codegen_errors": {
-      "python-asyncpg": { "message_contains": "unsupported type" }
+      "rust-tokio-postgres": { "message_contains": "unsupported type" }
     }
   },
   "source": "original"

@@ -38,16 +38,7 @@ mod tests {
 
     #[test]
     fn test_from_str_other_engines() {
-        for name in [
-            "mysql",
-            "sqlite",
-            "duckdb",
-            "mssql",
-            "oracle",
-            "snowflake",
-            "nosuchdb",
-            "",
-        ] {
+        for name in ["nosuchdb", ""] {
             assert_eq!(SqlDialect::from_str(name), None, "{name}");
         }
     }

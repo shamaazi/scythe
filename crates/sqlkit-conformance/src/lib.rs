@@ -23,10 +23,8 @@
 //! No default feature links a database driver: [`fixture`], [`expectation`],
 //! [`verdict`], [`divergence`], and [`query_shape`] are pure and DB-free, so
 //! `cargo test --workspace` and `cargo clippy --workspace -- -D warnings`
-//! exercise them without a container. Per-engine drivers live in
-//! [`executors`], each behind its own Cargo feature (`pg`, `mysql`,
-//! `mariadb`, `sqlite`, `mssql`, `oracle` -- all six engines), plus
-//! the `live-tests` gate for actually dialing a database. [`runner`] wires
+//! exercise them without a container. The PostgreSQL driver lives in
+//! [`executors`], behind the `pg` Cargo feature plus the `live-tests` gate for actually dialing a database. [`runner`] wires
 //! a driver, the analyzer, codegen, and the four assertions together into
 //! real verdicts -- see its module docs for how it handles an engine that
 //! cannot run.

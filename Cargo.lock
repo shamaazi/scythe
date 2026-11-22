@@ -861,8 +861,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "minijinja",
- "sqlkit-codegen",
  "serde",
+ "sqlkit-codegen",
  "toml",
 ]
 
@@ -987,15 +987,6 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
-
-[[package]]
-name = "migrate-fixtures"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "glob",
- "serde_json",
-]
 
 [[package]]
 name = "minijinja"
@@ -1423,117 +1414,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "sqlkit-backend"
-version = "0.20.3"
-dependencies = [
- "ahash",
- "serde",
- "thiserror",
- "toml",
-]
-
-[[package]]
-name = "sqlkit-cli"
-version = "0.20.3"
-dependencies = [
- "ahash",
- "assert_cmd",
- "clap",
- "glob",
- "regex",
- "sqlkit-backend",
- "sqlkit-codegen",
- "sqlkit-core",
- "sqlkit-inspect",
- "sqlkit-lint",
- "serde",
- "serde_json",
- "sqlparser",
- "syn 3.0.10",
- "tempfile",
- "tokio",
- "tokio-postgres",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "sqlkit-codegen"
-version = "0.20.3"
-dependencies = [
- "ahash",
- "criterion",
- "sqlkit-backend",
- "sqlkit-core",
- "sqlkit-lint",
- "syn 3.0.10",
- "toml",
-]
-
-[[package]]
-name = "sqlkit-conformance"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "glob",
- "sqlkit-backend",
- "sqlkit-codegen",
- "sqlkit-core",
- "serde",
- "serde_json",
- "sqlparser",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-postgres",
- "toml",
-]
-
-[[package]]
-name = "sqlkit-core"
-version = "0.20.3"
-dependencies = [
- "ahash",
- "serde",
- "serde_json",
- "sha2",
- "sqlparser",
-]
-
-[[package]]
-name = "sqlkit-inspect"
-version = "0.20.3"
-dependencies = [
- "async-trait",
- "regex",
- "sqlkit-core",
- "sqlkit-lint",
- "serde",
- "serde_json",
- "sqlparser",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-postgres",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "sqlkit-lint"
-version = "0.20.3"
-dependencies = [
- "ahash",
- "sqlkit-core",
- "serde",
- "serde_json",
- "sqlparser",
- "sqruff-lib",
- "thiserror",
- "toml",
-]
-
-[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1661,6 +1541,117 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "sqlkit-backend"
+version = "0.20.3"
+dependencies = [
+ "ahash",
+ "serde",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
+name = "sqlkit-cli"
+version = "0.20.3"
+dependencies = [
+ "ahash",
+ "assert_cmd",
+ "clap",
+ "glob",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlkit-backend",
+ "sqlkit-codegen",
+ "sqlkit-core",
+ "sqlkit-inspect",
+ "sqlkit-lint",
+ "sqlparser",
+ "syn 3.0.10",
+ "tempfile",
+ "tokio",
+ "tokio-postgres",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "sqlkit-codegen"
+version = "0.20.3"
+dependencies = [
+ "ahash",
+ "criterion",
+ "sqlkit-backend",
+ "sqlkit-core",
+ "sqlkit-lint",
+ "syn 3.0.10",
+ "toml",
+]
+
+[[package]]
+name = "sqlkit-conformance"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "glob",
+ "serde",
+ "serde_json",
+ "sqlkit-backend",
+ "sqlkit-codegen",
+ "sqlkit-core",
+ "sqlparser",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-postgres",
+ "toml",
+]
+
+[[package]]
+name = "sqlkit-core"
+version = "0.20.3"
+dependencies = [
+ "ahash",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlparser",
+]
+
+[[package]]
+name = "sqlkit-inspect"
+version = "0.20.3"
+dependencies = [
+ "async-trait",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlkit-core",
+ "sqlkit-lint",
+ "sqlparser",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-postgres",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "sqlkit-lint"
+version = "0.20.3"
+dependencies = [
+ "ahash",
+ "serde",
+ "serde_json",
+ "sqlkit-core",
+ "sqlparser",
+ "sqruff-lib",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -1868,9 +1859,9 @@ dependencies = [
  "ahash",
  "clap",
  "glob",
- "sqlkit-codegen",
  "serde",
  "serde_json",
+ "sqlkit-codegen",
  "tempfile",
 ]
 

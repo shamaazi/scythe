@@ -6,40 +6,6 @@ use sqlkit_core::errors::{ErrorCode, SqlkitError};
 use crate::GeneratedCode;
 use crate::constraints::ConstraintPolicy;
 
-/// Information needed to generate an RBS type signature file.
-#[derive(Debug, Clone)]
-pub struct RbsGenerationContext {
-    pub queries: Vec<RbsQueryInfo>,
-    pub enums: Vec<RbsEnumInfo>,
-}
-
-/// Per-query info for RBS generation.
-#[derive(Debug, Clone, Default)]
-pub struct RbsQueryInfo {
-    pub func_name: String,
-    pub struct_name: Option<String>,
-    /// The row's columns. For a `:grouped` query this holds the *parent*
-    /// columns only; the children live in [`Self::child_columns`].
-    pub columns: Vec<ResolvedColumn>,
-    /// A `:grouped` query's child-row columns, empty for every other command.
-    ///
-    /// Carried as its own field rather than packed into `columns` behind an
-    /// in-band marker: a sentinel smuggled through a data field is how #173
-    /// leaked `__unknown_col__` into user-visible output, and a `full_type`
-    /// that means "this is a child" rather than a type is the same shape of
-    /// mistake one refactor away from being read as a type.
-    pub child_columns: Vec<ResolvedColumn>,
-    pub params: Vec<ResolvedParam>,
-    pub command: sqlkit_core::parser::QueryCommand,
-}
-
-/// Per-enum info for RBS generation.
-#[derive(Debug, Clone)]
-pub struct RbsEnumInfo {
-    pub type_name: String,
-    pub values: Vec<String>,
-}
-
 /// A column with its type resolved to the target language.
 #[derive(Debug, Clone, Default)]
 pub struct ResolvedColumn {
@@ -59,7 +25,7 @@ pub struct ResolvedColumn {
     /// The raw SQL type this column was derived from (see
     /// [`sqlkit_core::analyzer::AnalyzedColumn::sql_type`]). Backends that need
     /// to distinguish storage representations the neutral type collapses
-    /// (Oracle CLOB vs. VARCHAR2, both `neutral_type == "string"`) match on
+    /// (e.g. `xml` vs. `text`, both `neutral_type == "string"`) match on
     /// this instead of `neutral_type`.
     pub sql_type: String,
     /// The schema's constraints on this column's values (see
@@ -294,12 +260,9 @@ pub trait CodegenBackend: Send + Sync {
     /// file — before any comment, including the provenance header that
     /// assembly prepends ahead of [`file_header`](Self::file_header).
     ///
-    /// Some languages have syntax that loses its meaning, or becomes a
-    /// syntax error, if anything precedes it: PHP's `<?php` tag must open
-    /// the file, and Ruby's `# frozen_string_literal: true` magic comment is
-    /// only recognized on line 1 (or line 2 after a shebang) — a comment
-    /// placed above it makes Ruby silently ignore the pragma. Backends with
-    /// such a constraint override this method; everything else that may
+    /// For syntax that loses its meaning, or becomes a syntax error, if
+    /// anything precedes it (a magic first-line directive). Backends with such
+    /// a constraint override this method; everything else that may
     /// legally follow a leading comment (imports, docstrings, `#!`-style
     /// banners) stays in [`file_header`](Self::file_header).
     ///
@@ -335,11 +298,6 @@ pub trait CodegenBackend: Send + Sync {
     /// not supporting it. `Err(_)` is reserved for a genuine failure (e.g. a
     /// field's neutral type doesn't resolve) and must propagate rather than
     /// degrade.
-    ///
-    /// An override must also gate on the *engine* it was constructed for,
-    /// not only on being a PostgreSQL backend: `rust-tokio-postgres`,
-    /// `go-pgx` and `python-psycopg3` all list `redshift` in
-    /// [`Self::supported_engines`], and Redshift has no `json_agg`.
     fn generate_nested_struct_def(&self, _nested: &NestedStructInfo) -> Result<Option<String>, SqlkitError> {
         Ok(None)
     }
@@ -377,35 +335,6 @@ pub trait CodegenBackend: Send + Sync {
     /// broad engine-level import guesses. The default preserves existing behavior.
     fn file_header_for_results(&self, _generated: &[GeneratedCode]) -> String {
         self.file_header()
-    }
-
-    /// Generate a file-level footer (closing braces, etc).
-    /// Returns an empty string by default; backends may override.
-    fn file_footer(&self) -> String {
-        String::new()
-    }
-
-    /// Generate a class header that wraps query functions only.
-    /// When non-empty, the assembly will emit all type definitions (enums,
-    /// row structs, model structs) first, then this class header, then all
-    /// query functions, then the file footer.
-    /// Returns an empty string by default (no class wrapper).
-    fn query_class_header(&self) -> String {
-        String::new()
-    }
-
-    /// Generate code that should be emitted after the file footer.
-    /// This is useful for backends that need top-level code after a class wrapper.
-    /// For example, C# extension methods must be top-level, not nested.
-    /// Returns an empty string by default.
-    fn post_footer(&self) -> String {
-        String::new()
-    }
-
-    /// Generate an RBS type signature file for Ruby backends.
-    /// Returns `None` by default; Ruby backends override this.
-    fn generate_rbs_file(&self, _context: &RbsGenerationContext) -> Option<String> {
-        None
     }
 
     /// Generate parent and child structs for a `:grouped` query.

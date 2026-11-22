@@ -1,19 +1,16 @@
 //! Structural completeness checks for integration-test coverage (issues #126,
 //! #134, #135).
 //!
-//! The defect these close is not "DuckDB has no project" — it is that the set
-//! of shipped backends and the set of exercised backends were two independent
-//! derivations of one fact that nothing ever compared. Seventeen manifests had
-//! drifted out of coverage and only an audit noticed.
+//! The defect these close is that the set of shipped backends and the set of
+//! exercised backends were two independent derivations of one fact that nothing
+//! ever compared, so manifests drifted out of coverage unnoticed.
 //!
 //! So this file never hand-writes either list. `manifests/` is enumerated from
 //! disk, the covered set is enumerated from the committed `sqlkit.toml` files,
 //! and — critically — a project's `(backend, engine)` is mapped onto the
 //! manifest it actually selects by calling the *real* resolver,
-//! `sqlkit_codegen::backends::get_backend`. That matters because the mapping is
-//! not the identity: `csharp-mysqlconnector` on engine `mariadb` resolves to
-//! the `mysql` manifest, there being no mariadb manifest for it. Re-deriving
-//! that fallback table here would reintroduce exactly the "two derivations,
+//! `sqlkit_codegen::backends::get_backend`. Re-deriving that mapping here would
+//! reintroduce exactly the "two derivations,
 //! never cross-checked" shape these checks exist to kill, so the resolver is
 //! asked instead.
 //!
@@ -314,18 +311,11 @@ fn every_integration_project_runs_in_the_devenv_task() {
     );
 }
 
-/// Every generated harness executes the shared schema by splitting it on `";"` and running one
-/// fragment at a time (`elixir.exs.jinja`, `kotlin.kt.jinja`, `java.java.jinja`, `php.php.jinja`,
-/// `ruby.rb.jinja`, `typescript.ts.jinja`, `python.py.jinja`, `csharp.cs.jinja` all do this). That
+/// A harness that executes the shared schema by splitting it on `";"` and running one fragment
+/// at a time (as upstream's non-Rust harnesses did) breaks on a semicolon in a comment. That
 /// split is not SQL-aware: a `;` inside a `--` comment ends the fragment there, and the rest of
 /// the comment line — no longer preceded by its `--` — becomes the head of the next fragment and
 /// is sent to the server as bare SQL.
-///
-/// This is not hypothetical. `sql/pg/schema.sql` carried the comment "...under compile-only
-/// coverage; this one is exercised live...", and `elixir-postgrex` failed with
-/// `ERROR 42601 (syntax_error) syntax error at or near "this"` — the fragment began `this one`.
-/// Only elixir surfaced it because the postgres job fails fast and the harnesses ahead of it in
-/// the job happen not to split that schema, so the same latent break sat behind them.
 ///
 /// Splitting SQL naively is the real defect and it is tracked separately; until the harnesses
 /// parse properly, this keeps the fixture side of the contract enforced rather than relying on

@@ -36,10 +36,8 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Sqlkit
         params: Vec::new(),
         ctes: AHashMap::new(),
         type_errors: Vec::new(),
-        positional_param_counter: 0,
         pending_nested: Vec::new(),
         next_nested_id: 0,
-        resolved_placeholders: AHashMap::new(),
         outer_sources: Vec::new(),
     };
 
@@ -169,7 +167,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Sqlkit
     // that type in the *nested* struct's field list and nowhere else, so
     // scanning only `columns`/`params` emits `pub status: OrderStatus` with
     // no `enum OrderStatus` in the file — E0412 in Rust, an undefined type
-    // in Go, a `NameError` in Python.
+    // in TypeScript.
     let nested_field_types: Vec<&str> = nested_structs
         .iter()
         .flat_map(|nested| nested.fields.iter())
@@ -204,9 +202,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Sqlkit
     // `CREATE TYPE outer AS (inner_field inner_type)` -- so walking only the
     // query's own columns/params/nested-struct fields misses `inner` entirely:
     // selecting `outer` alone would reference `Inner` in generated code with no
-    // definition ever emitted (unfiled; found alongside the JVM composite
-    // `fromText` fix in ddb7bb00, which recurses into nested composite fields at
-    // the codegen level and needs this analyzer-level definition to exist).
+    // definition ever emitted.
     // `seen_composites` both dedupes a diamond -- two fields naming the same
     // nested composite -- down to one definition, and stops a true cycle from
     // looping forever; PostgreSQL rejects a real composite cycle at `CREATE
@@ -2237,8 +2233,7 @@ SELECT jsonb_each(j) AS kv FROM t;",
         );
     }
 
-    // Regression tests for the unfiled defect found alongside the JVM composite `fromText`
-    // fix (ddb7bb00): `analyzed.composites` was built by scanning selected columns' neutral
+    // Regression tests: `analyzed.composites` was built by scanning selected columns' neutral
     // types, never by walking into a composite's own field list, so a composite reachable
     // only as another composite's field was never collected -- and its definition was never
     // emitted -- even though the outer composite that references it was selected directly.

@@ -1,4 +1,3 @@
-use ahash::AHashMap;
 use sqlparser::ast::{self, JoinOperator, TableFactor};
 
 use crate::catalog::FunctionReturn;
@@ -196,7 +195,7 @@ impl<'a> Analyzer<'a> {
                         let arg_list: &[ast::FunctionArg] = args.as_ref().map(|a| a.args.as_slice()).unwrap_or(&[]);
                         self.collect_set_function_arg_params(&table_name, arg_list, scope);
                         let columns = match table_name.as_str() {
-                            // Postgres/MSSQL table-valued function call
+                            // PostgreSQL table-valued function call
                             // syntax (`FROM generate_series(1, 10)`, no
                             // `LATERAL`) parses as `TableFactor::Table` with
                             // `args: Some(...)`, not `TableFactor::Function`
@@ -257,20 +256,16 @@ impl<'a> Analyzer<'a> {
                     params: Vec::new(),
                     ctes: self.ctes.clone(),
                     type_errors: Vec::new(),
-                    positional_param_counter: self.positional_param_counter,
                     pending_nested: Vec::new(),
                     next_nested_id: self.next_nested_id,
-                    resolved_placeholders: AHashMap::new(),
                     outer_sources,
                 };
                 let sub_cols = sub_analyzer.analyze_query(subquery)?;
 
                 self.params.extend(sub_analyzer.params);
-                self.positional_param_counter = sub_analyzer.positional_param_counter;
                 self.type_errors.extend(sub_analyzer.type_errors);
                 self.next_nested_id = sub_analyzer.next_nested_id;
                 self.pending_nested.extend(sub_analyzer.pending_nested);
-                self.resolved_placeholders.extend(sub_analyzer.resolved_placeholders);
 
                 let alias_name = alias
                     .as_ref()
@@ -701,10 +696,8 @@ mod tests {
             params: Vec::new(),
             ctes: AHashMap::new(),
             type_errors: Vec::new(),
-            positional_param_counter: 0,
             pending_nested: Vec::new(),
             next_nested_id: 0,
-            resolved_placeholders: AHashMap::new(),
             outer_sources: Vec::new(),
         }
     }

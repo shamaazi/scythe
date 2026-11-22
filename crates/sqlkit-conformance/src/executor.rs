@@ -4,9 +4,8 @@
 //! This module pulls in no driver dependency itself, which is what lets
 //! `cargo test --workspace` and `cargo clippy --workspace -- -D warnings`
 //! compile the trait without linking a database client. The
-//! implementations live in [`crate::executors`], each behind its own
-//! feature (`pg`, `mysql`, `mariadb`, `sqlite`, `mssql`, `oracle`) plus the
-//! `live-tests` gate for actually dialing a database. Selecting an engine
+//! implementation lives in [`crate::executors`], behind the `pg` feature plus
+//! the `live-tests` gate for actually dialing a database. Selecting an engine
 //! whose feature is off is a hard error in [`crate::runner`], never a
 //! silent skip.
 
@@ -21,9 +20,8 @@ use crate::fixture::Engine;
 ///
 /// Deliberately *not* "the names of the columns that were null" -- encoding
 /// nullness by omission makes a column the driver reports under a different
-/// name (e.g. Oracle upper-casing an unquoted identifier so `total` comes
-/// back as `TOTAL`) indistinguishable from "observed non-null", which would
-/// make A2 soundness fail-open on exactly the engine most likely to need it.
+/// name (e.g. a case-folded identifier, so `total` comes back as `TOTAL`) indistinguishable from "observed non-null", which would
+/// make A2 soundness fail-open.
 /// There is deliberately no `Default` impl: a default-constructed row would
 /// have to pick some answer for "is column X null", and every answer is
 /// wrong for a column the caller hasn't populated yet.
@@ -81,10 +79,7 @@ pub struct MissingColumn {
 /// describes the three operations the conformance runner needs from one.
 ///
 /// `Send`, not `Send + Sync`: the runner drives one executor at a time
-/// through `&mut self`, never shares one across threads concurrently, and
-/// `rusqlite::Connection` -- correctly, given SQLite's threading model --
-/// is `Send` but not `Sync`. Requiring `Sync` here would make it impossible
-/// to ever implement this trait for SQLite.
+/// through `&mut self` and never shares one across threads.
 pub trait Executor: Send {
     /// The engine this executor drives, used to resolve schema files and
     /// per-engine seed/expectation overrides.
@@ -127,7 +122,7 @@ mod tests {
 
     #[test]
     fn is_null_errors_on_a_column_the_driver_never_reported() {
-        // ~keep The Oracle-uppercasing scenario: the fixture expects "total" but
+        // ~keep A case-folding driver: the fixture expects "total" but
         // the driver reported "TOTAL". This must be a hard error, not a
         // silent "false" (== "observed non-null").
         let row = ObservedRow::new([("TOTAL".to_string(), true)]);

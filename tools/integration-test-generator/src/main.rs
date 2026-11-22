@@ -33,7 +33,7 @@ struct Cli {
     /// Print backend directory names (one per line) and exit without generating anything.
     ///
     /// This is the manifest of record for `build_backends()` — consumers such as
-    /// `integration_tests/mise.toml` should derive their backend lists from this
+    /// the `sqlkit:generate` devenv task should derive their backend lists from this
     /// output instead of hand-maintaining a copy, so the two can never drift.
     #[arg(long)]
     list: bool,
@@ -47,7 +47,7 @@ struct BackendConfig {
     language: String,
     /// Database engine: "postgresql".
     engine: String,
-    /// Driver name used by the sqlkit backend, e.g. "psycopg3", "asyncpg".
+    /// Driver name used by the sqlkit backend, e.g. "sqlx", "tokio-postgres".
     driver: String,
     /// Environment variable for the database connection string.
     connection_env: String,

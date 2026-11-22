@@ -6,17 +6,16 @@ use serde::Deserialize;
 
 use ahash::{AHashMap, AHashSet};
 
-use sqlkit_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
+use sqlkit_backend::naming::{enum_type_name, fn_name, row_struct_name};
 use sqlkit_codegen::validation::{ValidationOutcome, validate_generated_code};
 use sqlkit_codegen::{
-    CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, TypeOverride, degrade_unsupported_nested_structs,
-    generate_single_enum_def_with_backend, generate_with_backend_and_overrides,
+    CodegenBackend, TypeOverride, generate_single_enum_def_with_backend, generate_with_backend_and_overrides,
     generate_with_backend_and_overrides_and_nested_composites, get_backend,
 };
 use sqlkit_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
 use sqlkit_core::catalog::Catalog;
 use sqlkit_core::dialect::SqlDialect;
-use sqlkit_core::parser::{QueryCommand, parse_query_with_dialect};
+use sqlkit_core::parser::parse_query_with_dialect;
 use sqlkit_lint::{QueryViolation, RuleRegistry, Severity};
 
 use super::shared::{
@@ -226,10 +225,8 @@ struct GenTarget {
     /// so a `manifest = "..."` line would be rejected outright by every
     /// backend (#103) instead of being applied as the overlay it names.
     ///
-    /// Keyed per target, not globally, because a backend name alone does not
-    /// determine a manifest: `java-jdbc` covers nine engines and `rust-sqlx`
-    /// five, and a single global mapping would hand a MySQL target the
-    /// PostgreSQL type mappings (#82).
+    /// Keyed per target, not globally, so two targets using the same backend
+    /// can each carry their own overlay (#82).
     #[serde(default)]
     manifest: Option<String>,
     #[serde(flatten)]
@@ -300,9 +297,8 @@ fn toml_value_to_string(value: &toml::Value) -> String {
 /// falling back to a default backend when a legacy `target` cannot be
 /// resolved to a real backend -- see issue #97, where an unrecognized
 /// `[sql.gen.rust] target` silently produced `rust-sqlx` and an unrecognized
-/// `[sql.gen.<lang>]` table (e.g. `kotlin`, which this legacy format had no
-/// field for at all) was silently dropped, generating the wrong language
-/// with no error.
+/// `[sql.gen.<lang>]` table was silently dropped, generating the wrong
+/// language with no error.
 fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>, String> {
     let default_output = sql_config.output.clone().unwrap_or_else(|| "generated".to_string());
 
@@ -403,7 +399,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
 /// [`sqlkit_codegen::resolve::resolve_params`] both silently fall back to the inferred type
 /// either way (#189). Covers every query's flat `columns` plus, for a `:grouped` query, both
 /// halves of `group_by`'s parent/child split -- the same column sets
-/// [`generate_with_backend_and_overrides`] and [`generate_rbs_if_supported`] resolve -- and
+/// [`generate_with_backend_and_overrides`] resolves -- and
 /// every query's `params`, via [`sqlkit_codegen::resolve::param_references`] (#189's
 /// remainder: a qualified override that only ever targets a parameter, not a column, used to
 /// pass this check silently even though it could never match anything either).
@@ -606,11 +602,8 @@ fn run_generate_inner(
                 )
             })?;
 
-            // Merged before `apply_options`, not after: some backends derive
-            // state from the manifest inside `apply_options` (python-psycopg3
-            // computes its import set from the scalar mappings), so the
-            // overlay has to already be in place or those derivations would
-            // be based on the mappings the user just replaced.
+            // Merged before `apply_options`, not after, so any state a backend
+            // derives from the manifest there sees the user's overlay.
             if let Some(ref manifest_path) = target.manifest_override {
                 apply_manifest_override(backend.manifest_mut(), &target.backend, manifest_path, base_dir)?;
             }
@@ -837,8 +830,7 @@ fn apply_manifest_override(
         format!(
             "backend '{backend_name}': invalid manifest override '{display_path}': {e}\n  \
              note: the file is a *partial* manifest -- it may contain [types.scalars], \
-             [types.containers],\n        [types.docblock_containers], [naming], and \
-             [imports.rules] only"
+             [types.containers],\n        [naming], and [imports.rules] only"
         )
     })?;
 
@@ -1062,7 +1054,7 @@ struct QueryResult {
 /// The construction itself lives in
 /// [`sqlkit_codegen::provenance::header_line_with_options`] so that
 /// `sqlkit-codegen`'s `tool_validation` harness can assemble the same bytes
-/// and hand them to `php -l` / `ruby -c` / `gofmt`; see that module's doc
+/// and hand them to `tsc` and `node`; see that module's doc
 /// comment. This wrapper exists only to supply the version, which is not
 /// `sqlkit-codegen`'s to decide: the number that belongs in the header is the
 /// version of the `sqlkit` binary that wrote the file, because that is
@@ -1224,9 +1216,8 @@ fn record_type_declaration(
 }
 
 /// Assemble a backend's complete generated file: preamble (text that must
-/// be the literal first bytes, e.g. PHP's `<?php`), the provenance header
-/// line, then the assembled body (file header, deduped enums, structs,
-/// query functions, footer, post-footer).
+/// be the literal first bytes), the provenance header line, then the
+/// assembled body (file header, deduped enums, structs, query functions).
 ///
 /// Preamble and the provenance line are deliberately outside
 /// [`assemble_body`] and prepended here instead of inside it: `assemble_body`
@@ -1311,20 +1302,9 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
         output_parts.push(def.clone());
     }
 
-    let python_models_first = backend.manifest().backend.language == "python";
     let mut seen_model_structs: AHashSet<&str> = AHashSet::new();
-    if python_models_first {
-        for result in results {
-            if let Some(ref definition) = result.code.model_struct
-                && seen_model_structs.insert(definition.as_str())
-            {
-                output_parts.push(definition.clone());
-            }
-        }
-    }
 
-    // ~keep Python evaluates class annotations eagerly. Composite/model definitions must precede
-    // nested structs, and nested structs must precede row structs that reference them.
+    // Nested structs precede the row structs that reference them.
     for def in &unique_nested_defs {
         output_parts.push(def.clone());
     }
@@ -1340,54 +1320,20 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
     // `nested_struct_defs` above, there is no per-item name to key a dedup
     // on here, only the assembled text; deduping on that text is exact
     // (never merges two declarations that happen to differ) and is what
-    // stops a language whose compiler rejects a redeclared type -- Java's
-    // `record ... is already defined`, Kotlin's `redeclaration:`, plus Rust,
-    // Go, C#, and PHP, which reject a duplicate struct/type/record/class the
-    // same way -- from ever seeing this file (board #166).
-    let class_header = backend.query_class_header();
-    if class_header.is_empty() {
-        for result in results {
-            if !python_models_first
-                && let Some(ref s) = result.code.model_struct
-                && seen_model_structs.insert(s.as_str())
-            {
-                output_parts.push(s.clone());
-            }
-            if let Some(ref s) = result.code.row_struct {
-                output_parts.push(s.clone());
-            }
-            if let Some(ref s) = result.code.query_fn {
-                output_parts.push(s.clone());
-            }
+    // keeps a redeclared type, which Rust and TypeScript reject, out of this
+    // file (board #166).
+    for result in results {
+        if let Some(ref s) = result.code.model_struct
+            && seen_model_structs.insert(s.as_str())
+        {
+            output_parts.push(s.clone());
         }
-    } else {
-        for result in results {
-            if !python_models_first
-                && let Some(ref s) = result.code.model_struct
-                && seen_model_structs.insert(s.as_str())
-            {
-                output_parts.push(s.clone());
-            }
-            if let Some(ref s) = result.code.row_struct {
-                output_parts.push(s.clone());
-            }
+        if let Some(ref s) = result.code.row_struct {
+            output_parts.push(s.clone());
         }
-        output_parts.push(class_header);
-        for result in results {
-            if let Some(ref s) = result.code.query_fn {
-                output_parts.push(s.clone());
-            }
+        if let Some(ref s) = result.code.query_fn {
+            output_parts.push(s.clone());
         }
-    }
-
-    let footer = backend.file_footer();
-    if !footer.is_empty() {
-        output_parts.push(footer);
-    }
-
-    let post_footer = backend.post_footer();
-    if !post_footer.is_empty() {
-        output_parts.push(post_footer);
     }
 
     if output_parts.is_empty() {
@@ -1397,40 +1343,10 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
     }
 }
 
-/// The output filename for a backend's generated queries file. Extracted so
-/// the `.java` capitalization rule lives in exactly one place: header
-/// verification (`artifact_paths`) has to locate the same file this names,
-/// and a second copy of the rule would diverge silently.
+/// The output filename for a backend's generated queries file, shared by
+/// writing and header verification (`artifact_paths`).
 fn output_filename(backend: &dyn CodegenBackend) -> String {
-    let ext = backend.output_extension();
-    if ext == "java" {
-        format!("Queries.{}", ext)
-    } else {
-        format!("queries.{}", ext)
-    }
-}
-
-/// Filename of the RBS type-signature file Ruby backends emit alongside
-/// `queries.rb`. Fixed, not derived from the manifest: RBS is Ruby's own
-/// signature format, so the extension is a property of RBS rather than of
-/// the backend.
-const RBS_FILENAME: &str = "queries.rbs";
-
-/// Whether `backend` emits an RBS signature file alongside its main output.
-///
-/// Probes [`CodegenBackend::generate_rbs_file`] with an empty context rather
-/// than testing `manifest().backend.language == "ruby"`: the trait method's
-/// `None` default *is* the definition of "does not emit RBS", so asking it
-/// directly cannot disagree with what generation actually does. Shared by
-/// [`generate_rbs_if_supported`] and [`artifact_paths`] so writing and
-/// verifying can never end up with different ideas about which targets have
-/// a second artifact.
-fn backend_emits_rbs(backend: &dyn CodegenBackend) -> bool {
-    let empty_context = RbsGenerationContext {
-        queries: vec![],
-        enums: vec![],
-    };
-    backend.generate_rbs_file(&empty_context).is_some()
+    format!("queries.{}", backend.output_extension())
 }
 
 /// The provenance-header fields that are derived once per `[[sql.gen]]`
@@ -1438,12 +1354,11 @@ fn backend_emits_rbs(backend: &dyn CodegenBackend) -> bool {
 ///
 /// They are grouped rather than passed individually because they are only
 /// ever read as a set — by [`provenance_header_line`], and by nothing else —
-/// and because passing them separately pushed both
-/// [`generate_for_backend`] and [`generate_rbs_if_supported`] past clippy's
-/// argument-count threshold when `queries` was added.
+/// and because passing them separately pushed
+/// [`generate_for_backend`] past clippy's argument-count threshold.
 #[derive(Clone, Copy)]
 struct ProvenanceFields<'a> {
-    /// The raw `[[sql]]` engine alias (e.g. `"mariadb"`), exactly as the
+    /// The raw `[[sql]]` engine alias (e.g. `"pg"`), exactly as the
     /// user wrote it — deliberately not normalized, so the header records
     /// the configured engine rather than the one inference resolved it to.
     engine: &'a str,
@@ -1646,8 +1561,6 @@ fn generate_for_backend(
     };
     let validation_failed = output_validation_failed || format_validation_failed;
 
-    generate_rbs_if_supported(config_name, backend, analyzed_queries, overrides, out_path, provenance)?;
-
     Ok(validation_failed)
 }
 
@@ -1736,194 +1649,6 @@ fn report_generated_code_validation(config_name: &str, output_file: &Path, backe
             true
         }
     }
-}
-
-/// Determine the struct name for a query, matching the logic in sqlkit_codegen.
-fn determine_struct_name(analyzed: &AnalyzedQuery, naming: &sqlkit_backend::naming::NamingConfig) -> String {
-    if let Some(ref table_name) = analyzed.source_table {
-        let singular = sqlkit_codegen::singularize(table_name);
-        to_pascal_case(&singular).into_owned()
-    } else {
-        row_struct_name(&analyzed.name, naming)
-    }
-}
-
-/// Generate an RBS type signature file alongside the Ruby output file,
-/// if the backend supports RBS generation (Ruby backends only).
-///
-/// `provenance` is threaded through for the same reason
-/// [`generate_for_backend`] takes it: `queries.rbs` gets a provenance
-/// header too. It is a tracked artifact in all six `integration_tests/ruby-*`
-/// projects, and its content is schema-derived — a column changing type or
-/// nullability rewrites the RBS signatures. Emitting it without a header
-/// would have left the one generated file per Ruby target that `sqlkit
-/// check` could never report as drifted, which is worse than not verifying
-/// it at all: RBS is what `steep` type-checks the caller's code against, so
-/// a stale `.rbs` reports type errors against a schema that no longer exists.
-fn generate_rbs_if_supported(
-    config_name: &str,
-    backend: &dyn CodegenBackend,
-    analyzed_queries: &[AnalyzedQuery],
-    overrides: &[TypeOverride],
-    out_path: &Path,
-    provenance: ProvenanceFields<'_>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if !backend_emits_rbs(backend) {
-        return Ok(());
-    }
-    let ProvenanceFields {
-        engine,
-        schema,
-        queries,
-        options,
-    } = provenance;
-
-    let manifest = backend.manifest();
-    let naming = &manifest.naming;
-
-    let mut rbs_queries: Vec<RbsQueryInfo> = Vec::new();
-    let mut seen_enums = AHashSet::new();
-    let mut rbs_enums: Vec<RbsEnumInfo> = Vec::new();
-
-    for analyzed in analyzed_queries {
-        let source_table = analyzed.source_table.as_deref().unwrap_or("");
-        let func = fn_name(&analyzed.name, naming);
-
-        if analyzed.command == QueryCommand::Grouped {
-            // A `:grouped` query's RBS needs the same parent/child column split as its `.rb`
-            // counterpart (`sqlkit_codegen::generate_with_backend_and_overrides`'s own
-            // `QueryCommand::Grouped` branch), not the flat `analyzed.columns` the branch
-            // below resolves -- resolving the flat list here is GH #203: the emitted `.rbs`
-            // described one class with neither the `children` field nor the child class the
-            // `.rb` `Data.define`s actually declare. `group_by` is guaranteed `Some` by the
-            // time we get here in practice (the `.rb` path runs first for every query in
-            // `generate_for_backend` and returns the identical "missing @group_by" error if
-            // it isn't, aborting the whole `generate` command before this RBS path runs), but
-            // this is handled as a real error rather than `unwrap`/`expect` regardless.
-            let group_by = analyzed.group_by.as_ref().ok_or_else(|| {
-                format!(
-                    "query '{}' is :grouped but is missing @group_by annotation",
-                    analyzed.name
-                )
-            })?;
-
-            let parent_struct_name = row_struct_name(&analyzed.name, naming);
-
-            // Same degradation pass as the non-grouped branch below, run separately against
-            // each half of the split (mirroring `generate_with_backend_and_overrides`) since a
-            // :grouped query's parent/child columns are a distinct copy of `analyzed.columns`.
-            let (degraded_parent, degraded_child) = if analyzed.nested_structs.is_empty() {
-                (None, None)
-            } else {
-                // ~keep The degradation list is discarded here on purpose: this is the RBS
-                // signature path, and the main generation path for the same query has already
-                // reported it (see the note above about the .rb path running first).
-                let (dp, _, _) =
-                    degrade_unsupported_nested_structs(&group_by.parent_columns, &analyzed.nested_structs, backend)?;
-                let (dc, _, _) =
-                    degrade_unsupported_nested_structs(&group_by.child_columns, &analyzed.nested_structs, backend)?;
-                (Some(dp), Some(dc))
-            };
-            let parent_cols = sqlkit_codegen::resolve::resolve_columns(
-                degraded_parent.as_deref().unwrap_or(&group_by.parent_columns),
-                manifest,
-                overrides,
-            )?;
-            let child_cols = sqlkit_codegen::resolve::resolve_columns(
-                degraded_child.as_deref().unwrap_or(&group_by.child_columns),
-                manifest,
-                overrides,
-            )?;
-            let params = sqlkit_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
-
-            let needs_struct = !analyzed.columns.is_empty();
-
-            rbs_queries.push(RbsQueryInfo {
-                func_name: func,
-                struct_name: if needs_struct { Some(parent_struct_name) } else { None },
-                columns: parent_cols,
-                child_columns: child_cols,
-                params,
-                // Kept as `Grouped` (not rewritten to `Many`) so `ruby_rbs.rs` can tell a
-                // grouped query apart from a flat `:many` one and emits both the parent and
-                // the child class instead of one flat class (#203).
-                command: QueryCommand::Grouped,
-            });
-        } else {
-            // This path resolves columns independently of the `.rb` file (rather than reusing
-            // its output) and would otherwise reference a nested-struct type name the backend
-            // never defines anywhere, for any backend that hasn't opted in. Skipped when
-            // nested_structs is empty (the common case) for the same zero-copy reason as the
-            // grouped branch above.
-            let degraded_columns = if analyzed.nested_structs.is_empty() {
-                None
-            } else {
-                let (cols, _defs, _) =
-                    degrade_unsupported_nested_structs(&analyzed.columns, &analyzed.nested_structs, backend)?;
-                Some(cols)
-            };
-            let columns = sqlkit_codegen::resolve::resolve_columns(
-                degraded_columns.as_deref().unwrap_or(&analyzed.columns),
-                manifest,
-                overrides,
-            )?;
-            let params = sqlkit_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
-
-            let struct_name = determine_struct_name(analyzed, naming);
-            let needs_struct =
-                matches!(analyzed.command, QueryCommand::One | QueryCommand::Many) && !analyzed.columns.is_empty();
-
-            rbs_queries.push(RbsQueryInfo {
-                func_name: func,
-                struct_name: if needs_struct { Some(struct_name) } else { None },
-                columns,
-                // Only a `:grouped` query has child columns; the branch above
-                // is the one that fills this.
-                child_columns: Vec::new(),
-                params,
-                command: analyzed.command.clone(),
-            });
-        }
-
-        for enum_info in &analyzed.enums {
-            if seen_enums.insert(enum_info.sql_name.clone()) {
-                let type_name = enum_type_name(&enum_info.sql_name, naming);
-                let values: Vec<String> = enum_info.values.iter().map(|v| enum_variant_name(v, naming)).collect();
-                rbs_enums.push(RbsEnumInfo { type_name, values });
-            }
-        }
-    }
-
-    let context = RbsGenerationContext {
-        queries: rbs_queries,
-        enums: rbs_enums,
-    };
-
-    if let Some(rbs_content) = backend.generate_rbs_file(&context) {
-        // No preamble: RBS has no construct that must be the first bytes of
-        // the file (`generate_rbs_content` opens with its own `#` comment),
-        // so the header goes straight on line 1 with no separator — the same
-        // shape `assemble_output` produces for the 44 backends without a
-        // preamble. The comment token comes from the backend's manifest
-        // language (`ruby` -> `#`), which is also RBS's comment syntax.
-        let rbs_content = sqlkit_codegen::provenance::assemble_file(
-            "",
-            &provenance_header_line(backend, engine, schema, queries, options),
-            &rbs_content,
-        );
-
-        let rbs_file = out_path.join(RBS_FILENAME);
-        std::fs::write(&rbs_file, &rbs_content)
-            .map_err(|e| format!("failed to write RBS file '{}': {}", rbs_file.display(), e))?;
-        eprintln!(
-            "[{}] Writing {} RBS signatures to {}",
-            config_name,
-            backend.name(),
-            rbs_file.display()
-        );
-    }
-
-    Ok(())
 }
 
 /// Inputs to [`run_check`]. Mirrors the clap `Commands::Check` shape.
@@ -2340,7 +2065,7 @@ fn check_exit_code(error_count: usize, exit_zero: bool) -> Option<i32> {
 
 /// A `[[sql]]` block queued for live-database verification: its display
 /// name, its configured engine (still in whatever alias form the user wrote
-/// in `sqlkit.toml`, e.g. `"pg"` or `"cockroachdb"`), and its analyzed
+/// in `sqlkit.toml`, e.g. `"pg"`), and its analyzed
 /// queries.
 #[derive(Debug)]
 #[cfg_attr(
@@ -2684,8 +2409,7 @@ struct PerFileQueries<'a> {
 ///
 /// Bundled rather than passed as loose arguments because every field is
 /// fixed for a whole `[[sql]]` block (or, for `backend_name`, for a whole
-/// target) while [`verify_artifact`] is called once per artifact file -- a
-/// Ruby target has two.
+/// target) while [`verify_artifact`] is called once per artifact file.
 struct ProvenanceExpectation<'a> {
     /// `"<block name>:<configured backend>"`, used as the finding's
     /// `query_name`. Deliberately the *configured* backend string, so a
@@ -2894,21 +2618,10 @@ fn verify_provenance(
     violations
 }
 
-/// Every file `generate_for_backend` writes for one target, in the order it
-/// writes them.
-///
-/// Derived from the same two predicates generation uses --
-/// [`output_filename`] and [`backend_emits_rbs`] -- so verification can
-/// never end up looking at a different set of files than generation
-/// produces. Ruby targets contribute a second entry: `queries.rbs` is a
-/// tracked artifact whose signatures change with the schema, so leaving it
-/// out of verification left it able to go stale with no drift signal at all.
+/// Every file `generate_for_backend` writes for one target, named by the same
+/// [`output_filename`] generation uses.
 fn artifact_paths(backend: &dyn CodegenBackend, output_dir: &Path) -> Vec<std::path::PathBuf> {
-    let mut paths = vec![output_dir.join(output_filename(backend))];
-    if backend_emits_rbs(backend) {
-        paths.push(output_dir.join(RBS_FILENAME));
-    }
-    paths
+    vec![output_dir.join(output_filename(backend))]
 }
 
 /// Check one generated file's provenance header against `expected`.
@@ -3240,6 +2953,7 @@ fn report_rust_format_outcome(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlkit_core::parser::QueryCommand;
 
     /// [`super::verify_provenance`] for a config without `{dir}` targets,
     /// which never reads the per-file fingerprints.
@@ -3700,7 +3414,7 @@ schema = [\"sql/schema.sql\"]
 queries = [\"sql/q.sql\"]
 
 [[sql.gen]]
-backend = \"python-psycopg3\"
+backend = \"rust-sqlx\"
 output = \"out1\"
 
 [[sql]]
@@ -3779,8 +3493,8 @@ backend = \"rust-sqlx\"
         }
     }
 
-    /// Must fail before the fix: an explicit `[sql.gen]` table naming none of the five
-    /// legacy language keys (`rust`/`python`/`typescript`/`go`/`kotlin`) silently resolved
+    /// Must fail before the fix: an explicit `[sql.gen]` table naming none of the
+    /// legacy language keys (`rust`/`typescript`) silently resolved
     /// to a single `rust-sqlx` target -- the same silent-default-backend failure mode #97
     /// already fixed for an *unresolvable* `[sql.gen.rust] target`, just reached through an
     /// empty block instead of a bad one. This is distinct from the `gen` key being absent
@@ -3842,9 +3556,9 @@ backend = \"rust-sqlx\"
         }
     }
 
-    /// A mixed-engine config (one postgres block, one mysql block) must keep
-    /// the postgres block eligible for verification and route the mysql
-    /// block to the skip list — never to the live-DB path. This is the pure,
+    /// A config with a non-PostgreSQL engine block must keep the postgres
+    /// block eligible for verification and route the other block to the skip
+    /// list — never to the live-DB path. This is the pure,
     /// database-free half of the mixed-engine regression: it proves the
     /// filtering logic itself is correct, independent of a running database.
     #[test]
@@ -3896,19 +3610,13 @@ backend = \"rust-sqlx\"
         }
     }
 
-    /// When `query_class_header()` is empty (e.g. `rust-sqlx`, which has no
-    /// wrapping class), each query's model struct, row struct, and function
+    /// Each query's model struct, row struct, and function
     /// must stay interleaved in per-query order rather than being grouped by
     /// kind — matching how `sqlx.rs` expects `impl` blocks to sit next to
     /// their row types.
     #[test]
-    fn assemble_body_interleaves_per_query_when_class_header_is_empty() {
+    fn assemble_body_interleaves_per_query() {
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
-        assert!(
-            backend.query_class_header().is_empty(),
-            "test assumes rust-sqlx has no query class header"
-        );
-
         let results = vec![
             query_result(Some("MODEL_A"), Some("ROW_A"), Some("FN_A")),
             query_result(None, Some("ROW_B"), Some("FN_B")),
@@ -3933,40 +3641,18 @@ backend = \"rust-sqlx\"
         assert!(row_b < fn_b, "ROW_B must precede FN_B within the second query");
     }
 
-    /// board #166, established rather than assumed, and not scoped to the JVM:
+    /// board #166, established rather than assumed:
     /// the defect lives entirely in this CLI's `assemble_body` -- no
     /// backend-specific branch decides whether `model_struct` gets deduped
-    /// -- so it is language-agnostic. Every one of the ten backends below
+    /// -- so it is language-agnostic. Every backend below
     /// independently renders the identical composite declaration for two
     /// queries that select the same composite column, and before the fix
     /// every one of them printed it twice.
     ///
-    /// Whether that duplication actually *breaks compilation* does vary by
-    /// language -- established here by inspecting each backend's
-    /// `generate_composite_def` source, not by running a compiler (this
-    /// crate has none available, so that half stays unverified):
-    ///
-    /// - Java, Kotlin, Rust, Go, C#, and PHP each declare the composite as a
-    ///   named `record`/`data class`/`struct`/`type ... struct`/`record`/
-    ///   `class`, and each of those languages rejects a redeclaration as a
-    ///   hard compile error (`record ... is already defined`,
-    ///   `redeclaration:`, Rust's E0428 duplicate-definition, Go's
-    ///   `... redeclared in this block`, C#'s CS0101, PHP's fatal
-    ///   `Cannot redeclare class`).
-    /// - TypeScript's composite is an `interface`, which the language
-    ///   *merges* rather than rejects when redeclared with an identical
-    ///   shape -- so this duplication would not have broken a `tsc` build,
-    ///   only bloated the output.
-    /// - Python's and Ruby's are a redefinition (a `class` statement, or a
-    ///   `Data.define(...)` constant reassignment) that silently shadows the
-    ///   first at runtime rather than raising a syntax error.
-    /// - Elixir's is a `defmodule` redefinition that only warns
-    ///   (`redefining module ...`) under the compiler's default settings.
-    ///
-    /// All ten still emit dead, duplicated code before this fix; only six of
-    /// them would have refused to build because of it.
+    /// Rust rejects the redeclaration (E0428); TypeScript merges identical
+    /// `interface`s, so there it only bloats the output.
     #[test]
-    fn assemble_body_dedupes_composite_declared_by_two_queries_across_languages() {
+    fn assemble_body_dedupes_composite_declared_by_two_queries() {
         use sqlkit_core::analyzer::{AnalyzedColumn, CompositeFieldInfo, CompositeInfo};
         use sqlkit_core::parser::QueryCommand;
 
@@ -3997,10 +3683,6 @@ backend = \"rust-sqlx\"
         let cases: &[(&str, &str)] = &[
             ("rust-sqlx", "pub struct Address {"),
             ("typescript-postgres", "export interface Address {"),
-            // ~keep Opening brace only, like every other entry here. This used to match the
-            // whole `{}` because a java-jdbc composite record had an empty body; it now carries
-            // the `fromText` parser board #196 added, so a closed-body marker would pin the
-            // record to having no members.
         ];
 
         for &(backend_name, marker) in cases {
@@ -4661,30 +4343,15 @@ backend = \"rust-sqlx\"
         assert_eq!(header.schema.as_deref(), Some("sch1:0123456789abcdef"));
     }
 
-    #[test]
-    fn parse_provenance_header_reads_hash_comment() {
-        let content =
-            "# sqlkit:provenance v=0.13.0 backend=python-psycopg3 engine=postgresql schema=sch1:aaaa\nimport os\n";
-        let header = parse_provenance_header(content).expect("header must be found");
-        assert_eq!(header.backend.as_deref(), Some("python-psycopg3"));
-    }
-
-    #[test]
-    fn parse_provenance_header_reads_double_dash_comment() {
-        let content = "-- sqlkit:provenance v=0.13.0 backend=elixir-postgrex engine=postgresql schema=sch1:bbbb\n";
-        let header = parse_provenance_header(content).expect("header must be found");
-        assert_eq!(header.backend.as_deref(), Some("elixir-postgrex"));
-    }
-
     /// A block-comment closer with a space before it is just another
     /// unrecognized (no `=`) token and is ignored -- proving the tokenizer
     /// truly never looks at comment syntax, opening or closing.
     #[test]
     fn parse_provenance_header_ignores_block_comment_closer() {
-        let content = "/* sqlkit:provenance v=0.13.0 backend=csharp-npgsql engine=postgresql schema=sch1:cccc */\n";
+        let content = "/* sqlkit:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:cccc */\n";
         let header = parse_provenance_header(content).expect("header must be found");
         assert_eq!(header.schema.as_deref(), Some("sch1:cccc"));
-        assert_eq!(header.backend.as_deref(), Some("csharp-npgsql"));
+        assert_eq!(header.backend.as_deref(), Some("rust-sqlx"));
     }
 
     #[test]
@@ -5416,7 +5083,7 @@ backend = \"rust-sqlx\"
         write_artifact(
             dir.path(),
             &format!(
-                "v={} backend=rust-sqlx engine=mysql schema={}",
+                "v={} backend=rust-sqlx engine=other schema={}",
                 env!("CARGO_PKG_VERSION"),
                 schema
             ),
@@ -5505,7 +5172,7 @@ backend = \"rust-sqlx\"
         write_artifact(
             dir.path(),
             &format!(
-                "v={} backend=rust-tokio-postgres engine=mysql schema=sch1:1111111111111111",
+                "v={} backend=rust-tokio-postgres engine=other schema=sch1:1111111111111111",
                 env!("CARGO_PKG_VERSION")
             ),
         );
@@ -5526,11 +5193,10 @@ backend = \"rust-sqlx\"
     // Targets that cannot be verified at all (SC-PRV07)
     // -----------------------------------------------------------------------
 
-    /// The exact configuration that used to abort the whole run: `engine =
-    /// "oracle"` with **no `[[sql.gen]]` block**, so `resolve_gen_targets`
-    /// synthesizes a `rust-sqlx` target, and `SqlxBackend::new("oracle")`
-    /// fails because `supported_engines` is postgresql/mysql/mariadb/sqlite/
-    /// redshift. That failure used to `?`-propagate out of `run_check`
+    /// The exact configuration that used to abort the whole run: an engine
+    /// `rust-sqlx` does not support with **no `[[sql.gen]]` block**, so
+    /// `resolve_gen_targets` synthesizes a `rust-sqlx` target that cannot be
+    /// constructed. That failure used to `?`-propagate out of `run_check`
     /// before `emit_findings` ran, handing a SARIF or JSON consumer an empty
     /// report plus exit 1 and discarding every lint finding from every
     /// preceding `[[sql]]` block. It must now be an ordinary finding.
@@ -5541,7 +5207,7 @@ backend = \"rust-sqlx\"
 
         let sql_config = SqlConfig {
             name: "main".to_string(),
-            engine: "oracle".to_string(),
+            engine: "nosuchdb".to_string(),
             schema: Vec::new(),
             queries: Vec::new(),
             output: Some(dir.path().to_string_lossy().into_owned()),
@@ -5549,12 +5215,12 @@ backend = \"rust-sqlx\"
             type_overrides: None,
         };
 
-        // Guards the premise: if `rust-sqlx` ever gains Oracle support this
+        // Guards the premise: if `rust-sqlx` ever accepts this engine, this
         // test stops exercising the path it was written for, and should be
         // repointed at another unsupported pair rather than quietly passing.
         assert!(
-            get_backend("rust-sqlx", "oracle").is_err(),
-            "test premise: rust-sqlx must not support oracle"
+            get_backend("rust-sqlx", "nosuchdb").is_err(),
+            "test premise: rust-sqlx must not support nosuchdb"
         );
 
         let violations = verify_provenance(
@@ -5730,10 +5396,6 @@ backend = \"rust-sqlx\"
             "a downgraded SC-PRV01 must be reported at the configured severity"
         );
     }
-
-    // -----------------------------------------------------------------------
-    // Ruby's second artifact (`queries.rbs`)
-    // -----------------------------------------------------------------------
 
     // -----------------------------------------------------------------------
     // `check_exit_code`

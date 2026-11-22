@@ -9,13 +9,9 @@ members = [
     "crates/sqlkit-inspect",
     "crates/sqlkit-lint",
     "tools/integration-test-generator",
-    "tools/migrate-fixtures",
     "tools/test-generator",
 ]
 
 [profile.release]
-# ~keep Strip symbols from the shipped CLI. The release archives are ~80 MB because
-# ~keep bundled DuckDB dominates them; without stripping, the manylinux build was
-# ~keep 95.6 MB against a 78.6 MB ratchet, and the symbols benefit nobody who runs
-# ~keep the binary rather than debug it.
+# Strip symbols from the installed CLI; nobody who runs it needs them.
 strip = "symbols"

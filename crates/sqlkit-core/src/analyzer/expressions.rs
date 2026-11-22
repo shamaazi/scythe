@@ -60,7 +60,7 @@ impl<'a> Analyzer<'a> {
                     // (#170). `resolve_placeholder_position` handles both: it parses
                     // `$N` exactly as before and, for `?`, assigns (and memoizes by
                     // span) the next positional slot.
-                    if let Some(pos) = self.resolve_placeholder_position(p, vws.span) {
+                    if let Some(pos) = self.resolve_placeholder_position(p) {
                         self.register_param(pos, None, None, false, None);
                     }
                     // ~keep Same "nothing to infer a type from" shape as the NULL arm
@@ -160,7 +160,7 @@ impl<'a> Analyzer<'a> {
                 for item in list {
                     if let Expr::Value(vws) = item
                         && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
+                        && let Some(pos) = self.resolve_placeholder_position(p)
                     {
                         let col_name = param_name(col_expr);
                         self.register_param(pos, Some(col_name), Some(col_ti.neutral_type.clone()), false, None);
@@ -229,7 +229,7 @@ impl<'a> Analyzer<'a> {
                     let _ = self.infer_expr_type(&case_when.condition, scope);
                     if let Expr::Value(vws) = &case_when.condition
                         && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
+                        && let Some(pos) = self.resolve_placeholder_position(p)
                     {
                         match &operand_ti {
                             Some(op_ti) => {
@@ -302,7 +302,7 @@ impl<'a> Analyzer<'a> {
                 let left_ti = self.infer_expr_type(left, scope);
                 if let Expr::Value(vws) = right.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&param_name(left));
@@ -316,7 +316,7 @@ impl<'a> Analyzer<'a> {
                 let left_ti = self.infer_expr_type(left, scope);
                 if let Expr::Value(vws) = right.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&param_name(left));
@@ -640,7 +640,7 @@ impl<'a> Analyzer<'a> {
                     }
                     if let Expr::Value(vws) = operand
                         && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
+                        && let Some(pos) = self.resolve_placeholder_position(p)
                     {
                         let param_type = if result_type != "unknown" {
                             Some(result_type.clone())
@@ -1097,7 +1097,7 @@ impl<'a> Analyzer<'a> {
             let declaration = &matched.function.arguments[*declaration_index];
             if let Expr::Value(value) = expression
                 && let Some(placeholder) = value_is_placeholder(value)
-                && let Some(position) = self.resolve_placeholder_position(placeholder, value.span)
+                && let Some(position) = self.resolve_placeholder_position(placeholder)
             {
                 let mut neutral_type = sql_type_to_neutral(&declaration.sql_type, self.catalog).into_owned();
                 if declaration.mode == FunctionArgumentMode::Variadic {
@@ -1314,10 +1314,8 @@ impl<'a> Analyzer<'a> {
         // `json_agg(o.*)` aggregates one NULL and the column's value is the
         // JSON array `[null]`, never `[{"id":null,...}]`. Widening the
         // *fields* would therefore model a value PostgreSQL never produces
-        // while still leaving `Vec<Foo>` / `list[Foo]` unable to hold the one
-        // it does: `serde_json` rejects `[null]` into `Vec<Foo>` with
-        // "invalid type: null", and Python's `[Foo(...) for item in raw]`
-        // raises on the NULL element.
+        // while still leaving `Vec<Foo>` unable to hold the one it does:
+        // `serde_json` rejects `[null]` into `Vec<Foo>` with "invalid type: null".
         //
         // `filter_excludes_phantom` above recognizes the standard
         // `FILTER (WHERE {alias}.{col} IS NOT NULL)` idiom that suppresses
@@ -1786,10 +1784,8 @@ mod tests {
             params: Vec::new(),
             ctes: AHashMap::new(),
             type_errors: Vec::new(),
-            positional_param_counter: 0,
             pending_nested: Vec::new(),
             next_nested_id: 0,
-            resolved_placeholders: AHashMap::new(),
             outer_sources: Vec::new(),
         }
     }

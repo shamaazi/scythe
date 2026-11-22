@@ -107,7 +107,7 @@ fn no_backend_emits_a_space_or_dash_inside_a_generated_name() {
 
 /// Compared with the separators and the case removed, because the mangled
 /// name is spelled differently per manifest and per backend: `my_col` in
-/// Rust and Python, `MyCol` wherever the backend PascalCases on top. What
+/// Rust, `myCol` under camelCase. What
 /// every one of them must agree on is that the two words survived and are
 /// joined by something an identifier can hold.
 #[cfg(all(feature = "lang-rust", feature = "postgres"))]
@@ -127,8 +127,7 @@ fn every_backend_emits_the_mangled_names() {
 
 /// A leading digit needs a prefix, and the prefix has to survive the case
 /// conversion the manifest asks for *and* any second conversion a backend
-/// applies on top -- go-pgx and the csharp family PascalCase the field name
-/// again. A bare `_` does not survive either, which is why the guard is a
+/// applies on top. A bare `_` does not survive either, which is why the guard is a
 /// word.
 #[cfg(all(feature = "lang-rust", feature = "postgres"))]
 #[test]

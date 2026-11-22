@@ -1,11 +1,9 @@
 //! GH #147: `degrade_unsupported_nested_structs` rewrites a `json_agg`/
 //! `row_to_json` column's `json_nested<...>` type to a plain `json` (or,
 //! when the manifest declares it, `json_array`) scalar for any backend that
-//! does not implement `generate_nested_struct_def` -- measured on `main` as
-//! 98 of 102 manifests. Before this fix, `sqlkit generate` exited 0 with no
+//! does not implement `generate_nested_struct_def`. Before this fix, `sqlkit generate` exited 0 with no
 //! signal that the rewrite happened at all: a user asking for a structured
-//! row (e.g. `java-jdbc`, whose `json` scalar is `String`, read back via
-//! `rs.getString`) silently got an opaque string instead.
+//! row silently got an opaque string instead.
 //!
 //! `degrade_unsupported_nested_structs` now returns a third element, one
 //! [`sqlkit_codegen::NestedStructDegradation`] per rewritten column, and

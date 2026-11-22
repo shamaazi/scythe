@@ -23,8 +23,7 @@ enum Commands {
         #[arg(long)]
         allow_output_escape: bool,
         /// Validate each target's generated output with the real
-        /// compiler/linter for its language (`poly`, `tsc`, `javac`,
-        /// `kotlinc`, `gofmt`, `ruby`, ...), reporting per target whether it
+        /// compiler/linter for its language (`poly`, `tsc`, `node`), reporting per target whether it
         /// was validated, skipped (no validator for that language, or the
         /// tool it needs is not installed), or failed. Exits 2 -- not 1 --
         /// if any target fails.
@@ -85,7 +84,7 @@ enum Commands {
         /// Show diff of formatting changes
         #[arg(long)]
         diff: bool,
-        /// SQL dialect (e.g. ansi, postgres, mysql, bigquery)
+        /// SQL dialect: postgres or ansi (default: the config's engine, else ansi)
         #[arg(long)]
         dialect: Option<String>,
         /// SQL files to format (if empty, uses config)
@@ -101,7 +100,7 @@ enum Commands {
         /// Auto-fix violations where possible
         #[arg(long)]
         fix: bool,
-        /// SQL dialect (e.g. ansi, postgres, mysql, bigquery)
+        /// SQL dialect: postgres or ansi (default: the config's engine, else ansi)
         #[arg(long)]
         dialect: Option<String>,
         /// SQL files to lint (if empty, uses config)
@@ -162,7 +161,7 @@ enum Commands {
         /// PostgreSQL grammar for --cluster-scope: 15 or 18 (default 18)
         #[arg(long, value_name = "MAJOR")]
         pg_version: Option<String>,
-        /// SQL dialect for explicit-file mode (postgres|mysql|sqlite|mssql|oracle|snowflake)
+        /// SQL dialect for explicit-file mode (postgres)
         #[arg(long)]
         dialect: Option<String>,
         /// SQL files to audit (if empty, uses config schema + queries)

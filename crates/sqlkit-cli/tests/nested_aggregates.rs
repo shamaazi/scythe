@@ -95,10 +95,7 @@ output = "{output}"
     Ok(read_generated(&output_dir, extension))
 }
 
-/// Locate the generated file by extension rather than by name. Backends do not
-/// agree on capitalization -- `java-jdbc` emits `Queries.java` where every
-/// other backend emits `queries.<ext>` -- so hardcoding the lowercase form
-/// resolves on case-insensitive macOS and fails on Linux.
+/// Locate the generated file by extension rather than by name.
 fn read_generated(output_dir: &Path, extension: &str) -> String {
     let mut matches: Vec<PathBuf> = std::fs::read_dir(output_dir)
         .unwrap_or_else(|err| panic!("output dir {}: {err}", output_dir.display()))

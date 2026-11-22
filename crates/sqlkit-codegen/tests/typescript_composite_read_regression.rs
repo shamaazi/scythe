@@ -1,19 +1,14 @@
-//! Regression tests for board #204: `typescript-pg`, `typescript-postgres`, and
-//! `typescript-kysely` declared a nullable composite column on the generated row `interface`
+//! Regression tests for board #204: `typescript-postgres` declared a nullable composite column on the generated row `interface`
 //! (e.g. `homeAddress: WidgetAddress | null`), but read it with nothing more than a
 //! compile-time cast (`row.home_address as WidgetAddress | null`, or the driver's own generic
-//! type parameter, e.g. `client.query<GetWidgetRow>(...)`). Neither `pg` nor `postgres.js`
-//! registers a decoder for a user-defined composite type -- verified by reading each vendored
-//! driver's own source under `integration_tests/*/node_modules`, not from memory: `pg` has no
-//! composite/record type-parser table, and postgres.js's `src/types.js` has no
-//! `record`/`typtype`/composite handling at all. Both hand back PostgreSQL's raw composite
+//! type parameter, e.g. `client.query<GetWidgetRow>(...)`). postgres.js registers no
+//! decoder for a user-defined composite type (its `src/types.js` has no
+//! `record`/`typtype`/composite handling at all) and hands back PostgreSQL's raw composite
 //! *text form* (`"(a,b,c)"`), a plain `string`. A TypeScript `as T` cast is compile-time only,
 //! so at runtime `row.home_address` is still that string, and `row.home_address.street` reads
-//! `undefined` -- silently, with no thrown error the way Python's attribute access would give.
+//! `undefined` -- silently, with no thrown error.
 //!
-//! The fix parses the text form by hand through a generated `parse{Name}` function (mirrors
-//! `java_jdbc.rs`'s `fromText`/`parseCompositeFields` -- see that file's doc comment for the
-//! escaping rules), routed into every read path (`:one`/`:opt`/`:many`, both `field_case`
+//! The fix parses the text form by hand through a generated `parse{Name}` function, routed into every read path (`:one`/`:opt`/`:many`, both `field_case`
 //! settings, and `:grouped`) via each backend's own `ts_composite_aware_row_access`.
 //!
 //! A generated `enum::` column needs no equivalent fix: `generate_enum_def` emits a
@@ -86,11 +81,6 @@ fn generated_file(backend_name: &str, sql: &str) -> String {
         body.push_str(text);
         body.push('\n');
     }
-    let footer = backend.file_footer();
-    if !footer.is_empty() {
-        body.push_str(&footer);
-        body.push('\n');
-    }
 
     sqlkit_codegen::provenance::assemble_file(
         &backend.file_preamble(),
@@ -150,9 +140,7 @@ fn postgres_composite_parse_fn_returns_null_for_a_null_column() {
     );
 }
 
-// -- kysely: same defect; generate_query_fn previously ignored `columns` entirely --------------
-
-// -- the compilers, additively (mirrors jvm_composite_read_regression.rs) ---------------------
+// -- the compilers, additively ---------------------------------------------------------------
 
 fn assert_file_compiles(backend_name: &str, file: String) {
     let validation = validate_with_tools(&file, backend_name);

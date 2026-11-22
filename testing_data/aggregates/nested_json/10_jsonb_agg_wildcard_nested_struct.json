@@ -4,9 +4,7 @@
   "description": "jsonb_agg over a relation wildcard preserves JSON runtime scalar and composite shapes",
   "expected": {
     "generated_code": {
-      "typescript-pg": { "degraded_nested_structs": [] },
-      "typescript-postgres": { "degraded_nested_structs": [] },
-      "typescript-kysely": { "degraded_nested_structs": [] }
+      "typescript-postgres": { "degraded_nested_structs": [] }
     },
     "query": {
       "columns": [

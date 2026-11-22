@@ -9,8 +9,8 @@ use sqlkit_core::errors::{ErrorCode, SqlkitError};
 /// option -- while every other backend inherited the
 /// [`crate::backend_trait::CodegenBackend::apply_options`] default of
 /// `Ok(())`, so a typo like `field_casing = "camelCase"` (meant to be
-/// `field_case`) was silently discarded on, say, `java-jdbc` while it was a
-/// hard error on `typescript-pg`. The same typo behaving differently
+/// `field_case`) was silently discarded on one backend while it was a
+/// hard error on another. The same typo behaving differently
 /// depending on target language was itself a trap (#103), so the trait
 /// default now calls this too, against a backend's declared option list --
 /// see `CodegenBackend::apply_options`. Lives outside `backends::` (a

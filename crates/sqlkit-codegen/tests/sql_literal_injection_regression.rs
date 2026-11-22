@@ -3,8 +3,7 @@
 //! parse -> analyze -> codegen pipeline rather than the escape functions in
 //! isolation (those are unit-tested directly in `sql_literal.rs`).
 //!
-//! This closes issues #176 (the Kotlin injection), #179, and #150: every
-//! backend here previously spliced raw SQL into a host string literal with
+//! This closes issues #179 and #150: every backend here previously spliced raw SQL into a host string literal with
 //! no escaping at all. Each test below feeds the pipeline SQL containing the
 //! exact trigger shape the issue reported and asserts the *escaped* form
 //! reaches the generated file, never the raw one.
@@ -15,8 +14,7 @@
 //! bytes handed to the compiler are the same ones `sqlkit generate` would
 //! write. A missing tool skips that one assertion rather than failing the
 //! test -- consistent with `validation::ToolOutcome::Missing` elsewhere in
-//! this crate -- since this suite must still pass on a machine that only has
-//! some of the eight language toolchains installed.
+//! this crate -- since this suite must still pass on a machine without them.
 
 #![cfg_attr(
     not(all(feature = "all-engines", feature = "all-languages")),
@@ -62,31 +60,9 @@ fn generate_full_file_for_engine(
     let code = generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
     let codes = [code];
 
-    let class_header = backend.query_class_header();
     let mut full = backend.file_header_for_results(&codes);
     full.push('\n');
-
-    if class_header.is_empty() {
-        push_bodies(&mut full, &codes);
-    } else {
-        for code in &codes {
-            push_defs(&mut full, code);
-        }
-        full.push_str(&class_header);
-        full.push('\n');
-        for code in &codes {
-            if let Some(ref s) = code.query_fn {
-                full.push_str(s);
-                full.push('\n');
-            }
-        }
-    }
-
-    let footer = backend.file_footer();
-    if !footer.is_empty() {
-        full.push_str(&footer);
-        full.push('\n');
-    }
+    push_bodies(&mut full, &codes);
 
     provenance::assemble_file(
         &backend.file_preamble(),
@@ -172,19 +148,6 @@ fn compiles_or_skipped(tool: &str, probe_arg: &str, args: &[&str]) {
 }
 
 // ---------------------------------------------------------------------
-// #176: Kotlin non-raw string interpolation
-// ---------------------------------------------------------------------
-
-// ---------------------------------------------------------------------
-// Ruby / Elixir #{...} interpolation
-// ---------------------------------------------------------------------
-
-// ---------------------------------------------------------------------
-// PHP $-interpolation (double-quoted strings interpolate; switched to
-// single-quoted, which never does)
-// ---------------------------------------------------------------------
-
-// ---------------------------------------------------------------------
 // Quote / backslash: breaks non-interpolating host literals outright
 // (issue #150's "loud case" and #179's silent-corruption case)
 // ---------------------------------------------------------------------
@@ -210,11 +173,11 @@ fn tokio_postgres_raw_string_widens_delimiter_for_hash_quote() {
     );
 }
 
-/// Minimal standalone Rust and Java snippets, compiled directly, proving the
+/// A minimal standalone Rust snippet, compiled directly, proving the
 /// literal-building helpers produce syntactically valid output without
 /// depending on external crates/packages the full generated files reference
-/// (`tokio-postgres`, JDBC driver JARs) that are not resolvable by a bare
-/// `rustc`/`javac` invocation outside a full build.
+/// (`tokio-postgres`) that are not resolvable by a bare `rustc` invocation
+/// outside a full build.
 #[test]
 fn rust_raw_string_literal_compiles_standalone() {
     let sql = "ends with a hash-quote \"# sequence and a 'quote' and a \\backslash";

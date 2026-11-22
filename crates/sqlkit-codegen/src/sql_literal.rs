@@ -2,39 +2,23 @@
 //!
 //! Every backend embeds the query's SQL text directly into the generated source as a
 //! string literal (`conn.prepare("SELECT ...")`, `sqlx::query!("SELECT ...")`, and so on).
-//! Before this module existed, only the TypeScript backends escaped that text
-//! ([`escape_ts_template_literal`](crate::backends::typescript_common::escape_ts_template_literal) and
-//! [`escape_ts_double_quoted_literal`](crate::backends::typescript_common::escape_ts_double_quoted_literal)); every
-//! other backend spliced the cleaned SQL straight into a host literal with no escaping at
-//! all. Two distinct failure classes follow from that:
-//!
-//! - **Injection.** Kotlin's non-raw `"..."` string, Ruby's `"..."`, and Elixir's `"..."`
-//!   are all *interpolating* literals: `$name`, `#{name}`, and `#{name}` respectively splice
-//!   a same-scope variable's runtime value into the string. When SQL text contains one of
-//!   those sequences and it happens to name an in-scope parameter, the generated code
-//!   compiles cleanly and substitutes caller-controlled data directly into the SQL text --
-//!   bypassing the `?`/`$N` parameter binding entirely. This is the root cause of the
-//!   Kotlin injection tracked as issue #176.
-//! - **Silent corruption or a hard compile break.** The remaining host forms (Go, Java, C#,
-//!   PHP, Python, Rust, and the raw-string variants) do not interpolate, but an unescaped
-//!   backslash or embedded quote either changes what the database receives (a `LIKE
-//!   'a\_b%'` backslash silently becomes a real escape) or breaks the literal outright (a
-//!   quoted SQL identifier like `SELECT "type"` terminates the host string early).
+//! An unescaped backslash or embedded quote either changes what the database receives (a
+//! `LIKE 'a\_b%'` backslash silently becomes a real escape) or breaks the literal outright
+//! (a quoted SQL identifier like `SELECT "type"` terminates the host string early).
 //!
 //! One function per **host literal form** lives here, not one per backend, because the
 //! literal form -- not the driver -- determines what needs escaping. Every function takes
 //! the already-cleaned SQL text (post `clean_sql`/`clean_sql_oneline`/placeholder rewriting)
 //! and returns text safe to splice verbatim between that host form's delimiters. None of
 //! them touch delimiters themselves except [`rust_raw_string_literal`], which must choose
-//! its own delimiter width.
-//!
-//! Only literal forms actually emitted by a backend in this crate are implemented here --
-//! see each function's doc comment for which backends call it.
+//! its own delimiter width. The TypeScript backends escape through
+//! [`escape_ts_template_literal`](crate::backends::typescript_common::escape_ts_template_literal) and
+//! [`escape_ts_double_quoted_literal`](crate::backends::typescript_common::escape_ts_double_quoted_literal).
 
 /// Escape SQL text for splicing into a Rust plain `"..."` string literal.
 ///
 /// Rust string literals permit raw newlines, so only backslash and `"` need escaping.
-/// Used by `rust-sibyl` and `rust-sqlx` (the latter's `sqlx::query!`/`query_as!` macros
+/// Used by `rust-sqlx` (its `sqlx::query!`/`query_as!` macros
 /// receive the *decoded* string value at compile time, identical to the unescaped source
 /// text, so escaping here has no effect on the macro's compile-time query verification).
 pub fn escape_rust_string(sql: &str) -> String {
@@ -50,7 +34,7 @@ pub fn escape_rust_string(sql: &str) -> String {
 ///
 /// Raw strings cannot escape anything -- that is the point of using one -- so a SQL body
 /// containing the delimiter sequence `"#` breaks a fixed `r#"..."#` literal outright
-/// (issue #179's `rust-tokio-postgres`/`rust-tiberius` case: `"#` anywhere in the query,
+/// (issue #179's `rust-tokio-postgres` case: `"#` anywhere in the query,
 /// including inside an ordinary comment or string, ends the literal early and leaves the
 /// rest as malformed Rust). This widens the hash run only as far as the content requires:
 /// plain SQL gets the same `r#"..."#` these backends always emitted, and only a query that
@@ -126,21 +110,8 @@ mod tests {
         ]
     }
 
-    // --- Kotlin ---------------------------------------------------------
-
-    // --- Ruby / Elixir (#{...} interpolation) ---------------------------
-
-    // --- PHP --------------------------------------------------------------
-
-    // --- Java / Go (shared escape set) -------------------------------------
-
-    // --- C# -----------------------------------------------------------------
-
-    // --- Python ---------------------------------------------------------
-
-    /// Like [`unescape_backslash_quote_control`], but only `\\` and `\"` are escapes --
-    /// [`escape_python_triple_double`] leaves real newlines/tabs untouched, so a decoder
-    /// must too.
+    /// Decode [`escape_rust_string`]'s output: only `\\` and `\"` are escapes, and real
+    /// newlines/tabs pass through untouched.
     fn unescape_backslash_quote_control_no_nrt(s: &str) -> String {
         let mut out = String::with_capacity(s.len());
         let mut chars = s.chars();
@@ -158,8 +129,6 @@ mod tests {
         }
         out
     }
-
-    // --- Python %-paramstyle doubling (#201) -------------------------------
 
     // --- Rust -------------------------------------------------------------
 

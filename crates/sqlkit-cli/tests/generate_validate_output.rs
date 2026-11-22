@@ -55,7 +55,7 @@ fn write_typescript_project(dir: &std::path::Path) -> String {
 
 /// `sqlkit generate` without `--validate-output` must never run the
 /// generated-code validators at all -- opt-in, not default, because it shells
-/// out to external toolchains (`poly`, `tsc`, `javac`, ...) that may not be
+/// out to external toolchains (`poly`, `tsc`, `node`) that may not be
 /// installed on every machine `generate` runs on.
 #[test]
 fn generate_without_validate_output_never_reports_validation() {

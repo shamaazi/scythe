@@ -57,7 +57,7 @@ fn manifest_dir() -> PathBuf {
 /// Manifest stem -> whether it declares `key` in `[types.scalars]` or `[types.containers]`.
 ///
 /// Reads the same parsed `BackendManifest` production code does (`load_manifest`, the entry
-/// point `range_container_consistency.rs` also uses), rather than scanning the raw TOML text
+/// point the product uses), rather than scanning the raw TOML text
 /// for a `"{key} = "` line prefix. The raw-text scan used to diverge from what
 /// `degrade_unsupported_nested_structs` actually reads
 /// (`backend.manifest().types.scalars.contains_key("json_array")`): a declaration written

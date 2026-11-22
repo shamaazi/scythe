@@ -598,7 +598,7 @@ impl TypescriptPostgresBackend {
 
     /// The `typescript-bun` backend: the same tagged-template codegen, driving
     /// Bun's built-in `SQL` client with Bun's own type mappings. PostgreSQL
-    /// only -- Bun's adapter is not a Redshift client.
+    /// only.
     pub fn new_bun(engine: &str) -> Result<Self, SqlkitError> {
         if !matches!(engine, "postgresql" | "postgres" | "pg") {
             return Err(SqlkitError::new(
@@ -870,7 +870,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
             return Ok(generate_zod_row_struct(struct_name, query_name, columns));
         }
         if self.outer_join_unions {
-            return Ok(generate_ts_union_row_struct(struct_name, query_name, columns, None));
+            return Ok(generate_ts_union_row_struct(struct_name, query_name, columns));
         }
         Ok(generate_ts_interface_row_struct(struct_name, query_name, columns))
     }
@@ -1599,8 +1599,7 @@ impl TypescriptPostgresBackend {
                     &format!("Promise<{}>", struct_name),
                 );
                 // ~keep postgres.js's `sql` tag defaults to its own untyped `Row`
-                // shape without a type argument -- and unlike
-                // `client.query(...)` (pg) or `pool.execute(...)` (mysql2),
+                // shape without a type argument -- and
                 // that default is a *concrete* type, not `any`, so `rows[0]`
                 // does not structurally match `StructName` and `tsc
                 // --strict` rejects the assignment on `return`. The TS path
@@ -1629,8 +1628,7 @@ impl TypescriptPostgresBackend {
                     &format!("Promise<{} | null>", struct_name),
                 );
                 // ~keep postgres.js's `sql` tag defaults to its own untyped `Row`
-                // shape without a type argument -- and unlike
-                // `client.query(...)` (pg) or `pool.execute(...)` (mysql2),
+                // shape without a type argument -- and
                 // that default is a *concrete* type, not `any`, so `rows[0]`
                 // does not structurally match `StructName` and `tsc
                 // --strict` rejects the assignment on `return`. The TS path

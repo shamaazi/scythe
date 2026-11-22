@@ -12,17 +12,6 @@
 //! The fix adds `composite_type_name` beside `enum_type_name` in
 //! `sqlkit-backend/src/naming.rs` (routed through the same `sanitize_for_identifier`) and moves
 //! every backend's declaration call through it, so the `.` becomes `_` before casing runs.
-//!
-//! A second, independent instance of the same defect lived in the five JVM backends
-//! (`java_jdbc.rs`, `java_r2dbc.rs`, `kotlin_jdbc.rs`, `kotlin_r2dbc.rs`, `kotlin_exposed.rs`):
-//! `composite_field_from_text[_kotlin]` -- the function that renders a nested composite field's
-//! `T.fromText(...)` call inside the *outer* composite's own `fromText` method -- called
-//! `to_pascal_case(sql_name)` directly too, on the *reference* side rather than the declaration
-//! side. Because the two call sites derived the name differently (one sanitized, one not), a
-//! composite nested inside another schema-qualified composite would declare
-//! `PublicInnerPoint.fromText(...)` but be *called* as `Public.innerPoint.fromText(...)` --
-//! declaration and reference disagreeing the same way #164 did, a mismatch that does not compile
-//! rather than merely mis-parsing.
 
 #![cfg_attr(
     not(all(feature = "all-engines", feature = "all-languages")),

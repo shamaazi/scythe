@@ -223,7 +223,7 @@ pub struct Query {
 /// generated function's name and as the stem of its row type, so anything
 /// that is not an identifier produces a file that does not compile -- and
 /// says so nowhere. `-- @name` with no value was accepted outright until
-/// #174: it emitted `async def (conn):` in Python and collapsed the row type
+/// #174: it emitted a nameless function and collapsed the row type
 /// to a bare `Row` that collides with every other unnamed query in the file,
 /// at exit code 0.
 ///

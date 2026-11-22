@@ -82,15 +82,7 @@ fn validate_typescript(code: &str) -> Vec<String> {
 ///
 /// This is token-aware (matches `any` at identifier boundaries) rather than
 /// the previous fixed set of punctuation suffixes (`: any`, `<any>`, `any;`,
-/// `any,`, `any)`), which happened to omit `any>` and let the Kysely
-/// backend's `<DB = any>` generic-default slip through undetected rather
-/// than deliberately allowed.
-///
-/// The Kysely `<DB = any>` idiom is explicitly allowlisted here: `DB` is a
-/// real generic type parameter threaded through `Kysely<DB>` in the
-/// function signature, not an escape hatch. A caller who supplies
-/// `Kysely<MyDB>` gets full column typing; the `= any` default only lets
-/// callers who don't care about DB-shape typing omit the type argument.
+/// `any,`, `any)`), which happened to omit `any>`.
 fn find_disallowed_any_usage(trimmed: &str) -> Option<&str> {
     let mut offset = 0;
     while let Some(rel) = trimmed[offset..].find("any") {
@@ -98,7 +90,7 @@ fn find_disallowed_any_usage(trimmed: &str) -> Option<&str> {
         let end = start + "any".len();
         let before_is_ident = start > 0 && is_ident_byte(trimmed.as_bytes()[start - 1]);
         let after_is_ident = end < trimmed.len() && is_ident_byte(trimmed.as_bytes()[end]);
-        if !before_is_ident && !after_is_ident && !is_kysely_db_generic_default(trimmed, start, end) {
+        if !before_is_ident && !after_is_ident {
             return Some(trimmed);
         }
         offset = end;
@@ -108,13 +100,6 @@ fn find_disallowed_any_usage(trimmed: &str) -> Option<&str> {
 
 fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
-}
-
-/// True when the `any` token spanning `[start, end)` in `line` is the
-/// default of a `<DB = any>` generic type parameter, e.g.
-/// `export async function foo<DB = any>(db: Kysely<DB>): ... {`.
-fn is_kysely_db_generic_default(line: &str, start: usize, end: usize) -> bool {
-    line[..start].ends_with("<DB = ") && line[end..].starts_with('>')
 }
 
 /// Environment variable that turns on strict tool validation.
@@ -185,8 +170,8 @@ pub enum ToolOutcome {
 pub enum ToolValidation {
     /// No tool-based validator exists for this backend's language.
     ///
-    /// Distinct from "the tools are missing": Java, C#, Elixir and Rust have
-    /// no validator written for them at all, and reporting that as a skip
+    /// Distinct from "the tools are missing": Rust has no validator written
+    /// for it at all, and reporting that as a skip
     /// would suggest installing something would help.
     Unsupported,
     /// A validator exists; one entry per checker it tried to run.
@@ -269,9 +254,8 @@ impl ToolValidation {
     /// [`Self::Unsupported`] is deliberately **not** a strict-mode failure.
     /// Strict mode exists to catch a checker that fell out of the CI image,
     /// and every one of its failures should be fixable by installing
-    /// something. A language with no validator written for it is a real gap
-    /// -- Java, C#, Elixir and Rust are all in it -- but no CI configuration
-    /// closes it, so failing here would leave a permanently red build with no
+    /// something. A language with no validator written for it (Rust) is a real gap,
+    /// but installing a tool does not close it, so failing here would leave a permanently red build with no
     /// action attached. That gap is tracked by an explicit inventory test
     /// (`backends_with_no_tool_validator_are_a_known_and_shrinking_set` in
     /// `tests/tool_validation.rs`) which fails when the set changes in either
@@ -444,8 +428,8 @@ pub fn validate_with_tools(code: &str, backend_name: &str) -> ToolValidation {
 /// Three variants, not two, on purpose: collapsing [`Self::Unsupported`] into
 /// [`Self::Passed`] is the exact dishonesty [`ToolValidation`] exists to
 /// prevent -- see that type's doc comment. A caller that only distinguished
-/// pass from fail would report "OK" for a `csharp-npgsql` file that no
-/// compiler ever looked at, which is the bug this whole module was written to
+/// pass from fail would report "OK" for a Rust file that no compiler
+/// ever looked at, which is the bug this whole module was written to
 /// close.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationOutcome {
@@ -493,8 +477,7 @@ impl ValidationOutcome {
     /// Both [`Self::Unsupported`] and [`Self::Passed`] are "let it through"
     /// outcomes under the default policy -- a caller that wants "no
     /// validator for this language" to also block a build (unusual: it would
-    /// stop every C#, Rust, `kotlin-exposed`, and `kotlin-r2dbc` backend from
-    /// ever generating) must match on the variant itself rather than use
+    /// stop every Rust backend from ever generating) must match on the variant itself rather than use
     /// this helper.
     #[must_use]
     pub fn is_failure(&self) -> bool {
@@ -519,15 +502,13 @@ impl ValidationOutcome {
 ///
 /// # This shells out to real external tools
 ///
-/// `poly`, `tsc`, `node`, `gofmt`, `javac`, `kotlinc`, `elixirc`, `ruby`, and
-/// others, depending on `backend_name` -- see [`validate_with_tools`]'s match
+/// `poly`, `tsc` and `node`, depending on `backend_name` -- see [`validate_with_tools`]'s match
 /// arms. When a tool is not installed, probing for it
 /// (`Command::new(tool).arg(probe_arg).output()`) fails fast: the OS reports
 /// "no such file" as soon as it tries to spawn the process, so an absent
 /// tool costs microseconds and never blocks. The cost that matters is the
-/// opposite case -- a tool that *is* installed. `javac` and `kotlinc` each
-/// pay JVM startup (commonly over a second) on top of a real compile;
-/// `tsc --checkJs --strict` runs a full TypeScript typecheck. A caller that
+/// opposite case -- a tool that *is* installed. `tsc --checkJs --strict`
+/// runs a full TypeScript typecheck. A caller that
 /// invokes this unconditionally on every `sqlkit generate` would make every
 /// run pay that cost for every backend the file targets, on any machine that
 /// happens to have the tool installed -- and would silently validate less on
@@ -563,11 +544,7 @@ fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let basename = if ext == ".kt" {
-        format!("SqlkitValidate{n}")
-    } else {
-        format!("sqlkit_validate_{n}")
-    };
+    let basename = format!("sqlkit_validate_{n}");
     let path = std::env::temp_dir().join(format!("{basename}{ext}"));
     let trimmed = format!("{}\n", code.trim_end());
     std::fs::write(&path, trimmed).ok()?;
@@ -577,11 +554,8 @@ fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
 /// Run `poly` against a generated file.
 ///
 /// `poly` is this repository's linter and formatter, and it bundles the
-/// engines it needs in-process: `oxc` for JavaScript and TypeScript, `ruff`
-/// for Python, `mago` for PHP. One already-required binary therefore replaces
-/// three separately-installed ones -- `biome`, `ruff` and `php` -- and
-/// because it parses as well as lints, it also subsumes the `python3 -m ast`
-/// syntax pass.
+/// engines it needs in-process (`oxc` for JavaScript and TypeScript), so it
+/// replaces a separately-installed linter such as `biome`.
 ///
 /// `--no-workspace` is not optional. Without it `poly lint` also runs the
 /// whole-project tier -- `cargo clippy` over this very workspace -- once per
@@ -637,7 +611,7 @@ fn validate_typescript_tools(code: &str) -> Vec<ToolOutcome> {
 }
 
 /// Path to the hand-written ambient `.d.ts` stubs for the driver packages
-/// (`pg`, `postgres`, `mysql2/promise`, `better-sqlite3`) the
+/// (`postgres`, `bun`) the
 /// `javascript-*` (JSDoc emit mode, #81) backends reference via
 /// `import("pkg").Type` JSDoc annotations.
 ///
@@ -671,7 +645,7 @@ fn js_mode_driver_stub_path() -> std::path::PathBuf {
 fn validate_javascript_tools(code: &str) -> Vec<ToolOutcome> {
     // Real `node`, not `tsx`/`ts-node`/a build step: the generated file must
     // parse as plain ESM as-is. `--check` parses without executing,
-    // mirroring the `ruby -c` / `php -l` precedent in this file.
+    // without executing it.
     let parse = check_with(
         "node",
         "--version",
@@ -752,7 +726,7 @@ export async function listUsers(): Promise<ListUsersRow[]> {
     fn test_typescript_rejects_any_before_closing_angle_bracket() {
         // Regression test: the old suffix-list check (`: any`, `<any>`,
         // `any;`, `any,`, `any)`) never looked for `any` immediately before
-        // `>`, so `Array<any>` (or any other non-Kysely-DB `any>` usage)
+        // `>`, so `Array<any>` (or any other `any>` usage)
         // slipped through undetected.
         let code = r#"export async function listUsers(): Promise<Array<any>> {
   return [];
@@ -773,10 +747,10 @@ export async function listUsers(): Promise<ListUsersRow[]> {
     #[test]
     fn a_missing_tool_is_not_the_same_as_a_clean_run() {
         let clean = ToolValidation::Attempted(vec![ToolOutcome::Ran {
-            tool: "ruff",
+            tool: "tsc",
             errors: vec![],
         }]);
-        let absent = ToolValidation::Attempted(vec![ToolOutcome::Missing { tool: "ruff" }]);
+        let absent = ToolValidation::Attempted(vec![ToolOutcome::Missing { tool: "tsc" }]);
 
         // Both report zero findings -- that is exactly why the old
         // `Option<Vec<String>>` could not tell them apart.
@@ -786,7 +760,7 @@ export async function listUsers(): Promise<ListUsersRow[]> {
         // The type still distinguishes them.
         assert!(clean.fully_checked(), "a tool that ran is a real check");
         assert!(!absent.fully_checked(), "a tool that never ran checked nothing");
-        assert_eq!(absent.missing_tools(), vec!["ruff"]);
+        assert_eq!(absent.missing_tools(), vec!["tsc"]);
         assert!(clean.missing_tools().is_empty());
     }
 
@@ -811,22 +785,22 @@ export async function listUsers(): Promise<ListUsersRow[]> {
 
     /// A validator that runs two tools and finds only one of them has
     /// verified half of what it claims to. `validate_python_tools` shipped
-    /// exactly this shape -- `python3` present, `ruff` absent, `Some([])`
+    /// exactly this shape -- `node` present, `tsc` absent, `Some([])`
     /// returned -- which is the strongest possible false signal.
     #[test]
     fn a_partially_run_validation_is_not_fully_checked() {
         let partial = ToolValidation::Attempted(vec![
             ToolOutcome::Ran {
-                tool: "python3",
+                tool: "node",
                 errors: vec![],
             },
-            ToolOutcome::Missing { tool: "ruff" },
+            ToolOutcome::Missing { tool: "tsc" },
         ]);
 
         assert!(partial.errors().is_empty());
         assert!(!partial.fully_checked(), "one of two tools running is not a full check");
-        assert_eq!(partial.tools_run(), vec!["python3"]);
-        assert_eq!(partial.missing_tools(), vec!["ruff"]);
+        assert_eq!(partial.tools_run(), vec!["node"]);
+        assert_eq!(partial.missing_tools(), vec!["tsc"]);
         assert!(partial.into_result_with_strictness(true).is_err());
     }
 
@@ -869,15 +843,15 @@ export async function listUsers(): Promise<ListUsersRow[]> {
     #[test]
     fn a_harness_failure_is_an_error_even_outside_strict_mode() {
         let broken = ToolValidation::Attempted(vec![ToolOutcome::Failed {
-            tool: "gofmt",
-            reason: "gofmt: could not be executed: permission denied".into(),
+            tool: "node",
+            reason: "node: could not be executed: permission denied".into(),
         }]);
 
         assert!(!broken.fully_checked());
         let failures = broken
             .into_result_with_strictness(false)
             .expect_err("a broken harness is never a pass");
-        assert!(failures[0].contains("gofmt"));
+        assert!(failures[0].contains("node"));
     }
 
     #[test]

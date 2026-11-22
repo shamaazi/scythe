@@ -3,8 +3,7 @@
 //! [`rewrite_pg_placeholders`].
 //!
 //! These tests pin the behaviour these functions have TODAY, exactly, so that
-//! the planned rewrite (threading the SQL dialect through a real tokenizer
-//! instead of the current char-scanner) either preserves that behaviour or
+//! a rewrite either preserves that behaviour or
 //! shows precisely where it diverges. Every assertion compares the full
 //! output string; nothing here uses `contains`, because a `contains` check
 //! passes on garbage.
@@ -208,11 +207,8 @@ fn clean_sql_treats_block_comments_as_nesting() {
 
 #[test]
 fn clean_sql_lets_an_unbalanced_nested_block_comment_swallow_the_whole_query() {
-    // WRONG for every non-PostgreSQL engine. PostgreSQL nests block
-    // comments, so `/* a /* b */ SELECT 1` really is unterminated there.
-    // MySQL, SQLite, MSSQL, Oracle and Snowflake do NOT nest: for them the
-    // comment ends at the first `*/` and the expected output is `SELECT 1`.
-    // The tokenizer has no dialect input, so the query silently disappears.
+    // PostgreSQL nests block comments, so `/* a /* b */ SELECT 1` really is
+    // unterminated.
     assert_eq!(clean_sql("/* a /* b */ SELECT 1"), "");
 }
 
@@ -243,32 +239,6 @@ fn clean_sql_does_not_treat_a_minus_minus_that_is_two_operators_as_a_comment() {
     // could plausibly get it wrong in the other direction.
     assert_eq!(clean_sql("SELECT 1--2"), "SELECT 1");
     assert_eq!(clean_sql("SELECT 1 - -2"), "SELECT 1 - -2");
-}
-
-#[test]
-fn clean_sql_leaves_a_mysql_hash_comment_in_the_output() {
-    // WRONG for MySQL/MariaDB, where `#` starts a line comment. The
-    // tokenizer deliberately does not recognize `#` because it collides with
-    // PostgreSQL's `#>`/`#>>` JSON operators -- which is exactly the
-    // ambiguity dialect threading resolves. Expected under MySQL:
-    // `SELECT 1\nFROM t`.
-    assert_eq!(clean_sql("SELECT 1 # note\nFROM t"), "SELECT 1 # note\nFROM t");
-}
-
-#[test]
-fn clean_sql_treats_a_double_dash_inside_a_mysql_backtick_identifier_as_a_comment() {
-    // WRONG for MySQL/MariaDB: backticks quote an identifier, so `-- b` here
-    // is part of the column name and the expected output is the input
-    // unchanged. Because the tokenizer does not know backticks, it starts a
-    // line comment mid-identifier and deletes the rest of the query.
-    assert_eq!(clean_sql("SELECT `a -- b` FROM t"), "SELECT `a");
-}
-
-#[test]
-fn clean_sql_treats_a_double_dash_inside_an_mssql_bracket_identifier_as_a_comment() {
-    // WRONG for MSSQL: `[a -- b]` is a delimited identifier. Expected: input
-    // unchanged.
-    assert_eq!(clean_sql("SELECT [a -- b] FROM t"), "SELECT [a");
 }
 
 #[test]
@@ -364,7 +334,7 @@ fn adjacent_placeholders_with_no_separator_are_both_rewritten() {
 #[test]
 fn a_dollar_inside_an_identifier_is_rewritten_as_a_placeholder() {
     // WRONG: `$` is a legal identifier character after the first position in
-    // PostgreSQL, Oracle and MySQL, so `amount$1` is a column name and the
+    // PostgreSQL, so `amount$1` is a column name and the
     // expected output is the input unchanged. The char-scanner has no
     // preceding-token context and corrupts the identifier.
     assert_eq!(
@@ -416,8 +386,7 @@ fn question_mark_inside_a_single_quoted_literal_is_not_a_placeholder() {
 
 #[test]
 fn a_named_colon_parameter_is_never_rewritten_inside_or_outside_a_literal() {
-    // The core parser rewrites Oracle `:name` to `?` before this function is
-    // reached, so `:name` reaching here is copied through verbatim.
+    // `:name` is not a placeholder, so it is copied through verbatim.
     assert_eq!(
         rewrite_pg_placeholders("SELECT ':name' , :name", mark),
         "SELECT ':name' , :name"
@@ -429,9 +398,6 @@ fn a_backslash_does_not_escape_the_closing_quote_of_a_standard_string() {
     // Correct for PostgreSQL with `standard_conforming_strings = on` (the
     // default since 9.1): `'a\'` is a complete literal whose last character
     // is a backslash, so the following `$1` really is a placeholder.
-    // WRONG for MySQL/MariaDB, where `\'` escapes the quote by default and
-    // the literal continues -- expected there: the whole tail is string
-    // content and `$1` is left alone.
     assert_eq!(
         rewrite_pg_placeholders("SELECT 'a\\' , $1", mark),
         "SELECT 'a\\' , [P1]"
@@ -602,29 +568,6 @@ fn question_mark_inside_a_double_quoted_identifier_is_not_a_placeholder() {
     );
 }
 
-#[test]
-fn question_mark_inside_a_mysql_backtick_identifier_is_rewritten_as_a_placeholder() {
-    // WRONG for MySQL/MariaDB: backticks quote an identifier, so `a?b` is a
-    // column name and only the trailing `?` is a placeholder. Expected:
-    // "SELECT `a?b` FROM t WHERE c = [P1]". The tokenizer does not know
-    // backticks, corrupts the identifier, and shifts every later parameter
-    // number by one.
-    assert_eq!(
-        rewrite_pg_placeholders("SELECT `a?b` FROM t WHERE c = ?", mark),
-        "SELECT `a[P1]b` FROM t WHERE c = [P2]"
-    );
-}
-
-#[test]
-fn question_mark_inside_an_mssql_bracket_identifier_is_rewritten_as_a_placeholder() {
-    // WRONG for MSSQL: `[a?b]` is a delimited identifier. Expected:
-    // "SELECT [a?b] FROM t WHERE c = [P1]".
-    assert_eq!(
-        rewrite_pg_placeholders("SELECT [a?b] FROM t WHERE c = ?", mark),
-        "SELECT [a[P1]b] FROM t WHERE c = [P2]"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // rewrite_pg_placeholders: bare `?` and the dialect heuristic
 // ---------------------------------------------------------------------------
@@ -700,34 +643,6 @@ fn a_skipped_operator_does_not_advance_the_positional_counter() {
         rewrite_pg_placeholders("WHERE tags ?| ARRAY['a'] AND b = ?", mark),
         "WHERE tags ?| ARRAY['a'] AND b = [P1]"
     );
-}
-
-#[test]
-fn a_question_mark_placeholder_directly_followed_by_a_concat_operator_is_not_rewritten() {
-    // WRONG for SQLite/MySQL/Oracle: `?||'x'` is a positional placeholder
-    // concatenated with a literal, and the expected output is
-    // "SELECT [P1]||'x'". Because `?||` is on the unconditional
-    // pass-through list it is copied verbatim and the parameter is never
-    // bound -- the driver then sees fewer placeholders than arguments.
-    assert_eq!(rewrite_pg_placeholders("SELECT ?||'x'", mark), "SELECT ?||'x'");
-}
-
-#[test]
-fn a_question_mark_placeholder_directly_followed_by_a_minus_is_not_rewritten() {
-    // WRONG for SQLite/MySQL/Oracle: `?-1` is "placeholder minus one" and
-    // should become "SELECT [P1]-1". `?-` is on the unconditional
-    // pass-through list because it is a PostgreSQL geometry operator.
-    assert_eq!(rewrite_pg_placeholders("SELECT ?-1", mark), "SELECT ?-1");
-}
-
-#[test]
-fn a_question_mark_followed_by_a_digit_is_never_rewritten() {
-    // WRONG for SQLite, where `?1`/`?2` are explicitly numbered positional
-    // parameters -- expected "SELECT [P1], [P2]". They are skipped, and
-    // they also do not advance the counter, so a mixed `?1, ?` query
-    // misnumbers the bare `?`.
-    assert_eq!(rewrite_pg_placeholders("SELECT ?1, ?2", mark), "SELECT ?1, ?2");
-    assert_eq!(rewrite_pg_placeholders("SELECT ?1, ?", mark), "SELECT ?1, [P1]");
 }
 
 #[test]

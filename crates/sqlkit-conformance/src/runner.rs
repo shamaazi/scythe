@@ -26,17 +26,15 @@
 //!   before evaluating a single fixture. Asking to run an engine that
 //!   cannot run is a misconfiguration, not a scoping decision, and must
 //!   stop the whole batch rather than silently produce a partial result.
-//! - **Listed by a fixture but not selected for this invocation** (e.g. a
-//!   fixture lists all six engines while this job selected only Oracle):
+//! - **Listed by a fixture but not selected for this invocation** (none today,
+//!   with PostgreSQL the only engine):
 //!   an **explicit, recorded skip**. It is pushed onto
 //!   [`RunReport::skipped`] with the fixture name, engine, and a reason, so
 //!   it is always visible in the report -- never indistinguishable from a
 //!   pass, and never simply absent.
 //!
-//! The second case has to be a skip rather than a hard error because the CI
-//! matrix runs one engine per job: each job compiles exactly one driver
-//! feature, so every other engine a fixture lists is out of scope for that
-//! invocation and must not fail it.
+//! The second case is a skip rather than a hard error because an engine a
+//! fixture lists but this invocation did not select is out of scope for it.
 //!
 //! All six engines now have a driver. The `EngineNotCompiled` arm is what
 //! remains of the bring-up: it fires when an engine is *selected* in a
@@ -385,15 +383,7 @@ async fn evaluate_fixture<E: Executor>(
     let engine = E::ENGINE;
     let err_ctx = || (fixture.name.clone(), engine);
 
-    // ~keep The analyzer must run under the dialect of the engine this leg is
-    // about to query, not under the default (PostgreSQL). Every
-    // dialect-aware inference rule in `sqlkit_core` keys off
-    // `Catalog::dialect()`, so parsing every fixture as PostgreSQL would
-    // make all of them dead code from this suite's point of view -- it
-    // would compare a PostgreSQL-flavoured inference against Oracle's
-    // actual behaviour and call the difference a divergence. `schema_sql`
-    // stays the portable DDL: what changes here is the grammar and
-    // semantics it is read under, not the schema.
+    // The analyzer runs under the dialect of the engine this leg queries.
     let dialect = engine.dialect();
     let schema_refs: Vec<&str> = fixture.schema_sql.iter().map(String::as_str).collect();
     let catalog = sqlkit_core::catalog::Catalog::from_ddl_with_dialect(&schema_refs, &dialect).map_err(|source| {

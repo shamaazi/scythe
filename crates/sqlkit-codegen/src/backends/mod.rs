@@ -840,17 +840,6 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_engine_duckdb() {
-        assert_eq!(normalize_engine("duckdb"), "duckdb");
-    }
-
-    #[test]
-    fn test_get_backend_duckdb_rejected_by_pg_only() {
-        let result = get_backend("rust-sqlx", "duckdb");
-        assert!(result.is_err(), "rust-sqlx should reject duckdb engine");
-    }
-
-    #[test]
     fn test_rewrite_simple_equality() {
         let sql = "SELECT * FROM users WHERE status = $1";
         let params = vec![param("status", 1)];

@@ -70,9 +70,9 @@ impl LintEngine {
     /// Rules registered here that cannot run against `dialect`, by id.
     ///
     /// A dialect-gated rule contributes nothing to a run and says nothing
-    /// about why. `sqlkit audit` on a MySQL project reports "No findings"
-    /// while 28 of its 35 canonical rules are gated to `postgres` and never
-    /// executed (#167) — a caller that wants to say "N rule(s) skipped: not
+    /// about why. `sqlkit audit` on another engine reported "No findings"
+    /// while most canonical rules were gated to `postgres` and never executed
+    /// (#167) — a caller that wants to say "N rule(s) skipped: not
     /// applicable to engine '<e>'" needs the gate to be answerable *before*
     /// the run, which is what this is for.
     ///

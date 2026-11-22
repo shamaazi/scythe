@@ -440,21 +440,9 @@ pub(super) fn detect_select_star_source(stmt: &Statement) -> Option<String> {
     None
 }
 
-/// Parse a placeholder string into a position number.
-/// Handles PostgreSQL `$N` placeholders (returns the number).
-/// For MySQL `?` placeholders, returns `None` — the caller must
-/// use `Analyzer::resolve_placeholder_position` to assign a sequential position.
-/// Oracle `:N` placeholders are preprocessed to `?` before parsing.
+/// Parse a PostgreSQL `$N` placeholder into its position number.
 pub(super) fn parse_placeholder(s: &str) -> Option<i64> {
-    if s == "?" {
-        return None;
-    }
     s.strip_prefix('$')?.parse::<i64>().ok()
-}
-
-/// Returns `true` when the placeholder string is a MySQL-style `?`.
-pub(super) fn is_positional_placeholder(s: &str) -> bool {
-    s == "?"
 }
 
 /// Whether `expr` is a placeholder, parenthesised or cast, and nothing more.
@@ -553,7 +541,7 @@ pub(super) fn is_literal(expr: &Expr) -> bool {
 
 /// Whether `func` carries a `RESPECT NULLS` / `IGNORE NULLS` clause, in either
 /// of the two positions sqlparser recognizes: the postfix `Function::null_treatment`
-/// (`FIRST_VALUE(x) IGNORE NULLS OVER (...)`) or the BigQuery-style in-argument-list
+/// (`FIRST_VALUE(x) IGNORE NULLS OVER (...)`) or the in-argument-list
 /// clause (`FIRST_VALUE(x IGNORE NULLS)`).
 ///
 /// `IGNORE NULLS` changes which rows an offset function counts over, so it can
@@ -624,12 +612,8 @@ pub(super) fn sum_result_type(neutral: &str) -> String {
 ///
 /// Exact numeric inputs (`int16`/`int32`/`int64`/`decimal`) widen to
 /// `decimal`, matching PostgreSQL (`avg(smallint|integer|bigint|numeric) ->
-/// numeric`) and MySQL (`AVG()` on exact-value args -> `DECIMAL`).
-/// Approximate float inputs are preserved as `float64`, matching PostgreSQL
-/// (`avg(real|double precision) -> double precision`), MySQL (`AVG()` on
-/// `FLOAT`/`DOUBLE` -> `DOUBLE`), and SQL Server (`float`/`real` categories
-/// -> `float`). No engine identifier is available here, so this mapping is
-/// applied uniformly; it matches all three of those engines exactly.
+/// numeric`). Approximate float inputs are preserved as `float64`
+/// (`avg(real|double precision) -> double precision`).
 pub(super) fn avg_result_type(neutral: &str) -> String {
     if is_float_type(neutral) {
         "float64".to_string()
@@ -1186,14 +1170,6 @@ mod tests {
         assert_eq!(parse_placeholder(""), None);
         assert_eq!(parse_placeholder("$$"), None);
         assert_eq!(parse_placeholder("?"), None);
-    }
-
-    #[test]
-    fn test_is_positional_placeholder() {
-        assert!(is_positional_placeholder("?"));
-        assert!(!is_positional_placeholder("$1"));
-        assert!(!is_positional_placeholder(""));
-        assert!(!is_positional_placeholder("??"));
     }
 
     #[test]

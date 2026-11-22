@@ -1,16 +1,13 @@
 # Rust build artifacts
 /target/
 **/*.rs.bk
-site/
 # Release archives and the per-target parser helpers they are packaged from
 /dist/
-.playwright-mcp/
-.ruff_cache/
 .mcp.json
+
 # IDE
 .idea/
 .claude/
-.rumdl_cache/
 .vscode/
 *.swp
 *.swo
@@ -19,14 +16,6 @@ site/
 # OS
 .DS_Store
 Thumbs.db
-
-# Python
-__pycache__/
-*.pyc
-.venv/
-
-# Ruby
-.bundle/
 
 # Generated output (except integration test fixtures)
 **/generated/
@@ -41,55 +30,14 @@ output/
 .env.*
 !.env.example
 
-
 # poly cache
 .polylint/
-
 poly.local.toml
-
-# Astro docs site
-website/node_modules/
-website/dist/
-website/.astro/
-
-# snowflake-sdk writes this on every run
-snowflake.log
-
-# The go-database-sql duckdb harness opens a file-backed database next to itself
-# rather than :memory:, because database/sql pools connections and each pooled
-# connection would otherwise get its own empty in-memory database. DuckDB writes
-# a `<name>.duckdb.wal` sibling that `*.duckdb` does not match, so it needs its
-# own line -- one was committed by accident before this entry existed.
-*.duckdb
-*.duckdb.wal
-
-# The BEUM VM dumps this at the repo root when an elixir harness crashes -- a few MB
-# of run artifact that trips the large-file pre-commit hook if it is ever staged.
-erl_crash.dump
-
-# BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
-.agents/skills/
-.ai-rulez/.config.local.*
-.ai-rulez/.generated-manifest.json
-.ai-rulez/.generated-manifest.local.json
-.ai-rulez/config.local.*
-.ai-rulez/local/
-.codex/agents/
-.codex/config.toml
-.opencode/agents/
-.opencode/commands/
-.pi/agents/
-.pi/prompts/
-/AGENTS.md
-/CLAUDE.md
-/opencode.json
-# END ai-rulez
-
-# devenv (shamaazi branch)
-.devenv*
-devenv.local.nix
-.direnv
 
 # devenv
 .devenv*
 devenv.local.nix
+.direnv
+
+# Bun
+node_modules/

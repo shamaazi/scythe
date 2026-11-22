@@ -292,7 +292,7 @@ pub fn composite_type_name(sql_name: &str, naming: &NamingConfig) -> String {
 ///
 /// When the case-converted name exactly matches one of the manifest's
 /// [`NamingConfig::reserved`] target-language keywords (e.g. SQL column
-/// `type` emitting as the Rust keyword `type`, or `class` as the Python
+/// `type` emitting as the Rust keyword `type`, or `class` as the TypeScript
 /// keyword `class`), a trailing underscore is appended -- a suffix every
 /// target language in this crate accepts as an ordinary identifier
 /// character, so one mangling strategy works everywhere without a
@@ -329,7 +329,7 @@ pub fn field_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> 
 /// The guard is a word and not a bare `_` because a leading underscore does
 /// not survive a case conversion: `to_pascal_case` splits on `_` and an
 /// empty leading part contributes nothing, so `_2fa` came back out as `2fa`
-/// in go-pgx and the csharp family -- and teaching the converter to keep it
+/// under `PascalCase` -- and teaching the converter to keep it
 /// would change `_user_status` from `UserStatus` to `_UserStatus`
 /// everywhere, which two tests here pin deliberately.
 fn identifier_name(sql_name: &str, naming: &NamingConfig) -> String {
@@ -607,7 +607,7 @@ mod tests {
     #[test]
     fn test_to_camel_case_digit_edges() {
         assert_eq!(&*to_camel_case("col_1"), "col1");
-        // FIXME: a leading digit is not a valid JS/Java identifier. This is
+        // FIXME: a leading digit is not a valid JS identifier. This is
         // pre-existing and not fixed here: snake_case's "1st_place" is
         // equally invalid, so camelCase is not introducing a new problem —
         // just not solving an old one.
@@ -770,8 +770,8 @@ mod tests {
     }
 
     /// The guard is a word rather than a bare `_` so that it survives the
-    /// case conversion, and therefore the second conversion a backend like
-    /// go-pgx or csharp-npgsql applies on top.
+    /// case conversion, and therefore any second conversion a backend applies
+    /// on top.
     #[test]
     fn test_param_name_prefixes_a_leading_digit_under_every_case() {
         let mut config = test_config();
@@ -899,12 +899,9 @@ mod tests {
         assert_eq!(enum_type_name("public.status", &config), "PublicStatus");
     }
 
-    /// The same schema-qualification defect under the other two
-    /// `enum_variant_case`/`struct_case` conventions this crate's manifests
-    /// actually declare (see `crates/sqlkit-codegen/manifests/*.toml`):
-    /// Java/Kotlin/PHP/Python/Ruby use `SCREAMING_SNAKE_CASE` for variants,
-    /// but every one of them still PascalCases the *type* name, so this
-    /// defect was never gated by `enum_variant_case`.
+    /// The same schema-qualification defect under `SCREAMING_SNAKE_CASE`
+    /// variants: the *type* name is still PascalCased, so this defect was never
+    /// gated by `enum_variant_case`.
     #[test]
     fn test_enum_type_name_sanitizes_a_schema_qualified_dot_regardless_of_variant_case() {
         let mut config = test_config();
@@ -912,21 +909,19 @@ mod tests {
         assert_eq!(enum_type_name("app.status", &config), "AppStatus");
     }
 
-    /// A degenerate enum label under `PascalCase` -- the convention every
-    /// C#, Go, Rust and TypeScript manifest declares for `enum_variant_case`
-    /// -- must not collapse to an empty variant. Before the fix this printed
+    /// A degenerate enum label under `PascalCase` -- the convention the Rust
+    /// and TypeScript manifests declare for `enum_variant_case` -- must not collapse to an empty variant. Before the fix this printed
     /// an empty string: `sanitize_for_identifier("!!!")` is `"___"`, and the
     /// pre-fix `to_pascal_case("___")` returned "", so the generated file
-    /// held a variant declared as nothing at all (`    ,` in Rust, `;` alone
-    /// in C#) -- a syntax error in every one of those four targets.
+    /// held a variant declared as nothing at all (`    ,` in Rust) -- a syntax
+    /// error.
     #[test]
     fn test_enum_variant_name_degenerate_label_does_not_collapse_to_empty() {
         let config = test_config();
         assert_eq!(enum_variant_name("!!!", &config), "___");
     }
 
-    /// Under `SCREAMING_SNAKE_CASE` (Java/Kotlin/PHP/Python/Ruby) and
-    /// `snake_case` (Elixir) the same degenerate label already produced a
+    /// Under `SCREAMING_SNAKE_CASE` and `snake_case` the same degenerate label already produced a
     /// non-empty `"_"`/`"___"` before this fix -- `to_snake_case` does not
     /// collapse underscores the way `to_pascal_case` did. Pinned here so the
     /// PascalCase fix above is not mistaken for solving a problem those two

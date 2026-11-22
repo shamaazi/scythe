@@ -406,7 +406,7 @@ pub(crate) fn print_rule_explanation(
 ///   rules; the rest of the registry is irrelevant here.
 /// - **Dialect.** [`LintRule::is_applicable_to`] gates a rule to the dialects
 ///   its spec declares. Most canonical migration rules (and several security
-///   rules) declare `dialects = ["postgres"]`, so auditing a MySQL project
+///   rules) declare `dialects = ["postgres"]`, so auditing another engine
 ///   silently ran a much smaller rule set than the one `--list-rules`
 ///   advertises. `MatcherRule::check_query` applies the same gate internally
 ///   and returns an empty `Vec`, which is indistinguishable from "the rule
@@ -573,7 +573,7 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
     for sql_config in &config.sql {
         // Per `[[sql]]` block, because the dialect gate is per block: the
         // same registry can yield a different executable rule set for a
-        // postgres block and a mysql block in one config.
+        // postgres block and a block of another engine.
         let engine_label = if sql_config.engine.is_empty() {
             "postgres"
         } else {

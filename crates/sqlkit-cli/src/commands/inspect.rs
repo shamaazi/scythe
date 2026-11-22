@@ -168,13 +168,8 @@ pub(crate) fn build_driver_with_config(
 
             Box::new(driver)
         }
-        // Every remaining engine — SQLite,
-        // or a URL scheme that got this far — has no `sqlkit inspect`
-        // implementation. It used to fall through to a MySQL stub, so a SQLite
-        // user was told `engine "mysql" is not supported`: an engine they never
-        // mentioned, which reads as a sqlkit bug rather than an
-        // unsupported-engine notice. `UnsupportedDriver` carries the engine
-        // that was actually requested.
+        // Any other engine or URL scheme has no `sqlkit inspect`
+        // implementation; `UnsupportedDriver` names the engine requested.
         // An engine whose driver this build left out lands here too, and
         // `UnsupportedDriver` reports the Cargo feature that would include it.
         other => {
@@ -549,22 +544,5 @@ mod tests {
             msg.contains("SC-NOPE"),
             "error message should include the unknown ID; got: {msg}"
         );
-    }
-
-    /// Engine-aware lookup: requesting a Postgres-only check ID with
-    /// `--dialect mysql` must return a clear not-found error rather than
-    /// printing the Postgres explanation.
-    #[test]
-    fn explain_postgres_check_under_mysql_dialect_errors() {
-        let registry = CheckRegistry::canonical();
-        let mut buf = Vec::new();
-        let result = print_explanation(&registry, "mysql", "SC-INS04", &mut buf);
-        assert!(
-            result.is_err(),
-            "SC-INS04 is postgres-only — lookup under mysql should fail"
-        );
-        let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("SC-INS04"));
-        assert!(msg.contains("mysql"));
     }
 }

@@ -85,7 +85,7 @@ impl RuleRegistry {
     ///
     /// This is the count `sqlkit audit` needs to stop reporting a clean bill
     /// of health it did not earn (#167): 28 of the 35 canonical audit rules
-    /// declare `dialects = ["postgres"]`, so an audit of a MySQL project runs
+    /// declare `dialects = ["postgres"]`, so an audit of another engine ran
     /// 7 rules, finds nothing, and prints "No findings" — indistinguishable,
     /// to the reader, from 35 rules running and finding nothing.
     ///

@@ -66,10 +66,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scythe migrate`, the sqlc importer.
 - The `schema_source` option of `[[sql]]` blocks: `"execute"` only ever ran
   SQLite. A config that sets it is now rejected as an unknown key.
+- Code that only served the removed languages and engines: the Ruby RBS
+  signature output, the `query_class_header`, `file_footer` and
+  `post_footer` backend hooks, the Python model ordering, the Java filename
+  rule, the PHP `[types.docblock_containers]` manifest table (manifest
+  overlays now reject it), the MySQL/SQLite bare `?` placeholder numbering,
+  the mysql2 `RowDataPacket` row base, the Kysely `<DB = any>` allowance in
+  generated-code validation, and the `tools/migrate-fixtures` one-off.
+  Comments, tests and fixtures no longer describe other engines or
+  languages.
 - The documentation website (`website/`) and its snippet validator
   (`tools/snippet-runner`). The README now carries the configuration reference
-  for the kept backends, and CONTRIBUTING.md the fork's branch, devenv and
-  upstreaming workflow.
+  for the kept backends, and CONTRIBUTING.md the branch and devenv
+  workflow.
 
 ### Added
 

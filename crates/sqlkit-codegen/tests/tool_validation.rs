@@ -72,9 +72,6 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
 
     let catalog = Catalog::from_ddl_with_dialect(&[schema], dialect).unwrap();
 
-    let class_header = backend.query_class_header();
-    let use_class_wrapper = !class_header.is_empty();
-
     // ~keep Swallowing a codegen error here (and letting the loop continue with
     // whatever queries did succeed) let a broken backend pass this harness as
     // long as at least one of the three queries still produced a struct and a
@@ -99,71 +96,28 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
     let mut full = backend.file_header_for_results(&all_codes);
     full.push('\n');
 
-    if use_class_wrapper {
-        for code in &all_codes {
-            if let Some(ref s) = code.enum_def {
-                full.push_str(s);
-                full.push('\n');
-            }
-            if let Some(ref s) = code.model_struct {
-                full.push_str(s);
-                full.push('\n');
-            }
-            if let Some(ref s) = code.row_struct {
-                full.push_str(s);
-                full.push('\n');
-            }
-        }
-        full.push_str(&class_header);
-        full.push('\n');
-        for code in &all_codes {
-            if let Some(ref s) = code.query_fn {
-                full.push_str(s);
-                full.push('\n');
-            }
-        }
-        let footer = backend.file_footer();
-        if !footer.is_empty() {
-            full.push_str(&footer);
+    for code in &all_codes {
+        if let Some(ref s) = code.enum_def {
+            full.push_str(s);
             full.push('\n');
         }
-    } else {
-        for code in &all_codes {
-            if let Some(ref s) = code.enum_def {
-                full.push_str(s);
-                full.push('\n');
-            }
-            if let Some(ref s) = code.model_struct {
-                full.push_str(s);
-                full.push('\n');
-            }
-            if let Some(ref s) = code.row_struct {
-                full.push_str(s);
-                full.push('\n');
-            }
-            if let Some(ref s) = code.query_fn {
-                full.push_str(s);
-                full.push('\n');
-            }
+        if let Some(ref s) = code.model_struct {
+            full.push_str(s);
+            full.push('\n');
         }
-        let footer = backend.file_footer();
-        if !footer.is_empty() {
-            full.push_str(&footer);
+        if let Some(ref s) = code.row_struct {
+            full.push_str(s);
+            full.push('\n');
+        }
+        if let Some(ref s) = code.query_fn {
+            full.push_str(s);
             full.push('\n');
         }
     }
 
-    // ~keep The point of this harness is that `php -l`, `ruby -c`, `gofmt`,
-    // `python -m py_compile`, `tsc`, and `kotlinc` below are handed the bytes
-    // a real `sqlkit generate` writes — provenance header included. Without
-    // it, nothing anywhere proves that the header sits in a position each
-    // language actually accepts: the structural checks in `validation.rs` are
-    // substring matches (`code.contains("<?php")`) that pass regardless of
-    // what precedes them, and the ordering assertions in `sqlkit-cli` are
-    // Rust string comparisons that no language tool ever sees. PHP is the
-    // sharpest case — `declare(strict_types=1);` must be the file's first
-    // *statement*, so only a real `php -l` can confirm a preceding comment is
-    // allowed there.
+    // ~keep The point of this harness is that `tsc` and `node` below are handed
+    // the bytes a real `sqlkit generate` writes, provenance header included, so
+    // a header in a position the language rejects fails here.
     //
     // The version, engine, schema, and queries values are placeholders: the
     // header's legality depends on its comment prefix and its position, not

@@ -15,8 +15,6 @@
 //! it shifts every *subsequent* field of the composite by one. A row whose text column merely
 //! contains a quote came back with silently wrong values in unrelated fields.
 //!
-//! The five JVM parsers shipped with this defect; the python and typescript ones inherited it
-//! from `java_jdbc.rs`, which board #204 named as the model to copy.
 
 #![cfg_attr(
     not(all(feature = "all-engines", feature = "all-languages")),
@@ -46,13 +44,8 @@ fn generated_text_for(schema: &str, query: &str, backend_name: &str) -> String {
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = sqlkit_codegen::generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
 
-    // ~keep `file_header_for_results` first: `go-pgx` emits its shared `parseCompositeFields` helper
-    // there rather than inside `model_struct` -- a Go package cannot declare the same function
-    // name once per composite the way each composite's own parser could as a private per-class
-    // method in Java, so the doubled-quote fix lives in the one place it is guaranteed not to
-    // collide with a second composite's copy. Every other backend's `file_header_for_results`
-    // is unrelated boilerplate (imports/package line) that cannot accidentally satisfy a needle
-    // below.
+    // `file_header_for_results` first, so a helper emitted there is part of what the needles
+    // below search.
     let mut out = backend.file_header_for_results(std::slice::from_ref(&code));
     out.push('\n');
     for text in [&code.enum_def, &code.model_struct, &code.row_struct, &code.query_fn]
@@ -75,14 +68,7 @@ fn generated_text(backend_name: &str) -> String {
 /// Deliberately a table rather than one test per backend: the defect was identical in all
 /// eight, so a new backend copying the same parser -- which is how it spread the first time --
 /// should be added here rather than getting its own bespoke assertion.
-const PARSER_BACKENDS: &[(&str, &str)] = &[
-    ("typescript-postgres", "inner[i + 1] === '\"'"),
-    // ~keep csharp-npgsql fits this table's shared "i + 1 < n" bound check unmodified -- C# spells
-    // both the loop bound and the doubled-quote lookahead exactly like Kotlin/TypeScript do.
-    // php-pdo/php-amphp do not: PHP's `$`-sigil variables mean the bound check is always
-    // "$i + 1 < $n", never the literal "i + 1 < n" this table shares across every row, so they
-    // are covered by their own real-execution tests below instead of a row here.
-];
+const PARSER_BACKENDS: &[(&str, &str)] = &[("typescript-postgres", "inner[i + 1] === '\"'")];
 
 #[cfg(all(feature = "lang-typescript", feature = "postgres"))]
 #[test]

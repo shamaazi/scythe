@@ -364,9 +364,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                    // Only validate Rust syntax with syn for Rust backends\n");
     out.push_str("                    if matches!(\n");
     out.push_str("                        *backend_name,\n");
-    out.push_str(
-        "                        \"rust-sqlx\" | \"rust-tokio-postgres\" | \"rust-tiberius\" | \"rust-sibyl\"\n",
-    );
+    out.push_str("                        \"rust-sqlx\" | \"rust-tokio-postgres\"\n");
     out.push_str("                    ) {\n");
     out.push_str("                        assert!(\n");
     out.push_str("                            syn::parse_file(&code).is_ok(),\n");
@@ -1074,31 +1072,6 @@ mod tests {
         );
     }
 
-    /// Regression for #156: `ruby-trilogy` only supports MySQL/MariaDB, but the generator used
-    /// to embed it in every fixture's backend list regardless of engine and silently `continue`
-    /// past its construction failure -- contributing zero assertions to ~370 fixtures.
-    #[test]
-    fn applicable_backends_excludes_ruby_trilogy_for_postgresql() {
-        let backends = applicable_backends("postgresql");
-        assert!(
-            !backends.contains(&"ruby-trilogy"),
-            "ruby-trilogy does not support postgresql and must be excluded, got: {backends:?}"
-        );
-        assert!(
-            backends.contains(&"rust-sqlx"),
-            "rust-sqlx supports postgresql and must be included, got: {backends:?}"
-        );
-    }
-
-    #[test]
-    fn applicable_backends_is_engine_specific() {
-        let mysql_backends = applicable_backends("mysql");
-        assert!(
-            !mysql_backends.contains(&"csharp-npgsql"),
-            "csharp-npgsql (Npgsql) has no MySQL manifest and must be excluded, got: {mysql_backends:?}"
-        );
-    }
-
     #[test]
     fn should_generate_syntax_checks_for_every_rust_backend() {
         let fixture = fixture_from_json(
@@ -1122,7 +1095,7 @@ mod tests {
 
         let code = generate_query_test(&fixture, "<test>");
         assert!(code.contains("matches!(\n                        *backend_name,"));
-        for backend in ["rust-sqlx", "rust-tokio-postgres", "rust-tiberius", "rust-sibyl"] {
+        for backend in ["rust-sqlx", "rust-tokio-postgres"] {
             assert!(
                 code.contains(&format!("\"{backend}\"")),
                 "generated syntax gate must include {backend}\n\nGenerated:\n{code}"
@@ -1199,7 +1172,7 @@ mod tests {
                 "expected": {
                     "success": true,
                     "generated_code": {
-                        "python-asyncpg": { "degraded_nested_structs": [] }
+                        "rust-tokio-postgres": { "degraded_nested_structs": [] }
                     }
                 },
                 "source": "original"
@@ -1208,7 +1181,7 @@ mod tests {
 
         let code = generate_generated_code_assertions(&fixture);
         assert!(
-            code.contains(r#"if *backend_name == "python-asyncpg""#),
+            code.contains(r#"if *backend_name == "rust-tokio-postgres""#),
             "degradation-only entry must still open its backend block, got:\n{code}"
         );
         assert!(code.contains("expected_degradations"), "got:\n{code}");
@@ -1267,7 +1240,7 @@ mod tests {
                 "expected": {
                     "success": true,
                     "generated_code": {
-                        "python-asyncpg": {
+                        "rust-tokio-postgres": {
                             "degraded_nested_structs": [
                                 {
                                     "column": "orders",
@@ -1321,9 +1294,9 @@ mod tests {
                 "expected": {
                     "success": true,
                     "codegen_errors": {
-                        "python-asyncpg": {
+                        "rust-tokio-postgres": {
                             "message_contains": "unsupported type",
-                            "reason": "asyncpg has no mapping for this type; re-derive before editing"
+                            "reason": "the driver has no mapping for this type; re-derive before editing"
                         }
                     }
                 },
@@ -1332,7 +1305,10 @@ mod tests {
         );
 
         let arms = codegen_error_match_arms(&fixture);
-        assert_eq!(arms, "            \"python-asyncpg\" => Some(\"unsupported type\"),\n");
+        assert_eq!(
+            arms,
+            "            \"rust-tokio-postgres\" => Some(\"unsupported type\"),\n"
+        );
     }
 
     /// Regression for #222: `generate_with_backend`'s `Err` used to be discarded by an `if let
@@ -1396,9 +1372,9 @@ mod tests {
                         { "name": "id", "type": "int4", "nullable": false }
                     ] },
                     "codegen_errors": {
-                        "python-asyncpg": {
+                        "rust-tokio-postgres": {
                             "message_contains": "unsupported type",
-                            "reason": "asyncpg has no mapping for this type; re-derive before editing"
+                            "reason": "the driver has no mapping for this type; re-derive before editing"
                         }
                     }
                 },
@@ -1408,7 +1384,7 @@ mod tests {
 
         let code = generate_query_test(&fixture, "<test>");
         assert!(
-            code.contains("\"python-asyncpg\" => Some(\"unsupported type\"),"),
+            code.contains("\"rust-tokio-postgres\" => Some(\"unsupported type\"),"),
             "got:\n{code}"
         );
         assert!(

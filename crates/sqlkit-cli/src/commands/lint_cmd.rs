@@ -920,7 +920,6 @@ fn lint_from_config(
         .sql
         .first()
         .map(|s| engine_to_sqruff_dialect(&s.engine))
-        .filter(|e| *e == "postgres" || *e == "mysql")
         .unwrap_or("postgres");
 
     let inspect_findings = try_run_inspect(config_path, database_url, Some(inspect_engine));

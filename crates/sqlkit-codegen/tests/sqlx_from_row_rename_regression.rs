@@ -4,10 +4,9 @@
 //! `field_shape_regression.rs` documents the general justification for
 //! `sanitize_field_names`: "none of [the mangling backends] read a column
 //! back by the generated field name -- they use the position or the raw SQL
-//! name". That is true for tokio-postgres and tiberius, whose hand-written
-//! `from_row` always looks a column up by the literal SQL name string
-//! (`row.get("my col")`) while only the *Rust field* is sanitized, and true
-//! for rust-sibyl, which reads columns by position. It is false for
+//! name". That is true for tokio-postgres, whose hand-written `from_row`
+//! always looks a column up by the literal SQL name string (`row.get("my col")`)
+//! while only the *Rust field* is sanitized. It is false for
 //! rust-sqlx: every row struct it emits derives `sqlx::FromRow`, and that
 //! derive resolves a column *by the Rust field's own name* unless told
 //! otherwise. Mangling `"my col"` into the field `my_col` without an

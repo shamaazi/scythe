@@ -223,10 +223,9 @@ impl TsRowShape {
 /// pass inserts ahead of a backtick or `${` are not themselves re-escaped by
 /// a later pass. Left unescaped, a backslash in the source SQL (e.g.
 /// `E'\n'`) would escape whatever JS character follows it; a literal
-/// backtick (idiomatic identifier quoting in MySQL/MariaDB — `` `users`.`id` ``)
-/// would terminate the template literal early; and a literal `${` would open
-/// a live JS interpolation — worse still inside a Kysely `sql` tag, where
-/// `${}` is a parameter binding.
+/// backtick would terminate the template literal early; and a literal `${`
+/// would open a live JS interpolation (inside a Bun `sql` tag, a parameter
+/// binding).
 pub fn escape_ts_template_literal(sql: &str) -> String {
     sql.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${")
 }
@@ -335,11 +334,7 @@ fn is_ts_identifier(name: &str) -> bool {
 /// very same column through the backend manifest's `[types.scalars]`, so the
 /// two modes disagreed wherever a manifest departed from that table's
 /// assumptions -- and every TypeScript manifest departs from it somewhere.
-/// On `typescript-node-sqlite`, for one file: `bool` is `number` in the
-/// manifest and `z.boolean()` in the table, `decimal` is `number` versus
-/// `z.string()`, `datetime` is `string` versus `z.date()`, `json` is
-/// `Record<string, unknown>` versus `z.unknown()`. Four of six columns
-/// declared one type under `interface` and a different one under `zod`, on
+/// Columns declared one type under `interface` and a different one under `zod`, on
 /// the same backend and the same query. Deriving the schema from the type
 /// the manifest already produced makes that disagreement unrepresentable.
 ///
@@ -494,27 +489,9 @@ fn container_inner<'a>(neutral_type: &'a str, container: &str) -> Option<&'a str
 ///
 /// Shared by every TypeScript backend so the shape cannot drift between them.
 pub fn generate_ts_interface_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
-    generate_ts_interface_row_struct_with_base(struct_name, query_name, columns, None)
-}
-
-/// As [`generate_ts_interface_row_struct`], but extending `base` when the
-/// target requires it (mysql2's `RowDataPacket`).
-pub fn generate_ts_interface_row_struct_with_base(
-    struct_name: &str,
-    query_name: &str,
-    columns: &[ResolvedColumn],
-    base: Option<&str>,
-) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
-    match base {
-        Some(base) => {
-            let _ = writeln!(out, "export interface {} extends {} {{", struct_name, base);
-        }
-        None => {
-            let _ = writeln!(out, "export interface {} {{", struct_name);
-        }
-    }
+    let _ = writeln!(out, "export interface {} {{", struct_name);
     for col in columns {
         write_ts_property(
             &mut out,
@@ -571,30 +548,15 @@ fn discriminated_join_groups(columns: &[ResolvedColumn]) -> Vec<String> {
 ///
 /// Falls back to the plain interface when there is nothing to discriminate, so
 /// callers can use this unconditionally.
-/// `base` is intersected into the result when the target requires the row to
-/// extend a driver type (mysql2's `RowDataPacket`). A union cannot use
-/// `extends`, so it is expressed as an intersection instead.
-pub fn generate_ts_union_row_struct(
-    struct_name: &str,
-    query_name: &str,
-    columns: &[ResolvedColumn],
-    base: Option<&str>,
-) -> String {
+pub fn generate_ts_union_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
     let groups = discriminated_join_groups(columns);
     if groups.is_empty() {
-        return generate_ts_interface_row_struct_with_base(struct_name, query_name, columns, base);
+        return generate_ts_interface_row_struct(struct_name, query_name, columns);
     }
 
     let mut out = String::new();
     let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
-    match base {
-        Some(base) => {
-            let _ = writeln!(out, "export type {} = {} & {{", struct_name, base);
-        }
-        None => {
-            let _ = writeln!(out, "export type {} = {{", struct_name);
-        }
-    }
+    let _ = writeln!(out, "export type {} = {{", struct_name);
 
     // ~keep Not just `join_group.is_none()`: a column belonging to a join group
     // that `discriminated_join_groups` dropped -- one where every projected
@@ -602,8 +564,8 @@ pub fn generate_ts_union_row_struct(
     // live in, so filtering on `is_none()` alone omitted it from the row
     // type entirely. A query with two LEFT JOINs where only one joined
     // relation projects a NOT NULL column selected five columns and got a
-    // type declaring three: silent on `typescript-pg`, which hands driver
-    // rows back directly, and a compile error on the nine remap backends,
+    // type declaring three: silent on a driver that hands
+    // rows back directly, and a compile error on a backend that remaps rows,
     // whose object literal then assigns properties the type does not
     // declare. Such a column is independently nullable, so `full_type` is
     // exactly right for it -- which is also what `TsRowShape::cast_type`
@@ -1006,16 +968,9 @@ pub fn generate_ts_many_row_remap(
 ///
 /// `row_access(sql_col_name, ts_full_type)` returns the TypeScript expression that
 /// reads that column from the current `row` loop variable.  Examples:
-/// - pg/mysql2 (dot access):   `|name, ty| format!("row.{name} as {ty}")`
-/// - postgres.js/mssql/duckdb: `|name, ty| format!("row['{}'] as {}", name, ty)`
-/// - Oracle (uppercase keys):  `|name, ty| format!("row['{}'] as {}", name.to_uppercase(), ty)`
+/// - postgres.js and Bun: `|name, ty| format!("row['{}'] as {}", name, ty)`
 ///
-/// Every TypeScript-mode caller casts. pg and mysql2 hand back rows whose
-/// fields are already `any` (`QueryResult<any>` and `RowDataPacket`'s index
-/// signature), so the cast is not load-bearing *today* -- but the `:one` and
-/// `:many` paths in those same two backends have always cast, and a fold that
-/// silently disagreed with its neighbours would be the thing to break first if
-/// either driver's row type were ever narrowed.
+/// Every TypeScript-mode caller casts.
 ///
 /// The `javascript-*` emit mode is the sole exception and must never cast:
 /// `as T` is not valid JavaScript. Those callers pass `|name, _ty|` by
@@ -1976,7 +1931,7 @@ mod tests {
 
     #[test]
     fn emits_a_union_that_ties_the_outer_join_columns_together() {
-        let out = generate_ts_union_row_struct("GetUserOrdersRow", "GetUserOrders", &user_orders_columns(), None);
+        let out = generate_ts_union_row_struct("GetUserOrdersRow", "GetUserOrders", &user_orders_columns());
 
         assert!(out.contains("export type GetUserOrdersRow = {"), "{out}");
         // Inner-side columns stay in the base object.
@@ -1998,7 +1953,7 @@ mod tests {
             column("notes", "string", true, Some("o"), true),
         ];
 
-        let out = generate_ts_union_row_struct("R", "Q", &columns, None);
+        let out = generate_ts_union_row_struct("R", "Q", &columns);
 
         assert!(out.contains("export interface R {"), "{out}");
         assert!(!out.contains(" & ("), "no union without a discriminant: {out}");
@@ -2011,18 +1966,9 @@ mod tests {
             column("name", "string", false, None, false),
         ];
 
-        let out = generate_ts_union_row_struct("R", "Q", &columns, None);
+        let out = generate_ts_union_row_struct("R", "Q", &columns);
 
         assert_eq!(out, generate_ts_interface_row_struct("R", "Q", &columns));
-    }
-
-    /// mysql2 rows must extend RowDataPacket. A union cannot use `extends`, so
-    /// the base is intersected instead.
-    #[test]
-    fn intersects_the_base_type_when_the_target_requires_one() {
-        let out = generate_ts_union_row_struct("R", "Q", &user_orders_columns(), Some("RowDataPacket"));
-
-        assert!(out.contains("export type R = RowDataPacket & {"), "{out}");
     }
 
     /// Two independently outer-joined relations each get their own
@@ -2035,7 +1981,7 @@ mod tests {
             column("addr", "string", true, Some("a"), false),
         ];
 
-        let out = generate_ts_union_row_struct("R", "Q", &columns, None);
+        let out = generate_ts_union_row_struct("R", "Q", &columns);
 
         assert!(out.contains("| { total: string }"), "{out}");
         assert!(out.contains("| { total: null }"), "{out}");
@@ -2064,7 +2010,7 @@ mod tests {
             column("label", "string", true, Some("b"), false),
         ];
 
-        let out = generate_ts_union_row_struct("R", "Q", &columns, None);
+        let out = generate_ts_union_row_struct("R", "Q", &columns);
 
         assert!(out.contains("bio: string | null;"), "{out}");
         assert!(out.contains("website: string | null;"), "{out}");

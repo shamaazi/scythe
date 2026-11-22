@@ -4,10 +4,10 @@
 //! junction table) against a query set covering joins, aggregates, and
 //! `GROUP BY` — the same shape of SQL used across `integration_tests/sql/pg`
 //! — through parsing, type analysis, and code generation for two backends of
-//! different weight (`sqlx`: template rendering only; `typescript-kysely`:
-//! discriminated-union join grouping plus Zod schema emission).
+//! different weight (`sqlx`: template rendering only; `typescript-bun`:
+//! discriminated-union join grouping and row remapping).
 //!
-//! Run with `mise run bench` or `cargo bench -p sqlkit-codegen --bench analyze_codegen`.
+//! Run with `cargo bench -p sqlkit-codegen --bench analyze_codegen`.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use sqlkit_codegen::{generate_with_backend, get_backend};
@@ -146,12 +146,12 @@ fn bench_codegen_sqlx(c: &mut Criterion) {
     });
 }
 
-fn bench_codegen_typescript_kysely(c: &mut Criterion) {
+fn bench_codegen_typescript_bun(c: &mut Criterion) {
     let catalog = build_catalog();
     let analyzed = analyze_all(&catalog);
-    let backend = get_backend("typescript-kysely", "postgresql").expect("typescript-kysely backend");
+    let backend = get_backend("typescript-bun", "postgresql").expect("typescript-bun backend");
 
-    c.bench_function("codegen_typescript_kysely", |b| {
+    c.bench_function("codegen_typescript_bun", |b| {
         b.iter(|| {
             for query in &analyzed {
                 let code = generate_with_backend(black_box(query), &*backend).expect("codegen succeeds");
@@ -164,14 +164,14 @@ fn bench_codegen_typescript_kysely(c: &mut Criterion) {
 fn bench_end_to_end(c: &mut Criterion) {
     let catalog = build_catalog();
     let sqlx_backend = get_backend("sqlx", "postgresql").expect("sqlx backend");
-    let kysely_backend = get_backend("typescript-kysely", "postgresql").expect("typescript-kysely backend");
+    let bun_backend = get_backend("typescript-bun", "postgresql").expect("typescript-bun backend");
 
     c.bench_function("end_to_end_parse_analyze_generate", |b| {
         b.iter(|| {
             let analyzed = analyze_all(black_box(&catalog));
             for query in &analyzed {
                 black_box(generate_with_backend(query, &*sqlx_backend).expect("codegen succeeds"));
-                black_box(generate_with_backend(query, &*kysely_backend).expect("codegen succeeds"));
+                black_box(generate_with_backend(query, &*bun_backend).expect("codegen succeeds"));
             }
         });
     });
@@ -182,7 +182,7 @@ criterion_group!(
     bench_analyze,
     bench_analyze_only,
     bench_codegen_sqlx,
-    bench_codegen_typescript_kysely,
+    bench_codegen_typescript_bun,
     bench_end_to_end
 );
 criterion_main!(benches);

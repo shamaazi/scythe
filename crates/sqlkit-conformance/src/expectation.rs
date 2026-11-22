@@ -1,6 +1,6 @@
 //! Resolves the *declared* expectation for a (fixture, run, engine): the
 //! run's base `rows` unless `engine_expectations` registers a legitimate
-//! per-engine semantic override (e.g. Oracle collapsing `''` into `NULL`).
+//! per-engine semantic override.
 //!
 //! This is deliberately separate from [`crate::divergence`]:
 //! `engine_expectations` changes what a fixture *asserts* before any

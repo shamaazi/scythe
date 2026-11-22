@@ -111,10 +111,7 @@ fn test_group_by_count() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -275,10 +272,7 @@ fn test_group_by_having() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -443,10 +437,7 @@ fn test_group_by_multiple_aggregates() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -660,10 +651,7 @@ fn test_array_agg_stays_scalar() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -857,10 +845,7 @@ fn test_json_agg_left_join_nullable_elements() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -891,108 +876,6 @@ fn test_json_agg_left_join_nullable_elements() {
                     backend_name,
                     "json_agg_left_join_nullable_elements"
                 );
-                if *backend_name == "elixir-postgrex" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> =
-                        vec![sqlkit_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersOuterRowOrders".to_string(),
-                            fallback_type: "json_array",
-                            backend: (*backend_name).to_string(),
-                        }];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_left_join_nullable_elements",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "go-pgx" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_left_join_nullable_elements",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "java-jdbc" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> =
-                        vec![sqlkit_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersOuterRowOrders".to_string(),
-                            fallback_type: "json",
-                            backend: (*backend_name).to_string(),
-                        }];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_left_join_nullable_elements",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "php-amphp" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_left_join_nullable_elements",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "php-pdo" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_left_join_nullable_elements",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "python-asyncpg" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> =
-                        vec![sqlkit_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersOuterRowOrders".to_string(),
-                            fallback_type: "json_array",
-                            backend: (*backend_name).to_string(),
-                        }];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_left_join_nullable_elements",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "python-psycopg3" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_left_join_nullable_elements",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
                 if *backend_name == "rust-sqlx" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
@@ -1006,30 +889,6 @@ fn test_json_agg_left_join_nullable_elements() {
                     );
                 }
                 if *backend_name == "rust-tokio-postgres" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_left_join_nullable_elements",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "typescript-kysely" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_left_join_nullable_elements",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "typescript-pg" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
@@ -1238,10 +1097,7 @@ fn test_json_agg_wildcard_nested_struct() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1272,108 +1128,6 @@ fn test_json_agg_wildcard_nested_struct() {
                     backend_name,
                     "json_agg_wildcard_nested_struct"
                 );
-                if *backend_name == "elixir-postgrex" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> =
-                        vec![sqlkit_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersRowOrders".to_string(),
-                            fallback_type: "json_array",
-                            backend: (*backend_name).to_string(),
-                        }];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "go-pgx" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "java-jdbc" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> =
-                        vec![sqlkit_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersRowOrders".to_string(),
-                            fallback_type: "json",
-                            backend: (*backend_name).to_string(),
-                        }];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "php-amphp" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "php-pdo" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "python-asyncpg" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> =
-                        vec![sqlkit_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersRowOrders".to_string(),
-                            fallback_type: "json_array",
-                            backend: (*backend_name).to_string(),
-                        }];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "python-psycopg3" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
                 if *backend_name == "rust-sqlx" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
@@ -1387,30 +1141,6 @@ fn test_json_agg_wildcard_nested_struct() {
                     );
                 }
                 if *backend_name == "rust-tokio-postgres" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "typescript-kysely" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "json_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "typescript-pg" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
@@ -1606,10 +1336,7 @@ fn test_jsonb_agg_wildcard_nested_struct() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1640,30 +1367,6 @@ fn test_jsonb_agg_wildcard_nested_struct() {
                     backend_name,
                     "jsonb_agg_wildcard_nested_struct"
                 );
-                if *backend_name == "typescript-kysely" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "jsonb_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "typescript-pg" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "jsonb_agg_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
                 if *backend_name == "typescript-postgres" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
@@ -1833,10 +1536,7 @@ fn test_row_to_json_wildcard_nested_struct() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1867,90 +1567,6 @@ fn test_row_to_json_wildcard_nested_struct() {
                     backend_name,
                     "row_to_json_wildcard_nested_struct"
                 );
-                if *backend_name == "go-pgx" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "row_to_json_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "java-jdbc" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> =
-                        vec![sqlkit_codegen::NestedStructDegradation {
-                            column: "payload".to_string(),
-                            struct_name: "GetOrderPayloadRowPayload".to_string(),
-                            fallback_type: "json",
-                            backend: (*backend_name).to_string(),
-                        }];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "row_to_json_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "php-amphp" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "row_to_json_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "php-pdo" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "row_to_json_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "python-asyncpg" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> =
-                        vec![sqlkit_codegen::NestedStructDegradation {
-                            column: "payload".to_string(),
-                            struct_name: "GetOrderPayloadRowPayload".to_string(),
-                            fallback_type: "json",
-                            backend: (*backend_name).to_string(),
-                        }];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "row_to_json_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "python-psycopg3" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "row_to_json_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
                 if *backend_name == "rust-sqlx" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
@@ -1964,30 +1580,6 @@ fn test_row_to_json_wildcard_nested_struct() {
                     );
                 }
                 if *backend_name == "rust-tokio-postgres" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "row_to_json_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "typescript-kysely" {
-                    let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
-                    assert_eq!(
-                        generated.degraded_nested_structs,
-                        expected_degradations,
-                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
-                        backend_name,
-                        "row_to_json_wildcard_nested_struct",
-                        expected_degradations,
-                        generated.degraded_nested_structs
-                    );
-                }
-                if *backend_name == "typescript-pg" {
                     let expected_degradations: Vec<sqlkit_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
@@ -2130,10 +1722,7 @@ fn test_string_agg_stays_scalar() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -2283,10 +1872,7 @@ fn test_avg_float64_stays_float64() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -2436,10 +2022,7 @@ fn test_sum_float32_stays_float32() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -2589,10 +2172,7 @@ fn test_sum_float64_stays_float64() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -2742,10 +2322,7 @@ fn test_sum_int32_widens_to_int64() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -2895,10 +2472,7 @@ fn test_sum_int64_widens_to_decimal() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -3063,10 +2637,7 @@ fn test_window_lag_lead() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -3225,10 +2796,7 @@ fn test_window_ntile() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -3393,10 +2961,7 @@ fn test_window_partition_by() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -3558,10 +3123,7 @@ fn test_window_rank_dense_rank() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -3717,10 +3279,7 @@ fn test_window_row_number() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -3885,10 +3444,7 @@ fn test_window_sum_over_partition() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if matches!(
-                        *backend_name,
-                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
-                    ) {
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",

@@ -3,8 +3,8 @@
 //!
 //! This lives in `sqlkit-codegen` rather than in the `sqlkit` CLI that
 //! actually writes the files, for one reason: `tests/tool_validation.rs` in
-//! this crate hands assembled files to the real language tools (`php -l`,
-//! `ruby -c`, `gofmt`, ...), and it can only substantiate the claim that the
+//! this crate hands assembled files to the real language tools (`tsc`,
+//! `node --check`), and it can only substantiate the claim that the
 //! header sits in a position each language accepts if it assembles the same
 //! bytes the CLI writes. A second copy of the comment-prefix table, or of
 //! the preamble/header/body ordering, kept privately in the test harness,
@@ -34,61 +34,10 @@ use crate::backend_trait::CodegenBackend;
 /// per-language rule for stripping each comment syntax.
 pub const HEADER_SENTINEL: &str = "sqlkit:provenance";
 
-/// Line-comment token to embed the provenance header behind, derived from
-/// `manifest().backend.language`.
-///
-/// `language` is a `String`, not a Rust enum, but exactly 10 distinct values
-/// are used across every one of the 102 shipped manifests, so this one match
-/// table is the single place backends' comment syntax is derived from —
-/// no per-backend declaration, and no manifest schema change. Unrecognized
-/// values fall back to `//`: every backend shipped today matches one of the
-/// listed languages, and `//` is a safe default for any future one that
-/// doesn't.
-pub fn comment_prefix(language: &str) -> &'static str {
-    match language {
-        "python" | "ruby" | "elixir" => "#",
-        _ => "//",
-    }
-}
-
-/// Trailing text appended to the header line for languages whose *default*
-/// linter configuration rejects it, derived from
-/// `manifest().backend.language` the same way [`comment_prefix`] is.
-///
-/// Python only, for one concrete reason: ruff's default `line-length` is 88,
-/// while the header runs to roughly 99 characters (`# sqlkit:provenance
-/// v=0.13.0 backend=python-psycopg3 engine=postgresql schema=sch1:` plus 16
-/// hex digits). Without a suppression, *every* file sqlkit generates for a
-/// Python target reports `E501 Line too long` on line 1 under `ruff check
-/// --select E` — a lint error the consumer did not write and cannot fix
-/// without either hand-editing generated code or loosening their own
-/// line-length. `# noqa: E501` is the same mechanism, and the same
-/// two-spaces-before-`#` spelling, that sqlkit's Python backends already use
-/// for the `# noqa: F401` on their conditionally-emitted imports.
-///
-/// The suffix is invisible to a reader: [`parse_header_fields`] tokenizes
-/// the text after the sentinel on whitespace and skips any token without an
-/// `=`, so `#`, `noqa:`, and `E501` are all ignored and the five
-/// `key=value` fields still parse. Pinned by
-/// `parse_header_fields_skips_the_python_noqa_suffix` below, and by
-/// `assemble_output_python_header_carries_noqa_and_still_round_trips` in
-/// `sqlkit-cli`.
-///
-/// Shortening the header instead was not an option: the width is driven by
-/// the backend name, the engine alias, and a 16-hex-digit fingerprint, none
-/// of which can be trimmed without losing information the verifier compares.
-///
-/// Known trade-off: a project that both raises `line-length` past ~99 *and*
-/// opts into `RUF100` (unused-noqa) will see the suppression reported as
-/// unnecessary. That is strictly the lesser problem — it takes an opt-in
-/// rule plus a non-default line length to hit, whereas E501 fires on ruff's
-/// defaults — and it is the same trade-off the existing `# noqa: F401`
-/// lines already make.
-fn header_suffix(language: &str) -> &'static str {
-    match language {
-        "python" => "  # noqa: E501",
-        _ => "",
-    }
+/// Line-comment token to embed the provenance header behind: `//`, which every
+/// target language (Rust, TypeScript, JavaScript) shares.
+pub fn comment_prefix(_language: &str) -> &'static str {
+    "//"
 }
 
 /// True for the characters [`sanitize_field`] must escape: the escape
@@ -232,9 +181,7 @@ pub fn decode_field(value: &str) -> Cow<'_, str> {
 ///
 /// Returns `None` when `line` carries no [`HEADER_SENTINEL`] at all. Keys
 /// are returned in the order they appear, borrowed from `line`; values are
-/// [`decode_field`]-decoded. Tokens with no `=` are skipped, which is what
-/// makes the per-language [`header_suffix`] (Python's `# noqa: E501`)
-/// invisible to a reader. Unknown keys are returned rather than rejected:
+/// [`decode_field`]-decoded. Tokens with no `=` are skipped. Unknown keys are returned rather than rejected:
 /// deciding which keys matter belongs to the caller, so the header format
 /// and any given verifier can grow independently.
 pub fn parse_header_fields(line: &str) -> Option<Vec<(&str, String)>> {
@@ -285,10 +232,6 @@ pub fn parse_header_fields(line: &str) -> Option<Vec<(&str, String)>> {
 /// exact inverse of this function for *any* input, which is what the
 /// round-trip test can assert; encoding selectively would make the inverse
 /// hold only for the argument positions someone remembered to cover.
-///
-/// A per-language [`header_suffix`] may be appended after the last field —
-/// today only Python's `# noqa: E501`, without which the line trips ruff's
-/// default 88-character limit in every generated file.
 pub fn header_line(backend: &dyn CodegenBackend, version: &str, engine: &str, schema: &str, queries: &str) -> String {
     build_header_line(backend, version, engine, schema, queries, None)
 }
@@ -337,7 +280,6 @@ fn build_header_line(
 ) -> String {
     let language = &backend.manifest().backend.language;
     let comment = comment_prefix(language);
-    let suffix = header_suffix(language);
     let version = sanitize_field(version);
     let name = sanitize_field(backend.name());
     let engine = sanitize_field(engine);
@@ -349,7 +291,7 @@ fn build_header_line(
     };
     format!(
         "{comment} {HEADER_SENTINEL} v={version} backend={name} engine={engine} schema={schema} \
-         queries={queries}{options_field}{suffix}\n"
+         queries={queries}{options_field}\n"
     )
 }
 
@@ -457,7 +399,7 @@ where
 }
 
 /// Join a backend's `preamble` (text that must be the literal first bytes of
-/// the file, e.g. PHP's `<?php`), the provenance `header` line, and the
+/// the file), the provenance `header` line, and the
 /// generated `body` into the one byte ordering every generated file uses.
 ///
 /// The preamble is unconditionally first — even ahead of the provenance
@@ -465,21 +407,9 @@ where
 /// lose their meaning if anything at all precedes them (see that method's
 /// doc comment).
 ///
-/// The blank line between the header line and the body is emitted only when
-/// `preamble` is non-empty. This is not cosmetic: for the 8 backends with a
-/// preamble override, the old (pre-provenance) `file_header()` text already
-/// opened with its own blank line (PHP's `"<?php\n\ndeclare(...)"`, Ruby's
-/// `"# frozen_string_literal: true\n\n# Auto-generated..."`), so the
-/// separator reproduces those exact bytes once the provenance line is
-/// accounted for. For the other 44 backends, `file_header()` never had a
-/// leading blank line, so an unconditional separator would silently insert
-/// one that was never there before — invisible in the assembled output, but
-/// a real, provable byte-level regression. Conditioning the separator on
-/// `preamble.is_empty()` reproduces the old bytes in both cases:
-/// - preamble non-empty (PHP): `"<?php\n"` + header + `"\n"` + `"declare..."`;
-///   strip the header line → `"<?php\n\ndeclare..."`, the old bytes exactly.
-/// - preamble empty (Go): header + `""` + `"// Code generated..."`;
-///   strip the header line → `"// Code generated..."`, the old bytes exactly.
+/// A blank line separates the header from the body only when `preamble` is
+/// non-empty, so a file without a preamble starts with the header and then
+/// the body exactly as the backend wrote it.
 pub fn assemble_file(preamble: &str, header: &str, body: &str) -> String {
     let separator = if preamble.is_empty() { "" } else { "\n" };
     format!("{preamble}{header}{separator}{body}")
@@ -494,46 +424,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn comment_prefix_covers_all_ten_manifest_languages() {
-        // The exact 10 values used across every shipped manifest (see
-        // `grep -h '^language' crates/sqlkit-codegen/manifests/*.toml | sort -u`).
-        let hash_comment = ["python", "ruby", "elixir"];
-        let slash_comment = ["rust", "typescript", "go", "java", "kotlin", "csharp", "php"];
-
-        for language in hash_comment {
-            assert_eq!(comment_prefix(language), "#", "language: {language}");
-        }
-        for language in slash_comment {
-            assert_eq!(comment_prefix(language), "//", "language: {language}");
-        }
-    }
-
-    #[test]
     fn comment_prefix_defaults_to_slash_slash_for_unknown_language() {
         assert_eq!(comment_prefix("cobol"), "//");
-    }
-
-    /// The suppression is Python-specific and must not leak: `# noqa` is a
-    /// syntax error in most of the other nine languages, and meaningless
-    /// noise in Ruby and Elixir, which share Python's `#` comment token.
-    #[test]
-    fn header_suffix_is_python_only() {
-        assert_eq!(header_suffix("python"), "  # noqa: E501");
-
-        for language in [
-            "ruby",
-            "elixir",
-            "rust",
-            "typescript",
-            "go",
-            "java",
-            "kotlin",
-            "csharp",
-            "php",
-            "cobol",
-        ] {
-            assert_eq!(header_suffix(language), "", "language: {language}");
-        }
     }
 
     #[test]
@@ -591,7 +483,6 @@ mod tests {
             "0.15.0-rc.1",
             "rust-sqlx",
             "postgresql",
-            "mariadb",
             "sch1:0123456789abcdef",
             "q1:fedcba9876543210",
         ] {
@@ -641,7 +532,7 @@ mod tests {
         "'single'",
         "sqlkit:provenance v=9.9.9",
         "// sqlkit:provenance",
-        "# noqa: E501",
+        "# trailing comment",
         "ünïcödé-ロケール",
         "emoji-🎉-field",
         "\u{0}nul",
@@ -770,24 +661,7 @@ mod tests {
     /// comparison must not depend on `get_backend` policing its input for it.
     #[test]
     fn sanitize_field_is_a_no_op_for_every_alias_get_backend_accepts() {
-        for alias in [
-            "postgresql",
-            "postgres",
-            "pg",
-            "cockroachdb",
-            "crdb",
-            "mysql",
-            "mariadb",
-            "sqlite",
-            "sqlite3",
-            "duckdb",
-            "mssql",
-            "sqlserver",
-            "tsql",
-            "oracle",
-            "snowflake",
-            "redshift",
-        ] {
+        for alias in ["postgresql", "postgres", "pg"] {
             assert_eq!(sanitize_field(alias).as_ref(), alias);
         }
     }
@@ -814,14 +688,6 @@ mod tests {
     #[test]
     fn assemble_file_omits_separator_when_preamble_is_empty() {
         assert_eq!(assemble_file("", "// header\n", "body\n"), "// header\nbody\n");
-    }
-
-    #[test]
-    fn assemble_file_inserts_separator_when_preamble_is_non_empty() {
-        assert_eq!(
-            assemble_file("<?php\n", "// header\n", "declare(strict_types=1);\n"),
-            "<?php\n// header\n\ndeclare(strict_types=1);\n"
-        );
     }
 
     // -----------------------------------------------------------------------

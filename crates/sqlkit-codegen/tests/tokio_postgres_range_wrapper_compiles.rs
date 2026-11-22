@@ -1,45 +1,22 @@
 //! Compile-only coverage for the `PgRange<T>` wrapper `TokioPostgresBackend`
-//! hand-rolls (board #203, following up on `range_container_consistency.rs`'s
-//! "now fixed" entry for `rust-tokio-postgres`).
+//! hand-rolls (board #203).
 //!
 //! Nothing else in this repository feeds that wrapper's source to a real Rust
-//! compiler. `range_container_consistency.rs`'s
-//! `rust_tokio_postgres_range_emits_a_working_pgrange_wrapper` asserts the
-//! emitted *text* contains the right substrings, never that it compiles.
-//! Neither `integration_tests/sql/pg/schema.sql` (compiled into every
-//! committed live postgresql-engine integration project) nor
-//! `integration_tests/sql/torture/schema.sql` (regenerated against those same
-//! projects and real-build-checked by `scripts/check-generated-backends.py`,
-//! which runs `cargo check` for `rust-tokio-postgres` specifically) declares a
-//! range column, so no committed generated file anywhere names `PgRange<` and
-//! no CI job has ever handed it to `rustc`.
+//! compiler.
+//! `integration_tests/sql/pg/schema.sql` (compiled into every committed
+//! integration project) declares no range column, so no committed generated
+//! file names `PgRange<` and nothing else hands it to `rustc`.
 //!
-//! # Why not add a range column to one of those shared schemas instead
+//! # Why not add a range column to the shared schema instead
 //!
-//! Both schemas are swept as a single file across every postgresql-engine
-//! project by their respective gates: `sql/pg/schema.sql` is compiled into
-//! every live project's committed output, and `sql/torture/schema.sql` is
-//! regenerated and real-build-checked (`dotnet build`, `mvn compile`,
-//! `mix compile`, `pnpm typecheck`, ...) across all of them by
-//! `check-generated-backends.py`, whose `find_pg_projects` sweep is not
-//! scoped per backend. `range_container_consistency.rs`'s module doc comment
-//! has already verified all 19 `range`-capable manifests' *type mapping* is
-//! correct, but `rust-tokio-postgres` is the odd one out: every other
-//! backend's mapping just names a type a third-party driver crate already
-//! ships (`sqlx::postgres::types::PgRange<T>`, `NpgsqlTypes.NpgsqlRange<T>`,
-//! `pgtype.Range[T]`, ...), so there is nothing of sqlkit's *own* authorship
-//! to compile there. `rust-tokio-postgres` alone hand-rolls the impl, so it
-//! alone needs a real compiler in the loop. Adding a range column to either
-//! shared schema would make all 18 other backends' first real-build encounter
-//! with `range` a side effect of a change scoped to this one wrapper, and any
-//! new red on that gate would say nothing about the wrapper this file is
-//! about.
+//! `rust-tokio-postgres` alone hand-rolls its range impl (`rust-sqlx` names
+//! `sqlx::postgres::types::PgRange<T>`), so it alone needs a real compiler in
+//! the loop, and a change to the shared schema would touch every project.
 //!
 //! # What this does instead
 //!
 //! Takes the exact string `TokioPostgresBackend::file_header_for_results`
-//! emits -- the same call `range_container_consistency.rs` makes, not a
-//! hand-copied duplicate that could drift from it -- and compiles it for
+//! emits, not a hand-copied duplicate that could drift from it, and compiles it for
 //! real, in a throwaway single-file crate depending on nothing this workspace
 //! does not already fetch from crates.io for `sqlkit-inspect`
 //! (`tokio-postgres`, a direct dependency there) and for
