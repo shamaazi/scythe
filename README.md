@@ -174,8 +174,9 @@ then `devenv tasks run <task>`.
 | `sqlkit:integration` | The rust-sqlx, rust-tokio-postgres and Bun projects against devenv's PostgreSQL |
 | `sqlkit:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` controls |
 
-There is no CI: run `sqlkit:lint`, `sqlkit:test` and `sqlkit:integration` before pushing. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
+There is no CI: `devenv shell` installs git hooks that run `sqlkit:lint` on commit and
+`sqlkit:test` and `sqlkit:generated-fresh` on push. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+workflow.
 
 ## License
 

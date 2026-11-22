@@ -60,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under `scripts/`. The mise, poly, uv, renovate, dependabot and ai-rulez
   configuration, the GitHub Action, the pre-commit hook definition and the
   coding-agent plugin and skills are gone.
+- The checks run as git hooks that `devenv shell` installs: `sqlkit:lint`
+  before each commit that touches Rust or Cargo files, `sqlkit:test` and
+  `sqlkit:generated-fresh` before each push.
 
 ### Removed
 

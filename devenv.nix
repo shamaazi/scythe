@@ -1,5 +1,6 @@
 # The development environment and the task runner: `devenv tasks run <task>`. There is no CI;
-# run these tasks before pushing. Builds are debug builds; nothing here builds --release.
+# git hooks run the checks instead (see `git-hooks` below). Builds are debug builds; nothing
+# here builds --release.
 { pkgs, config, ... }:
 let
   # What mygiving builds through Nix (its overlay pins this repository): the CLI with the
@@ -35,6 +36,37 @@ in
         pass = "sqlkit";
       }
     ];
+  };
+
+  # The checks run as git hooks, which entering the shell installs: lint on every commit that
+  # touches Rust, tests and generated-code freshness on every push. Each hook runs the task of
+  # the same name below, so `devenv tasks run` and the hooks never drift apart.
+  # `git commit --no-verify` / `git push --no-verify` skip them in an emergency.
+  git-hooks.hooks = {
+    sqlkit-lint = {
+      enable = true;
+      name = "sqlkit:lint (rustfmt, clippy)";
+      entry = "devenv tasks run sqlkit:lint";
+      files = "\\.rs$|(^|/)Cargo\\.(toml|lock)$|^rust(-toolchain|fmt)\\.toml$";
+      pass_filenames = false;
+      stages = [ "pre-commit" ];
+    };
+    sqlkit-test = {
+      enable = true;
+      name = "sqlkit:test";
+      entry = "devenv tasks run sqlkit:test";
+      always_run = true;
+      pass_filenames = false;
+      stages = [ "pre-push" ];
+    };
+    sqlkit-generated-fresh = {
+      enable = true;
+      name = "sqlkit:generated-fresh";
+      entry = "devenv tasks run sqlkit:generated-fresh";
+      always_run = true;
+      pass_filenames = false;
+      stages = [ "pre-push" ];
+    };
   };
 
   tasks = {

@@ -31,8 +31,19 @@ service for the integration projects. Build in debug only; nothing here needs `-
 | `sqlkit:integration` | Run the integration projects (starts devenv's PostgreSQL on port 5433) |
 | `sqlkit:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` acceptance controls |
 
-There is no CI: run `sqlkit:lint`, `sqlkit:test` and `sqlkit:integration` before pushing. Linking
-every test binary at once can exhaust memory on a small machine; `cargo test --workspace -j1` avoids it.
+## Git hooks
+
+There is no CI. Entering `devenv shell` installs git hooks that run the checks for you:
+
+| Hook | Runs | When |
+|---|---|---|
+| pre-commit | `sqlkit:lint` | the commit touches a `.rs`, `Cargo.toml`, `Cargo.lock` or toolchain file |
+| pre-push | `sqlkit:test`, `sqlkit:generated-fresh` | every push |
+
+A failing hook stops the commit or push; fix the finding (`cargo fmt --all` for formatting) and
+retry. `--no-verify` skips the hooks in an emergency. `sqlkit:integration` needs PostgreSQL and
+stays manual: run it after changing a backend's runtime code. Linking every test binary at once
+can exhaust memory on a small machine; `cargo test --workspace -j1` avoids it.
 
 ## Architecture
 
