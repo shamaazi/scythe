@@ -233,6 +233,11 @@ struct GenTarget {
     /// can each carry their own overlay (#82).
     #[serde(default)]
     manifest: Option<String>,
+    /// Where to write the schema types module (see
+    /// [`sqlkit_codegen::schema_types`]), relative to the config file. An
+    /// output of its own, like `output`, rather than a backend option.
+    #[serde(default)]
+    schema_types: Option<String>,
     #[serde(flatten)]
     options: std::collections::HashMap<String, toml::Value>,
 }
@@ -345,6 +350,8 @@ struct ResolvedGenTarget {
     /// `base_dir` lives. The legacy `[sql.gen.rust]` shape has no equivalent
     /// key, so it always resolves to `None`.
     manifest_override: Option<String>,
+    /// Verbatim `schema_types = "..."`: the schema types module's path.
+    schema_types: Option<String>,
     options: std::collections::HashMap<String, String>,
 }
 
@@ -383,6 +390,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
                     backend: t.backend.clone(),
                     output: t.output.clone(),
                     manifest_override: t.manifest.clone(),
+                    schema_types: t.schema_types.clone(),
                     options,
                 }
             })
@@ -421,6 +429,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
                     backend: backend.to_string(),
                     output: default_output.clone(),
                     manifest_override: None,
+                    schema_types: None,
                     options,
                 });
             }
@@ -429,6 +438,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
                     backend: format!("typescript-{}", ts.target),
                     output: default_output.clone(),
                     manifest_override: None,
+                    schema_types: None,
                     options: std::collections::HashMap::new(),
                 });
             }
@@ -454,6 +464,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
             backend: "rust-sqlx".to_string(),
             output: default_output,
             manifest_override: None,
+            schema_types: None,
             options: std::collections::HashMap::new(),
         }]),
     }
@@ -685,6 +696,22 @@ fn run_generate_inner(
             backends.push((target, backend, options_fingerprint));
         }
 
+        let schema_types_outputs: Vec<Option<SchemaTypesOutput>> = backends
+            .iter()
+            .map(|(target, backend, _)| {
+                target
+                    .schema_types
+                    .as_deref()
+                    .map(|path| {
+                        Ok::<_, String>(SchemaTypesOutput {
+                            path: resolve_contained_output(base_dir, path, &target.backend, allow_output_escape)?,
+                            relative_import: backend.schema_types_import().is_none(),
+                        })
+                    })
+                    .transpose()
+            })
+            .collect::<Result<_, _>>()?;
+
         // A plain target is one job over the whole block. A `{dir}` target is
         // one job per query file, each writing only that file's queries into
         // the file's own directory, and fingerprinting only those queries so
@@ -744,14 +771,14 @@ fn run_generate_inner(
         // than left for `sqlkit check`'s SC-PRV03 to notice after the fact.
         // See #207. With `{dir}`, two query files in one directory collide
         // the same way.
-        let mut seen_paths: AHashMap<String, &str> = AHashMap::new();
+        let mut seen_paths: AHashMap<String, String> = AHashMap::new();
         for job in &jobs {
             let filename = output_filename(backends[job.backend_index].1.as_ref());
             let full_path = Path::new(&job.output_dir)
                 .join(&filename)
                 .to_string_lossy()
                 .into_owned();
-            if let Some(existing) = seen_paths.insert(full_path.clone(), job.label.as_str()) {
+            if let Some(existing) = seen_paths.insert(full_path.clone(), job.label.clone()) {
                 return Err(format!(
                     "[{}] targets '{}' and '{}' both write '{}'; give one of them a distinct `output` \
                      directory so neither silently overwrites the other's generated code",
@@ -761,7 +788,36 @@ fn run_generate_inner(
             }
         }
 
+        // The schema types module is an output like the query modules.
+        for ((target, _, _), schema_types) in backends.iter().zip(&schema_types_outputs) {
+            let Some(schema_types) = schema_types else {
+                continue;
+            };
+            let full_path = schema_types.path.to_string_lossy().into_owned();
+            let label = format!("{} (schema_types)", target.backend);
+            if let Some(existing) = seen_paths.get(&full_path) {
+                return Err(format!(
+                    "[{}] targets '{}' and '{}' both write '{}'; give one of them a distinct path so \
+                     neither silently overwrites the other's generated code",
+                    sql_config.name, existing, label, full_path
+                )
+                .into());
+            }
+            seen_paths.insert(full_path, label);
+        }
+
         for job in &jobs {
+            // Without `schema_types_import`, each module imports the schema types
+            // module by its path relative to the module's own directory.
+            if let Some(schema_types) = &schema_types_outputs[job.backend_index]
+                && schema_types.relative_import
+            {
+                let specifier = relative_module_specifier(Path::new(&job.output_dir), &schema_types.path);
+                let (target, backend, _) = &mut backends[job.backend_index];
+                backend
+                    .set_schema_types_import(&specifier)
+                    .map_err(|e| format!("[{}] backend '{}': {e}", sql_config.name, target.backend))?;
+            }
             let (_, backend, options_fingerprint) = &backends[job.backend_index];
             let target_validation_failed = generate_for_backend(
                 &sql_config.name,
@@ -789,27 +845,99 @@ fn run_generate_inner(
 
         // A target's `schema_types` module declares the whole schema's types, so it is
         // written once per target, however many modules `{dir}` makes.
-        for (target, backend, _) in &backends {
-            let Some(path) = target.options.get("schema_types") else {
+        for ((target, backend, options_fingerprint), schema_types) in backends.iter().zip(&schema_types_outputs) {
+            let Some(schema_types) = schema_types else {
                 continue;
             };
-            let path = resolve_contained_output(base_dir, path, &target.backend, allow_output_escape)?;
+            let path = &schema_types.path;
             let module = sqlkit_codegen::schema_types::generate_schema_types(&catalog, backend.as_ref())
                 .map_err(|e| format!("[{}] {}: {e}", sql_config.name, target.backend))?;
             for warning in &module.warnings {
                 eprintln!("[{}] warning: {warning}", sql_config.name);
             }
+            let content = sqlkit_codegen::provenance::assemble_file(
+                &backend.file_preamble(),
+                &provenance_header_line(
+                    backend.as_ref(),
+                    &schema_fingerprint,
+                    &schema_types_queries_fingerprint(),
+                    options_fingerprint,
+                ),
+                &module.code,
+            );
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("failed to create directory '{}': {e}", parent.display()))?;
             }
-            std::fs::write(&path, module.code)
+            std::fs::write(path, &content)
                 .map_err(|e| format!("failed to write schema types '{}': {e}", path.display()))?;
+            eprintln!(
+                "[{}] Writing {} schema types to {}",
+                sql_config.name,
+                backend.name(),
+                path.display()
+            );
+            if validate_output && report_generated_code_validation(&sql_config.name, path, backend.name(), &content) {
+                *validation_failed = true;
+            }
             written.push(path.display().to_string());
         }
     }
 
     Ok(())
+}
+
+/// A target's schema types module: where it is written, and whether query
+/// modules import it by a path relative to themselves (no
+/// `schema_types_import`).
+struct SchemaTypesOutput {
+    path: std::path::PathBuf,
+    relative_import: bool,
+}
+
+/// The `queries=` provenance field of a schema types module, which holds no
+/// queries: the fingerprint of the empty set.
+fn schema_types_queries_fingerprint() -> String {
+    AnalyzedQuery::fingerprint_set(&[])
+}
+
+/// The module specifier a module in `from_dir` imports `to_file` by:
+/// `./x` or `../x`, without a `.ts` extension, with `/` separators. Both
+/// paths are resolved against the same base, and compared lexically.
+fn relative_module_specifier(from_dir: &Path, to_file: &Path) -> String {
+    use std::path::Component;
+
+    fn normalized(path: &Path) -> Vec<Component<'_>> {
+        let mut out: Vec<Component<'_>> = Vec::new();
+        for component in path.components() {
+            match component {
+                Component::CurDir => {}
+                Component::ParentDir if matches!(out.last(), Some(Component::Normal(_))) => {
+                    out.pop();
+                }
+                other => out.push(other),
+            }
+        }
+        out
+    }
+    let from = normalized(from_dir);
+    let to = normalized(to_file);
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut parts: Vec<String> = vec!["..".to_string(); from.len() - common];
+    parts.extend(
+        to[common..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+    );
+    let mut specifier = parts.join("/");
+    if let Some(stripped) = specifier.strip_suffix(".ts") {
+        specifier = stripped.to_string();
+    }
+    if specifier.starts_with("../") {
+        specifier
+    } else {
+        format!("./{specifier}")
+    }
 }
 
 /// The placeholder in a `[[sql.gen]]` `output` that makes the target
@@ -961,10 +1089,13 @@ fn resolve_options_fingerprint(target: &ResolvedGenTarget, base_dir: &Path) -> R
         None => None,
     };
 
+    // `schema_types` is fingerprinted as the option it used to be, so moving it
+    // out of `options` leaves existing headers valid.
     let options: Vec<(&str, &str)> = target
         .options
         .iter()
         .map(|(key, value)| (key.as_str(), value.as_str()))
+        .chain(target.schema_types.as_deref().map(|path| ("schema_types", path)))
         .collect();
     Ok(sqlkit_codegen::provenance::options_fingerprint(
         options,
@@ -2604,6 +2735,21 @@ fn verify_provenance(
                 violations.extend(verify_artifact(&artifact_path, &expected));
             }
         }
+
+        // The schema types module, generated from the schema alone.
+        if let Some(schema_types) = &target.schema_types {
+            let queries = schema_types_queries_fingerprint();
+            let expected = ProvenanceExpectation {
+                target_label: &target_label,
+                backend_name: backend.name(),
+                schema: &current_schema,
+                queries: &queries,
+                options: &options_fingerprint,
+                version: env!("CARGO_PKG_VERSION"),
+                severities,
+            };
+            violations.extend(verify_artifact(&base_dir.join(schema_types), &expected));
+        }
     }
 
     violations
@@ -3313,6 +3459,24 @@ SELECT * FROM users WHERE id = $1;
         assert!(imported.neutral_type.is_none());
         let inline = type_override_config("db_type = \"json\"\nts_type = \"Record<string, unknown>\"").unwrap();
         assert_eq!(inline.ts_type.unwrap().import, None);
+    }
+
+    #[test]
+    fn relative_module_specifier_walks_from_the_module_directory() {
+        let cases = [
+            ("proj/a", "proj/types/schema.ts", "../types/schema"),
+            ("proj/a/b", "proj/types/schema.ts", "../../types/schema"),
+            ("./proj/types", "proj/types/schema.ts", "./schema"),
+            ("proj", "proj/schema.ts", "./schema"),
+            ("proj/a/../b", "proj/b/x/schema.mts", "./x/schema.mts"),
+        ];
+        for (from, to, expected) in cases {
+            assert_eq!(
+                relative_module_specifier(Path::new(from), Path::new(to)),
+                expected,
+                "{from} -> {to}"
+            );
+        }
     }
 
     #[test]
@@ -4551,6 +4715,7 @@ backend = \"rust-sqlx\"
                 backend: "rust-sqlx".to_string(),
                 output: dir.path().to_string_lossy().into_owned(),
                 manifest: None,
+                schema_types: None,
                 options: std::collections::HashMap::from([(
                     "row_type".to_string(),
                     toml::Value::String("pydantic".to_string()),
@@ -4657,6 +4822,7 @@ backend = \"rust-sqlx\"
                 backend: "rust-sqlx".to_string(),
                 output: dir.path().to_string_lossy().into_owned(),
                 manifest: Some("overlay.toml".to_string()),
+                schema_types: None,
                 options: std::collections::HashMap::new(),
             }])),
             type_overrides: Vec::new(),
@@ -4718,6 +4884,7 @@ backend = \"rust-sqlx\"
             backend: "rust-sqlx".to_string(),
             output: "generated".to_string(),
             manifest_override: Some("overlay.toml".to_string()),
+            schema_types: None,
             options: std::collections::HashMap::from([("row_type".to_string(), "pydantic".to_string())]),
         };
 
@@ -4742,6 +4909,7 @@ backend = \"rust-sqlx\"
             backend: "rust-sqlx".to_string(),
             output: "generated".to_string(),
             manifest_override: None,
+            schema_types: None,
             options: std::collections::HashMap::from([("row_type".to_string(), row_type.to_string())]),
         };
 
@@ -4867,6 +5035,7 @@ backend = \"rust-sqlx\"
                 backend: "sqlx".to_string(),
                 output: dir.path().to_string_lossy().into_owned(),
                 manifest: None,
+                schema_types: None,
                 options: std::collections::HashMap::new(),
             }])),
             type_overrides: Vec::new(),
@@ -5031,6 +5200,7 @@ backend = \"rust-sqlx\"
                 backend: "rust-sqlx-typo".to_string(),
                 output: dir.path().to_string_lossy().into_owned(),
                 manifest: None,
+                schema_types: None,
                 options: std::collections::HashMap::new(),
             }])),
             type_overrides: Vec::new(),
@@ -5520,6 +5690,7 @@ backend = \"rust-sqlx\"
                     backend: "rust-sqlx-typo".to_string(),
                     output: "generated".to_string(),
                     manifest: None,
+                    schema_types: None,
                     options: std::collections::HashMap::new(),
                 }])),
                 type_overrides: Vec::new(),
@@ -5563,6 +5734,7 @@ backend = \"rust-sqlx\"
                     backend: "rust-sqlx".to_string(),
                     output: "../../ESCAPED".to_string(),
                     manifest: None,
+                    schema_types: None,
                     options: std::collections::HashMap::new(),
                 }])),
                 type_overrides: Vec::new(),

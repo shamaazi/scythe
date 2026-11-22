@@ -59,7 +59,8 @@ become the generated function's doc comment.
 | `row_type` | `interface` (default), `zod` | Plain interfaces or Zod schemas |
 | `validation` | `none` (default), `jsdoc` | Document translated `CHECK` constraints on parameters |
 | `constraints` | `ignore`, `warn`, `error` | What to do with a constraint that cannot be translated |
-| `schema_types`, `schema_types_import` | path, specifier | Write the schema's enums and domains once, to one module, and import them |
+| `schema_types` | path | Write the schema's enums and domains once, to that module, and import them from it. An output like `output`: it gets a provenance header, `check` verifies it, and two outputs may not share a path |
+| `schema_types_import` | module specifier | What query modules import the schema types by; without it, each module imports `schema_types` by its path relative to itself (`../types/schema`, no `.ts`) |
 | `structs_only` | `true`/`false` | Emit types only, no query functions |
 | `outer_join_unions` | `true`/`false` | Model outer-joined columns as unions of present and absent shapes |
 

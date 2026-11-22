@@ -187,6 +187,18 @@ pub trait CodegenBackend: Send + Sync {
         None
     }
 
+    /// Import the schema types from `specifier`, which the CLI computes per
+    /// module for a `schema_types` output with no `schema_types_import`.
+    fn set_schema_types_import(&mut self, specifier: &str) -> Result<(), SqlkitError> {
+        Err(SqlkitError::new(
+            ErrorCode::InvalidConfig,
+            format!(
+                "backend '{}' cannot import schema types from '{specifier}'",
+                self.name()
+            ),
+        ))
+    }
+
     /// The `(lang_type, full_type)` naming the schema type `sql_name` (a
     /// domain) from the [`Self::schema_types_import`] module, or `None` to keep
     /// the value's own type.

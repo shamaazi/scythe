@@ -53,7 +53,6 @@ fn generate_query(backend: &dyn CodegenBackend, sql: &str) -> GeneratedCode {
 }
 
 const IMPORTING: &[(&str, &str)] = &[
-    ("schema_types", "src/schema.ts"),
     ("schema_types_import", "@app/schema"),
     ("validation", "jsdoc"),
     ("constraints", "error"),
@@ -193,10 +192,13 @@ fn an_untranslatable_domain_check_fails_under_constraints_error() {
 
 #[test]
 fn schema_types_options_are_validated() {
+    // `schema_types` is an output the CLI handles, not a backend option.
     let mut backend = get_backend("typescript-bun").unwrap();
-    let alone = HashMap::from([("schema_types".to_string(), "src/schema.ts".to_string())]);
-    let err = backend.apply_options(&alone).unwrap_err();
-    assert!(err.to_string().contains("schema_types_import"), "{err}");
+    let path = HashMap::from([("schema_types".to_string(), "src/schema.ts".to_string())]);
+    assert!(backend.apply_options(&path).is_err());
+    let mut backend = get_backend("typescript-bun").unwrap();
+    assert!(backend.set_schema_types_import("../types/schema").is_ok());
+    assert_eq!(backend.schema_types_import(), Some("../types/schema"));
 
     let mut backend = get_backend("typescript-bun").unwrap();
     let zod = HashMap::from([

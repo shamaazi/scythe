@@ -17,7 +17,7 @@ use crate::backends::typescript_common::{
     generate_ts_one_row_remap, generate_ts_schema_types, generate_ts_union_row_struct, generate_zod_enum,
     generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
     ts_constrained_type, ts_index_access, ts_inexpressible_rules, ts_member_access, ts_property_key, ts_query_doc,
-    ts_row_not_found_throw, ts_schema_type, ts_schema_types_import, ts_schema_types_options, ts_type_imports,
+    ts_row_not_found_throw, ts_schema_type, ts_schema_types_import, ts_schema_types_import_specifier, ts_type_imports,
 };
 use crate::constraints::ConstraintPolicy;
 use sqlkit_core::constraints::{Rules, ValueConstraints};
@@ -564,6 +564,11 @@ impl CodegenBackend for TypescriptBunBackend {
 
     fn schema_types_import(&self) -> Option<&str> {
         self.schema_types_import.as_deref()
+    }
+
+    fn set_schema_types_import(&mut self, specifier: &str) -> Result<(), SqlkitError> {
+        self.schema_types_import = Some(ts_schema_types_import_specifier(specifier, self.row_type)?);
+        Ok(())
     }
 
     fn schema_type(&self, sql_name: &str, nullable: bool) -> Option<(String, String)> {
@@ -1123,7 +1128,6 @@ impl CodegenBackend for TypescriptBunBackend {
                 "validation",
                 "constraints",
                 "row_keys",
-                "schema_types",
                 "schema_types_import",
             ],
             options,
@@ -1166,7 +1170,9 @@ impl CodegenBackend for TypescriptBunBackend {
         if let Some(value) = options.get("constraints") {
             self.constraint_policy = ConstraintPolicy::from_option(value)?;
         }
-        self.schema_types_import = ts_schema_types_options(options, self.row_type)?;
+        if let Some(module) = options.get("schema_types_import") {
+            self.schema_types_import = Some(ts_schema_types_import_specifier(module, self.row_type)?);
+        }
 
         Ok(())
     }
