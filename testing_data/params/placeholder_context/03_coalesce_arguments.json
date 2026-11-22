@@ -1,0 +1,21 @@
+{
+  "category": "params/placeholder_context",
+  "description": "A COALESCE argument may be NULL even when the column written is NOT NULL, and a cast does not hide the placeholder",
+  "expected": {
+    "query": {
+      "columns": [],
+      "command": "exec",
+      "name": "SaveUser",
+      "params": [
+        { "name": "name", "nullable": true, "type": "string" },
+        { "name": "active", "nullable": true, "type": "bool" }
+      ]
+    },
+    "success": true
+  },
+  "name": "coalesce_arguments",
+  "query_sql": "-- @name SaveUser\n-- @returns :exec\nINSERT INTO users (name, active) VALUES (coalesce($1, 'anonymous'), coalesce($2::boolean, true));",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT true);"],
+  "source": "original",
+  "tags": ["param", "nullability", "coalesce", "insert"]
+}

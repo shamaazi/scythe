@@ -1,0 +1,22 @@
+{
+  "category": "params/placeholder_context",
+  "description": "A placeholder that is an operand of NOT, AND or OR is boolean, parenthesised or not",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "id", "nullable": false, "type": "int32" }],
+      "command": "many",
+      "name": "Filtered",
+      "params": [
+        { "name": "p1", "nullable": false, "type": "bool" },
+        { "name": "p2", "nullable": false, "type": "bool" },
+        { "name": "p3", "nullable": false, "type": "bool" }
+      ]
+    },
+    "success": true
+  },
+  "name": "boolean_operands",
+  "query_sql": "-- @name Filtered\n-- @returns :many\nSELECT id FROM users WHERE (NOT $1 OR age IS NULL) AND (($2) OR active) AND NOT ($3);",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, age INTEGER, active BOOLEAN NOT NULL DEFAULT true);"],
+  "source": "original",
+  "tags": ["param", "boolean"]
+}

@@ -1,0 +1,18 @@
+{
+  "category": "nullability/filter_narrowing",
+  "description": "ROLLUP's subtotal rows null the grouped column whatever the filter proved",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "bio", "nullable": true, "type": "string" }],
+      "command": "many",
+      "name": "ListRolledUp",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "rollup_does_not_narrow",
+  "query_sql": "-- @name ListRolledUp\n-- @returns :many\nSELECT bio FROM users WHERE bio IS NOT NULL GROUP BY ROLLUP (bio);",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, age INTEGER, bio TEXT);"],
+  "source": "original",
+  "tags": ["nullability", "where", "rollup"]
+}

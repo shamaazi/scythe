@@ -1,0 +1,24 @@
+{
+  "category": "nullability/filter_narrowing",
+  "description": "A WHERE conjunct that tests a column IS NOT NULL or compares it proves the column non-null in every row",
+  "expected": {
+    "query": {
+      "columns": [
+        { "name": "bio", "nullable": false, "type": "string" },
+        { "name": "age", "nullable": false, "type": "int32" },
+        { "name": "score", "nullable": true, "type": "decimal" }
+      ],
+      "command": "many",
+      "name": "ListAdults",
+      "params": [{ "name": "age", "nullable": false, "type": "int32" }]
+    },
+    "success": true
+  },
+  "name": "where_conjuncts",
+  "query_sql": "-- @name ListAdults\n-- @returns :many\nSELECT bio, age, score FROM users WHERE bio IS NOT NULL AND (age > $1);",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, age INTEGER, bio TEXT, score NUMERIC);"
+  ],
+  "source": "original",
+  "tags": ["nullability", "where"]
+}

@@ -1,0 +1,22 @@
+{
+  "category": "params/placeholder_context",
+  "description": "A placeholder tested IS [NOT] NULL is nullable, whichever use comes first, and typed by its cast if it has one",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "id", "nullable": false, "type": "int32" }],
+      "command": "many",
+      "name": "FindUsers",
+      "params": [
+        { "name": "name", "nullable": true, "type": "string" },
+        { "name": "bio", "nullable": true, "type": "string" },
+        { "name": "id", "nullable": false, "type": "int32" }
+      ]
+    },
+    "success": true
+  },
+  "name": "null_tested",
+  "query_sql": "-- @name FindUsers\n-- @returns :many\nSELECT id FROM users WHERE (name = $1 OR $1 IS NULL) AND ($2::text IS NOT NULL OR bio = $2) AND id = $3;",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);"],
+  "source": "original",
+  "tags": ["param", "nullability"]
+}

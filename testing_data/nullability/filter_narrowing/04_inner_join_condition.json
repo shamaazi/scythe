@@ -1,0 +1,26 @@
+{
+  "category": "nullability/filter_narrowing",
+  "description": "An inner join's ON condition proves the columns it compares non-null; an outer join's filters nothing",
+  "expected": {
+    "query": {
+      "columns": [
+        { "name": "body", "nullable": true, "type": "string" },
+        { "name": "age", "nullable": false, "type": "int32" },
+        { "name": "bio", "nullable": true, "type": "string" }
+      ],
+      "command": "many",
+      "name": "ListPosts",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "inner_join_condition",
+  "query_sql": "-- @name ListPosts\n-- @returns :many\nSELECT p.body, u.age, u.bio FROM posts p JOIN users u ON u.age = p.user_id LEFT JOIN comments c ON c.body = u.bio;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, age INTEGER, bio TEXT);",
+    "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, body TEXT);",
+    "CREATE TABLE comments (id SERIAL PRIMARY KEY, body TEXT NOT NULL);"
+  ],
+  "source": "original",
+  "tags": ["nullability", "join"]
+}

@@ -708,55 +708,6 @@ SELECT u.id, u.name, p.title, p.body FROM users u LEFT JOIN posts p ON u.id = p.
         assert!(result.columns[3].nullable);
     }
 
-    /// A column the WHERE clause tests `IS NOT NULL` or compares, or an inner
-    /// join's ON condition compares, holds a value in every row.
-    #[test]
-    fn should_narrow_columns_the_filters_prove_non_null() {
-        let catalog = make_catalog();
-        let nullable = |sql: &str| -> Vec<bool> {
-            let query = parse_query(&format!("-- @name Q\n-- @returns :many\n{sql}")).unwrap();
-            analyze(&catalog, &query)
-                .unwrap()
-                .columns
-                .iter()
-                .map(|c| c.nullable)
-                .collect()
-        };
-        assert_eq!(
-            nullable("SELECT bio, age, score FROM users WHERE bio IS NOT NULL AND (age > $1)"),
-            [false, false, true]
-        );
-        assert!(!nullable("SELECT u.* FROM users u WHERE u.bio IS NOT NULL")[6]);
-        assert!(
-            nullable("SELECT * FROM users WHERE bio IS NOT NULL")[6],
-            "a whole-table SELECT * keeps the table model"
-        );
-        assert_eq!(
-            nullable("SELECT p.body, u.age FROM posts p JOIN users u ON u.age = p.user_id"),
-            [true, false]
-        );
-        assert_eq!(
-            nullable("SELECT u.bio FROM users u LEFT JOIN posts p ON p.body = u.bio"),
-            [true],
-            "an outer join's condition filters nothing"
-        );
-        assert_eq!(
-            nullable("SELECT bio FROM users WHERE bio IS NOT NULL OR age > 1"),
-            [true],
-            "only conjuncts count"
-        );
-        assert_eq!(
-            nullable("SELECT bio FROM users WHERE bio IS NOT NULL GROUP BY ROLLUP (bio)"),
-            [true],
-            "a subtotal row nulls the grouped column"
-        );
-        assert_eq!(
-            nullable("SELECT u.age FROM users u JOIN posts p ON p.user_id = u.age RIGHT JOIN comments c ON true"),
-            [true],
-            "a later right join null-extends it again"
-        );
-    }
-
     /// An unqualified outer reference two sources of the same enclosing level
     /// hold is ambiguous, as PostgreSQL reports it, not the last one's.
     #[test]
@@ -942,23 +893,6 @@ INSERT INTO users (bio) VALUES (COALESCE($1, 'unknown'));",
         assert_eq!(result.params[0].name, "bio");
         assert_eq!(result.params[0].neutral_type, "string");
         assert!(result.params[0].nullable, "bio is nullable");
-    }
-
-    /// A COALESCE argument may be NULL even when the column written is NOT
-    /// NULL, and a cast does not hide the placeholder.
-    #[test]
-    fn should_infer_coalesce_placeholders_nullable_when_written_or_cast() {
-        let catalog = make_catalog();
-        for sql in [
-            "INSERT INTO users (name, active) VALUES (coalesce($1, 'anonymous'), coalesce($2::boolean, true));",
-            "UPDATE users SET name = coalesce($1, name), active = coalesce($2::boolean, active) WHERE id = $3;",
-        ] {
-            let query = parse_query(&format!("-- @name Write\n-- @returns :exec\n{sql}")).unwrap();
-            let result = analyze(&catalog, &query).unwrap();
-            let nullable: Vec<_> = result.params.iter().map(|p| p.nullable).collect();
-            assert_eq!(nullable[..2], [true, true], "{sql}");
-            assert_eq!(result.params[1].neutral_type, "bool", "{sql}");
-        }
     }
 
     /// A searched CASE written into a column takes its result from the column
@@ -1187,34 +1121,6 @@ UPDATE users SET name = $1 WHERE id = $2;",
             "-- @name Report\n-- @returns :many\nSELECT id FROM report($1, $2, $3, charity_id => $4);",
         );
         assert_eq!(named, ["report_profile", "group", "from", "charity_id"]);
-    }
-
-    #[test]
-    fn test_param_tested_for_null_is_nullable() {
-        let result = analyze_sql(
-            "-- @name FindUsers
--- @returns :many
-SELECT id FROM users WHERE (name = $1 OR $1 IS NULL) AND ($2::text IS NOT NULL OR bio = $2) AND id = $3;",
-        )
-        .unwrap();
-        assert!(result.params[0].nullable, "tested after its comparison still counts");
-        assert_eq!(result.params[0].neutral_type, "string");
-        assert!(result.params[1].nullable);
-        assert_eq!(result.params[1].neutral_type, "string", "typed by its cast");
-        assert!(!result.params[2].nullable);
-    }
-
-    #[test]
-    fn test_update_set_nullable_column_makes_param_nullable() {
-        let result = analyze_sql(
-            "-- @name UpdateUser
--- @returns :exec
-UPDATE users SET bio = $1, name = $2 WHERE id = $3;",
-        )
-        .unwrap();
-        assert!(result.params[0].nullable, "bio is nullable");
-        assert!(!result.params[1].nullable, "name is NOT NULL");
-        assert!(!result.params[2].nullable);
     }
 
     #[test]
@@ -2811,23 +2717,6 @@ SELECT id, moods FROM t WHERE id = $1;",
         assert!(result.columns[1].nullable, "string_agg over no rows is NULL");
     }
 
-    #[test]
-    fn should_type_placeholders_used_as_boolean_operands_as_bool() {
-        let catalog = make_catalog();
-        let query = parse_query(
-            "-- @name Filtered\n-- @returns :many\n\
-             SELECT id FROM users WHERE (NOT $1 OR age IS NULL) AND (($2) OR active) AND NOT ($3);",
-        )
-        .expect("query should parse");
-        let result = analyze(&catalog, &query).expect("NOT, AND and OR operands are boolean");
-        let types: Vec<_> = result
-            .params
-            .iter()
-            .map(|p| (p.position, p.neutral_type.as_str()))
-            .collect();
-        assert_eq!(types, [(1, "bool"), (2, "bool"), (3, "bool")]);
-    }
-
     fn param_types(result: &AnalyzedQuery) -> Vec<(i64, &str)> {
         result
             .params
@@ -3134,43 +3023,6 @@ SELECT id, moods FROM t WHERE id = $1;",
     }
 
     #[test]
-    fn should_resolve_postgres_builtin_lock_hash_and_setting_functions() {
-        let result = analyze_sql(
-            "-- @name Lock\n-- @returns :one\n\
-             SELECT pg_advisory_xact_lock(hashtextextended($1, 0)) AS locked, \
-             pg_try_advisory_xact_lock($2, $3) AS tried, \
-             set_config('statement_timeout', $4::text, true) AS timeout, \
-             current_setting('app.user', true) AS app_user;",
-        )
-        .expect("built-in functions resolve");
-        let columns: Vec<_> = result
-            .columns
-            .iter()
-            .map(|c| (c.name.as_str(), c.neutral_type.as_str()))
-            .collect();
-        assert_eq!(
-            columns,
-            [
-                ("locked", "string"),
-                ("tried", "bool"),
-                ("timeout", "string"),
-                ("app_user", "string")
-            ]
-        );
-        assert!(result.columns[3].nullable, "a missing setting reads as null");
-        assert_eq!(
-            param_types(&result),
-            [(1, "string"), (2, "int32"), (3, "int32"), (4, "string")]
-        );
-        let nullable: Vec<_> = result.params.iter().map(|p| p.nullable).collect();
-        assert_eq!(
-            nullable,
-            [false, false, false, true],
-            "set_config is called on NULL input"
-        );
-    }
-
-    #[test]
     fn should_prefer_a_schema_function_over_a_builtin_of_the_same_name() {
         let catalog =
             Catalog::from_ddl(&["CREATE FUNCTION hashtext(value integer) RETURNS integer LANGUAGE sql RETURN value;"])
@@ -3193,43 +3045,6 @@ SELECT id, moods FROM t WHERE id = $1;",
         let error = analyze_sql("-- @name Oids\n-- @returns :many\nSELECT datid FROM pg_stat_activity;")
             .expect_err("an oid column has no neutral type");
         assert!(error.message.contains("datid"), "got: {}", error.message);
-    }
-
-    #[test]
-    fn should_type_placeholders_of_builtin_date_and_string_functions() {
-        let result = analyze_sql(
-            "-- @name Series\n-- @returns :many\n\
-             SELECT to_char(date_trunc($1, created_at AT TIME ZONE 'UTC'), $2) AS bucket FROM users \
-             WHERE starts_with(name, $3) GROUP BY 1;",
-        )
-        .expect("built-in argument types type the placeholders");
-        assert_eq!(param_types(&result), [(1, "string"), (2, "string"), (3, "string")]);
-        let names: Vec<_> = result.params.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["field", "format", "prefix"]);
-    }
-
-    #[test]
-    fn should_type_placeholder_operands_of_json_operators() {
-        let catalog = Catalog::from_ddl(&["CREATE TABLE audit_logs (id integer PRIMARY KEY, data jsonb NOT NULL);"])
-            .expect("schema should parse");
-        let query = parse_query(
-            "-- @name Recorded\n-- @returns :many\n\
-             SELECT id FROM audit_logs WHERE data->>$1 = $2 AND data #>> $3 IS NOT NULL \
-             AND data @> $4 AND data ? $5 AND data->$6 IS NOT NULL;",
-        )
-        .expect("query should parse");
-        let result = analyze(&catalog, &query).expect("JSON operator operands are typed");
-        assert_eq!(
-            param_types(&result),
-            [
-                (1, "string"),
-                (2, "string"),
-                (3, "array<string>"),
-                (4, "json"),
-                (5, "string"),
-                (6, "string")
-            ]
-        );
     }
 
     #[test]

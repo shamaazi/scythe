@@ -1,0 +1,28 @@
+{
+  "category": "params/placeholder_context",
+  "description": "Built-in lock, hash and setting functions resolve by their overloads; set_config is called on NULL input, so its value may be NULL",
+  "expected": {
+    "query": {
+      "columns": [
+        { "name": "locked", "nullable": true, "type": "string", "note": "a bare placeholder argument types as possibly NULL, which a STRICT call passes on" },
+        { "name": "tried", "nullable": true, "type": "bool" },
+        { "name": "timeout", "nullable": false, "type": "string" },
+        { "name": "app_user", "nullable": true, "type": "string", "note": "a missing setting reads as NULL" }
+      ],
+      "command": "one",
+      "name": "Lock",
+      "params": [
+        { "name": "value", "nullable": false, "type": "string" },
+        { "name": "key1", "nullable": false, "type": "int32" },
+        { "name": "key2", "nullable": false, "type": "int32" },
+        { "name": "new_value", "nullable": true, "type": "string" }
+      ]
+    },
+    "success": true
+  },
+  "name": "builtin_lock_hash_and_setting_functions",
+  "query_sql": "-- @name Lock\n-- @returns :one\nSELECT pg_advisory_xact_lock(hashtextextended($1, 0)) AS locked, pg_try_advisory_xact_lock($2, $3) AS tried, set_config('statement_timeout', $4::text, true) AS timeout, current_setting('app.user', true) AS app_user;",
+  "schema_sql": [],
+  "source": "original",
+  "tags": ["param", "function", "builtin"]
+}

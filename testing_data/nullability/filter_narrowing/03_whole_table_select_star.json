@@ -1,0 +1,22 @@
+{
+  "category": "nullability/filter_narrowing",
+  "description": "A whole-table SELECT * returns the table's row type, the model every such query shares, so filters do not narrow it",
+  "expected": {
+    "query": {
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        { "name": "name", "nullable": false, "type": "string" },
+        { "name": "bio", "nullable": true, "type": "string" }
+      ],
+      "command": "many",
+      "name": "ListWithBio",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "whole_table_select_star",
+  "query_sql": "-- @name ListWithBio\n-- @returns :many\nSELECT * FROM users WHERE bio IS NOT NULL;",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);"],
+  "source": "original",
+  "tags": ["nullability", "where", "wildcard", "model"]
+}

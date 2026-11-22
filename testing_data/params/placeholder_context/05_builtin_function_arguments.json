@@ -1,0 +1,22 @@
+{
+  "category": "params/placeholder_context",
+  "description": "A placeholder passed to a built-in function takes the type and name of the argument the call's overload declares",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "bucket", "nullable": false, "type": "string" }],
+      "command": "many",
+      "name": "Series",
+      "params": [
+        { "name": "field", "nullable": false, "type": "string" },
+        { "name": "format", "nullable": false, "type": "string" },
+        { "name": "prefix", "nullable": false, "type": "string" }
+      ]
+    },
+    "success": true
+  },
+  "name": "builtin_function_arguments",
+  "query_sql": "-- @name Series\n-- @returns :many\nSELECT to_char(date_trunc($1, created_at AT TIME ZONE 'UTC'), $2) AS bucket FROM users WHERE starts_with(name, $3) GROUP BY 1;",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW());"],
+  "source": "original",
+  "tags": ["param", "function", "builtin"]
+}

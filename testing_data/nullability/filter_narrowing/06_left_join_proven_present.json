@@ -1,0 +1,25 @@
+{
+  "category": "nullability/filter_narrowing",
+  "description": "A filter on any column of a LEFT JOINed source proves its row is there, so every one of its columns returns to its schema nullability",
+  "expected": {
+    "query": {
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        { "name": "title", "nullable": false, "type": "string" },
+        { "name": "body", "nullable": true, "type": "string" }
+      ],
+      "command": "many",
+      "name": "GetPostAuthor",
+      "params": [{ "name": "id", "nullable": false, "type": "int32" }]
+    },
+    "success": true
+  },
+  "name": "left_join_proven_present",
+  "query_sql": "-- @name GetPostAuthor\n-- @returns :many\nSELECT u.id, p.title, p.body FROM users u LEFT JOIN posts p ON p.user_id = u.id WHERE p.id = $1;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+    "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, title TEXT NOT NULL, body TEXT);"
+  ],
+  "source": "original",
+  "tags": ["nullability", "where", "left_join"]
+}

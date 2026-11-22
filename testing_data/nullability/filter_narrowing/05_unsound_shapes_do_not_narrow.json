@@ -1,0 +1,18 @@
+{
+  "category": "nullability/filter_narrowing",
+  "description": "A disjunct proves nothing: only conjuncts narrow",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "bio", "nullable": true, "type": "string" }],
+      "command": "many",
+      "name": "ListEither",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "disjunct_does_not_narrow",
+  "query_sql": "-- @name ListEither\n-- @returns :many\nSELECT bio FROM users WHERE bio IS NOT NULL OR age > 1;",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, age INTEGER, bio TEXT);"],
+  "source": "original",
+  "tags": ["nullability", "where"]
+}

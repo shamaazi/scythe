@@ -1,0 +1,22 @@
+{
+  "category": "params/placeholder_context",
+  "description": "A placeholder written into a nullable column is nullable; one written into a NOT NULL column is not",
+  "expected": {
+    "query": {
+      "columns": [],
+      "command": "exec",
+      "name": "UpdateUser",
+      "params": [
+        { "name": "bio", "nullable": true, "type": "string" },
+        { "name": "name", "nullable": false, "type": "string" },
+        { "name": "id", "nullable": false, "type": "int32" }
+      ]
+    },
+    "success": true
+  },
+  "name": "written_into_nullable_column",
+  "query_sql": "-- @name UpdateUser\n-- @returns :exec\nUPDATE users SET bio = $1, name = $2 WHERE id = $3;",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);"],
+  "source": "original",
+  "tags": ["param", "nullability", "update"]
+}

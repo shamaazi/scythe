@@ -1,0 +1,25 @@
+{
+  "category": "params/placeholder_context",
+  "description": "Placeholder operands of JSON operators are typed as PostgreSQL resolves them: a key is text, a path text[], and a containment operand the document's type",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "id", "nullable": false, "type": "int32" }],
+      "command": "many",
+      "name": "Recorded",
+      "params": [
+        { "name": "key_1", "nullable": false, "type": "string" },
+        { "name": "data_1", "nullable": false, "type": "string" },
+        { "name": "path", "nullable": false, "type": "array<string>" },
+        { "name": "data_2", "nullable": false, "type": "json" },
+        { "name": "key_2", "nullable": false, "type": "string" },
+        { "name": "key_3", "nullable": false, "type": "string" }
+      ]
+    },
+    "success": true
+  },
+  "name": "json_operator_operands",
+  "query_sql": "-- @name Recorded\n-- @returns :many\nSELECT id FROM audit_logs WHERE data->>$1 = $2 AND data #>> $3 IS NOT NULL AND data @> $4 AND data ? $5 AND data->$6 IS NOT NULL;",
+  "schema_sql": ["CREATE TABLE audit_logs (id integer PRIMARY KEY, data jsonb NOT NULL);"],
+  "source": "original",
+  "tags": ["param", "json"]
+}

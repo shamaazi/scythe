@@ -1,0 +1,22 @@
+{
+  "category": "nullability/filter_narrowing",
+  "description": "A qualified wildcard is narrowed by the filters like any other projection",
+  "expected": {
+    "query": {
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        { "name": "name", "nullable": false, "type": "string" },
+        { "name": "bio", "nullable": false, "type": "string" }
+      ],
+      "command": "many",
+      "name": "ListWithBio",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "qualified_wildcard",
+  "query_sql": "-- @name ListWithBio\n-- @returns :many\nSELECT u.* FROM users u WHERE u.bio IS NOT NULL;",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);"],
+  "source": "original",
+  "tags": ["nullability", "where", "wildcard"]
+}

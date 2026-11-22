@@ -2824,6 +2824,1213 @@ fn test_nullable_column() {
 }
 
 #[test]
+fn test_disjunct_does_not_narrow() {
+    // From: testing_data/nullability/filter_narrowing/05_unsound_shapes_do_not_narrow.json
+    // "A disjunct proves nothing: only conjuncts narrow"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, age INTEGER, bio TEXT);"];
+
+    let query_sql = "-- @name ListEither\n-- @returns :many\nSELECT bio FROM users WHERE bio IS NOT NULL OR age > 1;";
+
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = sqlkit_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "ListEither", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "bio", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for bio");
+
+    // Codegen verification: every backend should produce valid output.
+    let all_backends: &[&str] = &[
+        #[cfg(feature = "lang-rust")]
+        "rust-sqlx",
+        #[cfg(feature = "lang-rust")]
+        "rust-tokio-postgres",
+        #[cfg(feature = "lang-typescript")]
+        "typescript-bun",
+    ];
+    for backend_name in all_backends {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(e) => panic!(
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "disjunct_does_not_narrow", e
+            ),
+        };
+        let declared_codegen_failure: Option<&str> = None;
+        match sqlkit_codegen::generate_with_backend(&analyzed, &*backend) {
+            Ok(generated) => {
+                if let Some(expected_message) = declared_codegen_failure {
+                    panic!(
+                        "backend {} was declared under expected.codegen_errors to fail codegen for fixture {} (declared message {:?}), but codegen succeeded -- delete the stale entry",
+                        backend_name, "disjunct_does_not_narrow", expected_message
+                    );
+                }
+                let preamble = backend.file_preamble();
+                let header = backend.file_header();
+                let mut body = String::new();
+                if header.is_empty() {
+                    body.push_str("#![allow(dead_code, unused_imports)]\n");
+                } else {
+                    body.push_str(&header);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.enum_def {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                for def in &generated.nested_struct_defs {
+                    body.push_str(&def.code);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.model_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.row_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.query_fn {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                let code = sqlkit_codegen::provenance::assemble_file(
+                    &preamble,
+                    &sqlkit_codegen::provenance::header_line(
+                        &*backend,
+                        env!("CARGO_PKG_VERSION"),
+                        sqlkit_codegen::provenance::ENGINE,
+                        "sch1:0123456789abcdef",
+                        "q1:fedcba9876543210",
+                    ),
+                    &body,
+                );
+                if body.lines().count() > 1 {
+                    // Only validate Rust syntax with syn for Rust backends
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "disjunct_does_not_narrow"
+                        );
+                    } else {
+                        // Structural validation for non-Rust backends
+                        let errors = sqlkit_codegen::validation::validate_structural(&code, backend_name);
+                        assert!(
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
+                            backend_name,
+                            "disjunct_does_not_narrow",
+                            errors
+                        );
+                    }
+                }
+                assert!(
+                    generated.row_struct.is_some() || generated.model_struct.is_some(),
+                    "backend {} should produce a struct for {}",
+                    backend_name,
+                    "disjunct_does_not_narrow"
+                );
+                assert!(
+                    generated.query_fn.is_some(),
+                    "backend {} should produce query_fn for {}",
+                    backend_name,
+                    "disjunct_does_not_narrow"
+                );
+            }
+            Err(e) => match declared_codegen_failure {
+                Some(expected_message) => {
+                    let message = e.to_string();
+                    assert!(
+                        message.contains(expected_message),
+                        "backend {} codegen error for fixture {} did not match the declared expected.codegen_errors message\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name,
+                        "disjunct_does_not_narrow",
+                        expected_message,
+                        message
+                    );
+                }
+                None => panic!(
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "disjunct_does_not_narrow", e
+                ),
+            },
+        }
+    }
+}
+
+#[test]
+fn test_inner_join_condition() {
+    // From: testing_data/nullability/filter_narrowing/04_inner_join_condition.json
+    // "An inner join's ON condition proves the columns it compares non-null; an outer join's filters nothing"
+    let schema_sql = &[
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, age INTEGER, bio TEXT);",
+        "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, body TEXT);",
+        "CREATE TABLE comments (id SERIAL PRIMARY KEY, body TEXT NOT NULL);",
+    ];
+
+    let query_sql = "-- @name ListPosts\n-- @returns :many\nSELECT p.body, u.age, u.bio FROM posts p JOIN users u ON u.age = p.user_id LEFT JOIN comments c ON c.body = u.bio;";
+
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = sqlkit_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "ListPosts", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 3, "column count");
+    assert_eq!(analyzed.columns[0].name, "body", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for body"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for body");
+    assert_eq!(analyzed.columns[1].name, "age", "column name");
+    assert_eq!(analyzed.columns[1].neutral_type, "int32", "column neutral_type for age");
+    assert!(!analyzed.columns[1].nullable, "column nullable for age");
+    assert_eq!(analyzed.columns[2].name, "bio", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for bio");
+
+    // Codegen verification: every backend should produce valid output.
+    let all_backends: &[&str] = &[
+        #[cfg(feature = "lang-rust")]
+        "rust-sqlx",
+        #[cfg(feature = "lang-rust")]
+        "rust-tokio-postgres",
+        #[cfg(feature = "lang-typescript")]
+        "typescript-bun",
+    ];
+    for backend_name in all_backends {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(e) => panic!(
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "inner_join_condition", e
+            ),
+        };
+        let declared_codegen_failure: Option<&str> = None;
+        match sqlkit_codegen::generate_with_backend(&analyzed, &*backend) {
+            Ok(generated) => {
+                if let Some(expected_message) = declared_codegen_failure {
+                    panic!(
+                        "backend {} was declared under expected.codegen_errors to fail codegen for fixture {} (declared message {:?}), but codegen succeeded -- delete the stale entry",
+                        backend_name, "inner_join_condition", expected_message
+                    );
+                }
+                let preamble = backend.file_preamble();
+                let header = backend.file_header();
+                let mut body = String::new();
+                if header.is_empty() {
+                    body.push_str("#![allow(dead_code, unused_imports)]\n");
+                } else {
+                    body.push_str(&header);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.enum_def {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                for def in &generated.nested_struct_defs {
+                    body.push_str(&def.code);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.model_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.row_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.query_fn {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                let code = sqlkit_codegen::provenance::assemble_file(
+                    &preamble,
+                    &sqlkit_codegen::provenance::header_line(
+                        &*backend,
+                        env!("CARGO_PKG_VERSION"),
+                        sqlkit_codegen::provenance::ENGINE,
+                        "sch1:0123456789abcdef",
+                        "q1:fedcba9876543210",
+                    ),
+                    &body,
+                );
+                if body.lines().count() > 1 {
+                    // Only validate Rust syntax with syn for Rust backends
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "inner_join_condition"
+                        );
+                    } else {
+                        // Structural validation for non-Rust backends
+                        let errors = sqlkit_codegen::validation::validate_structural(&code, backend_name);
+                        assert!(
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
+                            backend_name,
+                            "inner_join_condition",
+                            errors
+                        );
+                    }
+                }
+                assert!(
+                    generated.row_struct.is_some() || generated.model_struct.is_some(),
+                    "backend {} should produce a struct for {}",
+                    backend_name,
+                    "inner_join_condition"
+                );
+                assert!(
+                    generated.query_fn.is_some(),
+                    "backend {} should produce query_fn for {}",
+                    backend_name,
+                    "inner_join_condition"
+                );
+            }
+            Err(e) => match declared_codegen_failure {
+                Some(expected_message) => {
+                    let message = e.to_string();
+                    assert!(
+                        message.contains(expected_message),
+                        "backend {} codegen error for fixture {} did not match the declared expected.codegen_errors message\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name,
+                        "inner_join_condition",
+                        expected_message,
+                        message
+                    );
+                }
+                None => panic!(
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "inner_join_condition", e
+                ),
+            },
+        }
+    }
+}
+
+#[test]
+fn test_later_right_join_does_not_narrow() {
+    // From: testing_data/nullability/filter_narrowing/08_later_right_join_does_not_narrow.json
+    // "A later RIGHT JOIN null-extends an inner join's side again, so the inner join's ON condition stops narrowing it"
+    let schema_sql = &[
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, age INTEGER);",
+        "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL);",
+        "CREATE TABLE comments (id SERIAL PRIMARY KEY);",
+    ];
+
+    let query_sql = "-- @name ListAges\n-- @returns :many\nSELECT u.age FROM users u JOIN posts p ON p.user_id = u.age RIGHT JOIN comments c ON true;";
+
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = sqlkit_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "ListAges", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "age", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for age");
+    assert!(analyzed.columns[0].nullable, "column nullable for age");
+
+    // Codegen verification: every backend should produce valid output.
+    let all_backends: &[&str] = &[
+        #[cfg(feature = "lang-rust")]
+        "rust-sqlx",
+        #[cfg(feature = "lang-rust")]
+        "rust-tokio-postgres",
+        #[cfg(feature = "lang-typescript")]
+        "typescript-bun",
+    ];
+    for backend_name in all_backends {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(e) => panic!(
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "later_right_join_does_not_narrow", e
+            ),
+        };
+        let declared_codegen_failure: Option<&str> = None;
+        match sqlkit_codegen::generate_with_backend(&analyzed, &*backend) {
+            Ok(generated) => {
+                if let Some(expected_message) = declared_codegen_failure {
+                    panic!(
+                        "backend {} was declared under expected.codegen_errors to fail codegen for fixture {} (declared message {:?}), but codegen succeeded -- delete the stale entry",
+                        backend_name, "later_right_join_does_not_narrow", expected_message
+                    );
+                }
+                let preamble = backend.file_preamble();
+                let header = backend.file_header();
+                let mut body = String::new();
+                if header.is_empty() {
+                    body.push_str("#![allow(dead_code, unused_imports)]\n");
+                } else {
+                    body.push_str(&header);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.enum_def {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                for def in &generated.nested_struct_defs {
+                    body.push_str(&def.code);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.model_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.row_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.query_fn {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                let code = sqlkit_codegen::provenance::assemble_file(
+                    &preamble,
+                    &sqlkit_codegen::provenance::header_line(
+                        &*backend,
+                        env!("CARGO_PKG_VERSION"),
+                        sqlkit_codegen::provenance::ENGINE,
+                        "sch1:0123456789abcdef",
+                        "q1:fedcba9876543210",
+                    ),
+                    &body,
+                );
+                if body.lines().count() > 1 {
+                    // Only validate Rust syntax with syn for Rust backends
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "later_right_join_does_not_narrow"
+                        );
+                    } else {
+                        // Structural validation for non-Rust backends
+                        let errors = sqlkit_codegen::validation::validate_structural(&code, backend_name);
+                        assert!(
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
+                            backend_name,
+                            "later_right_join_does_not_narrow",
+                            errors
+                        );
+                    }
+                }
+                assert!(
+                    generated.row_struct.is_some() || generated.model_struct.is_some(),
+                    "backend {} should produce a struct for {}",
+                    backend_name,
+                    "later_right_join_does_not_narrow"
+                );
+                assert!(
+                    generated.query_fn.is_some(),
+                    "backend {} should produce query_fn for {}",
+                    backend_name,
+                    "later_right_join_does_not_narrow"
+                );
+            }
+            Err(e) => match declared_codegen_failure {
+                Some(expected_message) => {
+                    let message = e.to_string();
+                    assert!(
+                        message.contains(expected_message),
+                        "backend {} codegen error for fixture {} did not match the declared expected.codegen_errors message\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name,
+                        "later_right_join_does_not_narrow",
+                        expected_message,
+                        message
+                    );
+                }
+                None => panic!(
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "later_right_join_does_not_narrow", e
+                ),
+            },
+        }
+    }
+}
+
+#[test]
+fn test_left_join_proven_present() {
+    // From: testing_data/nullability/filter_narrowing/06_left_join_proven_present.json
+    // "A filter on any column of a LEFT JOINed source proves its row is there, so every one of its columns returns to its schema nullability"
+    let schema_sql = &[
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+        "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, title TEXT NOT NULL, body TEXT);",
+    ];
+
+    let query_sql = "-- @name GetPostAuthor\n-- @returns :many\nSELECT u.id, p.title, p.body FROM users u LEFT JOIN posts p ON p.user_id = u.id WHERE p.id = $1;";
+
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = sqlkit_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetPostAuthor", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.params.len(), 1, "param count");
+    assert_eq!(analyzed.params[0].name, "id", "param name");
+    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
+    assert_eq!(analyzed.columns.len(), 3, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "title", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for title"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for title");
+    assert_eq!(analyzed.columns[2].name, "body", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for body"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for body");
+
+    // Codegen verification: every backend should produce valid output.
+    let all_backends: &[&str] = &[
+        #[cfg(feature = "lang-rust")]
+        "rust-sqlx",
+        #[cfg(feature = "lang-rust")]
+        "rust-tokio-postgres",
+        #[cfg(feature = "lang-typescript")]
+        "typescript-bun",
+    ];
+    for backend_name in all_backends {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(e) => panic!(
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "left_join_proven_present", e
+            ),
+        };
+        let declared_codegen_failure: Option<&str> = None;
+        match sqlkit_codegen::generate_with_backend(&analyzed, &*backend) {
+            Ok(generated) => {
+                if let Some(expected_message) = declared_codegen_failure {
+                    panic!(
+                        "backend {} was declared under expected.codegen_errors to fail codegen for fixture {} (declared message {:?}), but codegen succeeded -- delete the stale entry",
+                        backend_name, "left_join_proven_present", expected_message
+                    );
+                }
+                let preamble = backend.file_preamble();
+                let header = backend.file_header();
+                let mut body = String::new();
+                if header.is_empty() {
+                    body.push_str("#![allow(dead_code, unused_imports)]\n");
+                } else {
+                    body.push_str(&header);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.enum_def {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                for def in &generated.nested_struct_defs {
+                    body.push_str(&def.code);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.model_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.row_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.query_fn {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                let code = sqlkit_codegen::provenance::assemble_file(
+                    &preamble,
+                    &sqlkit_codegen::provenance::header_line(
+                        &*backend,
+                        env!("CARGO_PKG_VERSION"),
+                        sqlkit_codegen::provenance::ENGINE,
+                        "sch1:0123456789abcdef",
+                        "q1:fedcba9876543210",
+                    ),
+                    &body,
+                );
+                if body.lines().count() > 1 {
+                    // Only validate Rust syntax with syn for Rust backends
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "left_join_proven_present"
+                        );
+                    } else {
+                        // Structural validation for non-Rust backends
+                        let errors = sqlkit_codegen::validation::validate_structural(&code, backend_name);
+                        assert!(
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
+                            backend_name,
+                            "left_join_proven_present",
+                            errors
+                        );
+                    }
+                }
+                assert!(
+                    generated.row_struct.is_some() || generated.model_struct.is_some(),
+                    "backend {} should produce a struct for {}",
+                    backend_name,
+                    "left_join_proven_present"
+                );
+                assert!(
+                    generated.query_fn.is_some(),
+                    "backend {} should produce query_fn for {}",
+                    backend_name,
+                    "left_join_proven_present"
+                );
+            }
+            Err(e) => match declared_codegen_failure {
+                Some(expected_message) => {
+                    let message = e.to_string();
+                    assert!(
+                        message.contains(expected_message),
+                        "backend {} codegen error for fixture {} did not match the declared expected.codegen_errors message\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name,
+                        "left_join_proven_present",
+                        expected_message,
+                        message
+                    );
+                }
+                None => panic!(
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "left_join_proven_present", e
+                ),
+            },
+        }
+    }
+}
+
+#[test]
+fn test_qualified_wildcard() {
+    // From: testing_data/nullability/filter_narrowing/02_qualified_wildcard.json
+    // "A qualified wildcard is narrowed by the filters like any other projection"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);"];
+
+    let query_sql = "-- @name ListWithBio\n-- @returns :many\nSELECT u.* FROM users u WHERE u.bio IS NOT NULL;";
+
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = sqlkit_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "ListWithBio", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 3, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "name", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
+    assert_eq!(analyzed.columns[2].name, "bio", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for bio");
+
+    // Codegen verification: every backend should produce valid output.
+    let all_backends: &[&str] = &[
+        #[cfg(feature = "lang-rust")]
+        "rust-sqlx",
+        #[cfg(feature = "lang-rust")]
+        "rust-tokio-postgres",
+        #[cfg(feature = "lang-typescript")]
+        "typescript-bun",
+    ];
+    for backend_name in all_backends {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(e) => panic!(
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "qualified_wildcard", e
+            ),
+        };
+        let declared_codegen_failure: Option<&str> = None;
+        match sqlkit_codegen::generate_with_backend(&analyzed, &*backend) {
+            Ok(generated) => {
+                if let Some(expected_message) = declared_codegen_failure {
+                    panic!(
+                        "backend {} was declared under expected.codegen_errors to fail codegen for fixture {} (declared message {:?}), but codegen succeeded -- delete the stale entry",
+                        backend_name, "qualified_wildcard", expected_message
+                    );
+                }
+                let preamble = backend.file_preamble();
+                let header = backend.file_header();
+                let mut body = String::new();
+                if header.is_empty() {
+                    body.push_str("#![allow(dead_code, unused_imports)]\n");
+                } else {
+                    body.push_str(&header);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.enum_def {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                for def in &generated.nested_struct_defs {
+                    body.push_str(&def.code);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.model_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.row_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.query_fn {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                let code = sqlkit_codegen::provenance::assemble_file(
+                    &preamble,
+                    &sqlkit_codegen::provenance::header_line(
+                        &*backend,
+                        env!("CARGO_PKG_VERSION"),
+                        sqlkit_codegen::provenance::ENGINE,
+                        "sch1:0123456789abcdef",
+                        "q1:fedcba9876543210",
+                    ),
+                    &body,
+                );
+                if body.lines().count() > 1 {
+                    // Only validate Rust syntax with syn for Rust backends
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "qualified_wildcard"
+                        );
+                    } else {
+                        // Structural validation for non-Rust backends
+                        let errors = sqlkit_codegen::validation::validate_structural(&code, backend_name);
+                        assert!(
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
+                            backend_name,
+                            "qualified_wildcard",
+                            errors
+                        );
+                    }
+                }
+                assert!(
+                    generated.row_struct.is_some() || generated.model_struct.is_some(),
+                    "backend {} should produce a struct for {}",
+                    backend_name,
+                    "qualified_wildcard"
+                );
+                assert!(
+                    generated.query_fn.is_some(),
+                    "backend {} should produce query_fn for {}",
+                    backend_name,
+                    "qualified_wildcard"
+                );
+            }
+            Err(e) => match declared_codegen_failure {
+                Some(expected_message) => {
+                    let message = e.to_string();
+                    assert!(
+                        message.contains(expected_message),
+                        "backend {} codegen error for fixture {} did not match the declared expected.codegen_errors message\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name,
+                        "qualified_wildcard",
+                        expected_message,
+                        message
+                    );
+                }
+                None => panic!(
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "qualified_wildcard", e
+                ),
+            },
+        }
+    }
+}
+
+#[test]
+fn test_rollup_does_not_narrow() {
+    // From: testing_data/nullability/filter_narrowing/07_rollup_does_not_narrow.json
+    // "ROLLUP's subtotal rows null the grouped column whatever the filter proved"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, age INTEGER, bio TEXT);"];
+
+    let query_sql =
+        "-- @name ListRolledUp\n-- @returns :many\nSELECT bio FROM users WHERE bio IS NOT NULL GROUP BY ROLLUP (bio);";
+
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = sqlkit_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "ListRolledUp", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "bio", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for bio");
+
+    // Codegen verification: every backend should produce valid output.
+    let all_backends: &[&str] = &[
+        #[cfg(feature = "lang-rust")]
+        "rust-sqlx",
+        #[cfg(feature = "lang-rust")]
+        "rust-tokio-postgres",
+        #[cfg(feature = "lang-typescript")]
+        "typescript-bun",
+    ];
+    for backend_name in all_backends {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(e) => panic!(
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "rollup_does_not_narrow", e
+            ),
+        };
+        let declared_codegen_failure: Option<&str> = None;
+        match sqlkit_codegen::generate_with_backend(&analyzed, &*backend) {
+            Ok(generated) => {
+                if let Some(expected_message) = declared_codegen_failure {
+                    panic!(
+                        "backend {} was declared under expected.codegen_errors to fail codegen for fixture {} (declared message {:?}), but codegen succeeded -- delete the stale entry",
+                        backend_name, "rollup_does_not_narrow", expected_message
+                    );
+                }
+                let preamble = backend.file_preamble();
+                let header = backend.file_header();
+                let mut body = String::new();
+                if header.is_empty() {
+                    body.push_str("#![allow(dead_code, unused_imports)]\n");
+                } else {
+                    body.push_str(&header);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.enum_def {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                for def in &generated.nested_struct_defs {
+                    body.push_str(&def.code);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.model_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.row_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.query_fn {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                let code = sqlkit_codegen::provenance::assemble_file(
+                    &preamble,
+                    &sqlkit_codegen::provenance::header_line(
+                        &*backend,
+                        env!("CARGO_PKG_VERSION"),
+                        sqlkit_codegen::provenance::ENGINE,
+                        "sch1:0123456789abcdef",
+                        "q1:fedcba9876543210",
+                    ),
+                    &body,
+                );
+                if body.lines().count() > 1 {
+                    // Only validate Rust syntax with syn for Rust backends
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "rollup_does_not_narrow"
+                        );
+                    } else {
+                        // Structural validation for non-Rust backends
+                        let errors = sqlkit_codegen::validation::validate_structural(&code, backend_name);
+                        assert!(
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
+                            backend_name,
+                            "rollup_does_not_narrow",
+                            errors
+                        );
+                    }
+                }
+                assert!(
+                    generated.row_struct.is_some() || generated.model_struct.is_some(),
+                    "backend {} should produce a struct for {}",
+                    backend_name,
+                    "rollup_does_not_narrow"
+                );
+                assert!(
+                    generated.query_fn.is_some(),
+                    "backend {} should produce query_fn for {}",
+                    backend_name,
+                    "rollup_does_not_narrow"
+                );
+            }
+            Err(e) => match declared_codegen_failure {
+                Some(expected_message) => {
+                    let message = e.to_string();
+                    assert!(
+                        message.contains(expected_message),
+                        "backend {} codegen error for fixture {} did not match the declared expected.codegen_errors message\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name,
+                        "rollup_does_not_narrow",
+                        expected_message,
+                        message
+                    );
+                }
+                None => panic!(
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "rollup_does_not_narrow", e
+                ),
+            },
+        }
+    }
+}
+
+#[test]
+fn test_where_conjuncts() {
+    // From: testing_data/nullability/filter_narrowing/01_where_conjuncts.json
+    // "A WHERE conjunct that tests a column IS NOT NULL or compares it proves the column non-null in every row"
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, age INTEGER, bio TEXT, score NUMERIC);"];
+
+    let query_sql = "-- @name ListAdults\n-- @returns :many\nSELECT bio, age, score FROM users WHERE bio IS NOT NULL AND (age > $1);";
+
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = sqlkit_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "ListAdults", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.params.len(), 1, "param count");
+    assert_eq!(analyzed.params[0].name, "age", "param name");
+    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for age");
+    assert!(!analyzed.params[0].nullable, "param nullable for age");
+    assert_eq!(analyzed.columns.len(), 3, "column count");
+    assert_eq!(analyzed.columns[0].name, "bio", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for bio");
+    assert_eq!(analyzed.columns[1].name, "age", "column name");
+    assert_eq!(analyzed.columns[1].neutral_type, "int32", "column neutral_type for age");
+    assert!(!analyzed.columns[1].nullable, "column nullable for age");
+    assert_eq!(analyzed.columns[2].name, "score", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "decimal",
+        "column neutral_type for score"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for score");
+
+    // Codegen verification: every backend should produce valid output.
+    let all_backends: &[&str] = &[
+        #[cfg(feature = "lang-rust")]
+        "rust-sqlx",
+        #[cfg(feature = "lang-rust")]
+        "rust-tokio-postgres",
+        #[cfg(feature = "lang-typescript")]
+        "typescript-bun",
+    ];
+    for backend_name in all_backends {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(e) => panic!(
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "where_conjuncts", e
+            ),
+        };
+        let declared_codegen_failure: Option<&str> = None;
+        match sqlkit_codegen::generate_with_backend(&analyzed, &*backend) {
+            Ok(generated) => {
+                if let Some(expected_message) = declared_codegen_failure {
+                    panic!(
+                        "backend {} was declared under expected.codegen_errors to fail codegen for fixture {} (declared message {:?}), but codegen succeeded -- delete the stale entry",
+                        backend_name, "where_conjuncts", expected_message
+                    );
+                }
+                let preamble = backend.file_preamble();
+                let header = backend.file_header();
+                let mut body = String::new();
+                if header.is_empty() {
+                    body.push_str("#![allow(dead_code, unused_imports)]\n");
+                } else {
+                    body.push_str(&header);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.enum_def {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                for def in &generated.nested_struct_defs {
+                    body.push_str(&def.code);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.model_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.row_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.query_fn {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                let code = sqlkit_codegen::provenance::assemble_file(
+                    &preamble,
+                    &sqlkit_codegen::provenance::header_line(
+                        &*backend,
+                        env!("CARGO_PKG_VERSION"),
+                        sqlkit_codegen::provenance::ENGINE,
+                        "sch1:0123456789abcdef",
+                        "q1:fedcba9876543210",
+                    ),
+                    &body,
+                );
+                if body.lines().count() > 1 {
+                    // Only validate Rust syntax with syn for Rust backends
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "where_conjuncts"
+                        );
+                    } else {
+                        // Structural validation for non-Rust backends
+                        let errors = sqlkit_codegen::validation::validate_structural(&code, backend_name);
+                        assert!(
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
+                            backend_name,
+                            "where_conjuncts",
+                            errors
+                        );
+                    }
+                }
+                assert!(
+                    generated.row_struct.is_some() || generated.model_struct.is_some(),
+                    "backend {} should produce a struct for {}",
+                    backend_name,
+                    "where_conjuncts"
+                );
+                assert!(
+                    generated.query_fn.is_some(),
+                    "backend {} should produce query_fn for {}",
+                    backend_name,
+                    "where_conjuncts"
+                );
+            }
+            Err(e) => match declared_codegen_failure {
+                Some(expected_message) => {
+                    let message = e.to_string();
+                    assert!(
+                        message.contains(expected_message),
+                        "backend {} codegen error for fixture {} did not match the declared expected.codegen_errors message\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name,
+                        "where_conjuncts",
+                        expected_message,
+                        message
+                    );
+                }
+                None => panic!(
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "where_conjuncts", e
+                ),
+            },
+        }
+    }
+}
+
+#[test]
+fn test_whole_table_select_star() {
+    // From: testing_data/nullability/filter_narrowing/03_whole_table_select_star.json
+    // "A whole-table SELECT * returns the table's row type, the model every such query shares, so filters do not narrow it"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);"];
+
+    let query_sql = "-- @name ListWithBio\n-- @returns :many\nSELECT * FROM users WHERE bio IS NOT NULL;";
+
+    let catalog = sqlkit_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = sqlkit_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = sqlkit_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "ListWithBio", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 3, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "name", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
+    assert_eq!(analyzed.columns[2].name, "bio", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for bio");
+
+    // Codegen verification: every backend should produce valid output.
+    let all_backends: &[&str] = &[
+        #[cfg(feature = "lang-rust")]
+        "rust-sqlx",
+        #[cfg(feature = "lang-rust")]
+        "rust-tokio-postgres",
+        #[cfg(feature = "lang-typescript")]
+        "typescript-bun",
+    ];
+    for backend_name in all_backends {
+        let backend = match sqlkit_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(e) => panic!(
+                "backend {} failed to construct in fixture {}: {}",
+                backend_name, "whole_table_select_star", e
+            ),
+        };
+        let declared_codegen_failure: Option<&str> = None;
+        match sqlkit_codegen::generate_with_backend(&analyzed, &*backend) {
+            Ok(generated) => {
+                if let Some(expected_message) = declared_codegen_failure {
+                    panic!(
+                        "backend {} was declared under expected.codegen_errors to fail codegen for fixture {} (declared message {:?}), but codegen succeeded -- delete the stale entry",
+                        backend_name, "whole_table_select_star", expected_message
+                    );
+                }
+                let preamble = backend.file_preamble();
+                let header = backend.file_header();
+                let mut body = String::new();
+                if header.is_empty() {
+                    body.push_str("#![allow(dead_code, unused_imports)]\n");
+                } else {
+                    body.push_str(&header);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.enum_def {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                for def in &generated.nested_struct_defs {
+                    body.push_str(&def.code);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.model_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.row_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.query_fn {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                let code = sqlkit_codegen::provenance::assemble_file(
+                    &preamble,
+                    &sqlkit_codegen::provenance::header_line(
+                        &*backend,
+                        env!("CARGO_PKG_VERSION"),
+                        sqlkit_codegen::provenance::ENGINE,
+                        "sch1:0123456789abcdef",
+                        "q1:fedcba9876543210",
+                    ),
+                    &body,
+                );
+                if body.lines().count() > 1 {
+                    // Only validate Rust syntax with syn for Rust backends
+                    if matches!(*backend_name, "rust-sqlx" | "rust-tokio-postgres") {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "whole_table_select_star"
+                        );
+                    } else {
+                        // Structural validation for non-Rust backends
+                        let errors = sqlkit_codegen::validation::validate_structural(&code, backend_name);
+                        assert!(
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
+                            backend_name,
+                            "whole_table_select_star",
+                            errors
+                        );
+                    }
+                }
+                assert!(
+                    generated.row_struct.is_some() || generated.model_struct.is_some(),
+                    "backend {} should produce a struct for {}",
+                    backend_name,
+                    "whole_table_select_star"
+                );
+                assert!(
+                    generated.query_fn.is_some(),
+                    "backend {} should produce query_fn for {}",
+                    backend_name,
+                    "whole_table_select_star"
+                );
+            }
+            Err(e) => match declared_codegen_failure {
+                Some(expected_message) => {
+                    let message = e.to_string();
+                    assert!(
+                        message.contains(expected_message),
+                        "backend {} codegen error for fixture {} did not match the declared expected.codegen_errors message\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name,
+                        "whole_table_select_star",
+                        expected_message,
+                        message
+                    );
+                }
+                None => panic!(
+                    "backend {} failed to generate code in fixture {}: {}",
+                    backend_name, "whole_table_select_star", e
+                ),
+            },
+        }
+    }
+}
+
+#[test]
 fn test_lag_lead_default_narrows_non_null() {
     // From: testing_data/nullability/lag_lead_default_narrowing/01_lag_lead_default_narrows_non_null.json
     // "LAG/LEAD with a non-null default (third argument) cannot return NULL when the tracked column is NOT NULL, because the default is returned instead of NULL at partition boundaries"

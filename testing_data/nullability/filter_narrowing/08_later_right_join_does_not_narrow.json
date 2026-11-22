@@ -1,0 +1,22 @@
+{
+  "category": "nullability/filter_narrowing",
+  "description": "A later RIGHT JOIN null-extends an inner join's side again, so the inner join's ON condition stops narrowing it",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "age", "nullable": true, "type": "int32" }],
+      "command": "many",
+      "name": "ListAges",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "later_right_join_does_not_narrow",
+  "query_sql": "-- @name ListAges\n-- @returns :many\nSELECT u.age FROM users u JOIN posts p ON p.user_id = u.age RIGHT JOIN comments c ON true;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, age INTEGER);",
+    "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL);",
+    "CREATE TABLE comments (id SERIAL PRIMARY KEY);"
+  ],
+  "source": "original",
+  "tags": ["nullability", "join"]
+}
