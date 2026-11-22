@@ -502,6 +502,7 @@ fn lint_from_config(
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: SqlkitConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let per_file_name_blocks = super::generate::blocks_with_names_scoped_per_file(&config_str);
 
     // Same `[lint]` table applied to `SC-PARSE01`/`SC-PARSE02`'s own
     // registry below -- see `ParseSeverities` for why these two cannot pick
@@ -733,17 +734,28 @@ fn lint_from_config(
         // severity. Deriving the same walk here left `build_report` with no
         // caller at all and left `sqlkit lint` unable to report a duplicate
         // query name that `sqlkit check` fails on.
-        let contexts: Vec<LintContext<'_>> = prepared
+        // Names are scoped like `sqlkit check` scopes them: per query file
+        // when every target writes one module per query file.
+        let per_file_names = per_file_name_blocks.contains(&sql_config.name);
+        let contexts: Vec<(usize, LintContext<'_>)> = prepared
             .iter()
-            .map(|p| LintContext {
-                sql: &p.query.sql,
-                stmt: &p.query.stmt,
-                analyzed: &p.analyzed,
-                catalog: &catalog,
-                annotations: &p.query.annotations,
+            .map(|p| {
+                let scope = if per_file_names {
+                    query_files.iter().position(|file| *file == p.file).unwrap_or(0)
+                } else {
+                    0
+                };
+                let ctx = LintContext {
+                    sql: &p.query.sql,
+                    stmt: &p.query.stmt,
+                    analyzed: &p.analyzed,
+                    catalog: &catalog,
+                    annotations: &p.query.annotations,
+                };
+                (scope, ctx)
             })
             .collect();
-        let report = engine.build_report(contexts.into_iter(), &catalog);
+        let report = engine.build_report_scoped(contexts.into_iter(), &catalog);
 
         // Printed unconditionally so an empty rule set (every rule
         // configured `off`) or an empty query set cannot look like a clean

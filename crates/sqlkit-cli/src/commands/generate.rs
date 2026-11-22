@@ -947,6 +947,30 @@ fn is_per_file_output(output: &str) -> bool {
     output.contains(DIR_PLACEHOLDER)
 }
 
+/// Whether query names in `sql_config` only need to be unique within their
+/// query file: true when every `[[sql.gen]]` target writes one module per
+/// query file (`{dir}`), so two files' functions never share a module.
+fn names_scoped_per_file(sql_config: &SqlConfig) -> bool {
+    resolve_gen_targets(sql_config).is_ok_and(|targets| targets.iter().all(|target| is_per_file_output(&target.output)))
+}
+
+/// The names of the `[[sql]]` blocks in `config_str` whose query names are
+/// scoped per query file (see [`names_scoped_per_file`]), for commands such
+/// as `sqlkit lint` that read only part of the config. A config this module
+/// cannot parse scopes nothing per file; `generate` and `check` report why.
+pub(crate) fn blocks_with_names_scoped_per_file(config_str: &str) -> AHashSet<String> {
+    toml::from_str::<SqlkitConfig>(config_str)
+        .map(|config| {
+            config
+                .sql
+                .iter()
+                .filter(|sql_config| names_scoped_per_file(sql_config))
+                .map(|sql_config| sql_config.name.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// `output` with `{dir}` replaced by `query_file`'s directory relative to
 /// `base_dir` (the config directory), or `.` for a query file in `base_dir`
 /// itself. A query file outside `base_dir` keeps its directory as matched,
@@ -2128,22 +2152,14 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             });
         }
 
-        // A block whose every target writes one module per query file
-        // (`{dir}`) only needs names unique within each file.
-        let per_file_names = resolve_gen_targets(sql_config)
-            .is_ok_and(|targets| targets.iter().all(|target| is_per_file_output(&target.output)));
-        let mut seen_names: AHashSet<(usize, &str)> = AHashSet::new();
-        for (file_index, name) in &query_names {
-            let scope = if per_file_names { *file_index } else { 0 };
-            if !seen_names.insert((scope, name.as_str())) {
-                all_violations.push(QueryViolation {
-                    query_name: name.clone(),
-                    rule_id: Cow::Borrowed("SC-C03"),
-                    severity: Severity::Error,
-                    message: format!("duplicate query name: \"{}\"", name),
-                });
-            }
-        }
+        let per_file_names = names_scoped_per_file(sql_config);
+        all_violations.extend(
+            engine.check_duplicate_query_names_scoped(
+                query_names
+                    .iter()
+                    .map(|(file_index, name)| (if per_file_names { *file_index } else { 0 }, name.as_str())),
+            ),
+        );
 
         // Deliberately not `?`-propagating: `verify_provenance` returns a
         // plain `Vec` precisely so it cannot abort the run before

@@ -87,6 +87,18 @@ impl LintEngine {
     /// however many times it occurs, with the occurrence count in the
     /// message.
     pub fn check_duplicate_query_names<'n>(&self, names: impl IntoIterator<Item = &'n str>) -> Vec<QueryViolation> {
+        self.check_duplicate_query_names_scoped(names.into_iter().map(|name| (0, name)))
+    }
+
+    /// [`check_duplicate_query_names`](Self::check_duplicate_query_names)
+    /// where a name only has to be unique within its scope: each name comes
+    /// with the index of the module it is generated into. A block whose every
+    /// `[[sql.gen]]` target writes one module per query file (`{dir}`)
+    /// scopes names by query file; any other block uses a single scope.
+    pub fn check_duplicate_query_names_scoped<'n>(
+        &self,
+        names: impl IntoIterator<Item = (usize, &'n str)>,
+    ) -> Vec<QueryViolation> {
         // The id comes from the rule itself rather than a `"SC-C03"` literal:
         // the rule struct and the finding it produces must not be two
         // derivations of one id that can drift apart.
@@ -101,20 +113,21 @@ impl LintEngine {
             return Vec::new();
         };
 
-        let mut counts: AHashMap<&str, usize> = AHashMap::new();
-        let mut first_seen: Vec<&str> = Vec::new();
-        for name in names {
-            let count = counts.entry(name).or_insert(0);
+        let mut counts: AHashMap<(usize, &str), usize> = AHashMap::new();
+        let mut first_seen: Vec<(usize, &str)> = Vec::new();
+        for scoped in names {
+            let count = counts.entry(scoped).or_insert(0);
             *count += 1;
             if *count == 1 {
-                first_seen.push(name);
+                first_seen.push(scoped);
             }
         }
 
         first_seen
             .into_iter()
-            .filter_map(|name| {
-                let count = counts[name];
+            .filter_map(|scoped| {
+                let count = counts[&scoped];
+                let (_, name) = scoped;
                 (count > 1).then(|| QueryViolation {
                     query_name: name.to_string(),
                     rule_id: Cow::Borrowed(wanted_id),
@@ -130,15 +143,26 @@ impl LintEngine {
     /// `queries` is an iterator of `LintContext` for each query.
     /// The engine also performs cross-query checks (e.g. duplicate names).
     pub fn build_report<'a>(&self, queries: impl Iterator<Item = LintContext<'a>>, catalog: &Catalog) -> LintReport {
+        self.build_report_scoped(queries.map(|ctx| (0, ctx)), catalog)
+    }
+
+    /// [`build_report`](Self::build_report) with each query paired with the
+    /// scope its name must be unique in; see
+    /// [`check_duplicate_query_names_scoped`](Self::check_duplicate_query_names_scoped).
+    pub fn build_report_scoped<'a>(
+        &self,
+        queries: impl Iterator<Item = (usize, LintContext<'a>)>,
+        catalog: &Catalog,
+    ) -> LintReport {
         let active = self.registry.active_rules();
         let rules_active = active.len();
         let mut violations = Vec::new();
         let mut queries_checked: usize = 0;
-        let mut names: Vec<String> = Vec::new();
+        let mut names: Vec<(usize, String)> = Vec::new();
 
-        for ctx in queries {
+        for (scope, ctx) in queries {
             queries_checked += 1;
-            names.push(ctx.analyzed.name.clone());
+            names.push((scope, ctx.analyzed.name.clone()));
 
             for (rule, sev) in &active {
                 for v in rule.check_query(&ctx) {
@@ -152,7 +176,8 @@ impl LintEngine {
             }
         }
 
-        violations.extend(self.check_duplicate_query_names(names.iter().map(String::as_str)));
+        violations
+            .extend(self.check_duplicate_query_names_scoped(names.iter().map(|(scope, name)| (*scope, name.as_str()))));
 
         for (rule, sev) in &active {
             for v in rule.check_catalog(catalog) {
@@ -655,6 +680,23 @@ mod tests {
         assert_eq!(
             violations[0].message,
             "duplicate query name: \"GetUser\" (3 occurrences)"
+        );
+    }
+
+    /// Under per-file output each query file is its own module, so a name may
+    /// repeat across scopes; only a repeat within one scope is a duplicate.
+    #[test]
+    fn check_duplicate_query_names_scoped_allows_repeats_across_scopes() {
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(crate::rules::codegen::DuplicateQueryNames));
+        let engine = LintEngine::new(reg);
+
+        let violations = engine.check_duplicate_query_names_scoped([(0, "GetUser"), (1, "GetUser"), (1, "GetUser")]);
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].message,
+            "duplicate query name: \"GetUser\" (2 occurrences)"
         );
     }
 
