@@ -81,6 +81,28 @@ sqlkit inspect $DATABASE_URL          # live PostgreSQL health checks
 `check`, `lint` and `audit` exit `2` on error-severity findings and `1` on operational failure, so
 CI can tell the two apart. `sqlkit <command> --help` lists every flag.
 
+### Lint configuration
+
+The `[lint]` table of `sqlkit.toml` sets rule severities (`off`, `warn`, `error`) for `lint`,
+`audit`, `check` and `generate`. A rule's own entry overrides its category's;
+`sqlkit audit --list-rules` lists every rule with its category.
+
+```toml
+[lint.categories]   # naming, safety, style, performance, antipattern, codegen,
+safety = "error"    # security, migration, provenance, drift
+style = "off"
+
+[lint.rules]
+SC-P01 = "off"
+
+[lint.naming]
+query_prefixes = ["Get", "List", "Insert", "Update", "Delete"]
+```
+
+`query_prefixes` replaces SC-N03's built-in list of verbs a query name must start with. A prefix
+matches a whole PascalCase word: `Get` accepts `GetUser` and `Get2fa` but not `Getaway`. An empty
+list is a configuration error; turn the rule off with `SC-N03 = "off"` instead.
+
 ## Development
 
 The development environment and every task live in [devenv.nix](devenv.nix): run `devenv shell`,
