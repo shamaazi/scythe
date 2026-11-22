@@ -757,9 +757,7 @@ impl CodegenBackend for TypescriptBunBackend {
                         let _ = writeln!(out, "\treturn rows[0] ?? null;");
                     } else {
                         let _ = writeln!(out, "\tconst row = rows[0];");
-                        let _ = writeln!(out, "\tif (row === undefined) {{");
-                        let _ = writeln!(out, "\t\treturn null;");
-                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(out, "\tif (row === undefined) return null;");
                         let _ = writeln!(out, "\treturn {{");
                         let _ = writeln!(out, "\t\t...row,");
                         for (key, expr) in &overrides {
@@ -776,15 +774,9 @@ impl CodegenBackend for TypescriptBunBackend {
                     let params_type_name = match &query_params.interface {
                         Some(interface) => interface.clone(),
                         None => {
-                            let params_type_name = format!("{}BatchParams", struct_name);
-                            let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
-                            let _ = writeln!(out, "export interface {} {{", params_type_name);
-                            for p in params {
-                                let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.ts_full_type());
-                            }
-                            let _ = writeln!(out, "}}");
-                            let _ = writeln!(out);
-                            params_type_name
+                            let items = TsQueryParams::batch_items(struct_name, params);
+                            out.push_str(&items.declaration(&analyzed.name));
+                            items.interface.unwrap_or_default()
                         }
                     };
                     out.push_str(&ts_query_doc(

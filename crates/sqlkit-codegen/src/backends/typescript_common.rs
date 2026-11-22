@@ -128,6 +128,16 @@ impl TsQueryParams {
         }
     }
 
+    /// The items a positional `:batch` function with several parameters takes:
+    /// one `{StructName}BatchParams` object per run, its properties the
+    /// parameters' own bindings.
+    pub fn batch_items(struct_name: &str, params: &[ResolvedParam]) -> Self {
+        Self {
+            params: params.to_vec(),
+            interface: Some(format!("{struct_name}BatchParams")),
+        }
+    }
+
     /// The expression reading `param` inside the query function: its binding,
     /// or its property of the `params` argument.
     pub fn access(&self, param: &ResolvedParam) -> String {
@@ -926,14 +936,12 @@ pub fn generate_ts_one_row_remap(
     row_access: impl Fn(&str, &str) -> String,
 ) -> String {
     let mut out = String::new();
+    // One line either way, so a statement that always returns a row (an
+    // aggregate, `INSERT ... RETURNING`) leaves no unreachable line for coverage.
     if matches!(command, QueryCommand::One) {
-        // One line, so a statement that always returns a row (an aggregate,
-        // `INSERT ... RETURNING`) leaves no unreachable line for coverage.
         let _ = writeln!(out, "\tif (!row) {}", ts_row_not_found_throw(query_name));
     } else {
-        let _ = writeln!(out, "\tif (!row) {{");
-        let _ = writeln!(out, "\t\treturn null;");
-        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\tif (!row) return null;");
     }
     let _ = writeln!(out, "\treturn {{");
     out.push_str(&generate_ts_row_object_literal(columns, "\t\t", shape, row_access));
@@ -1934,9 +1942,7 @@ mod tests {
         });
         assert_eq!(
             out,
-            "\tif (!row) {\n\
-             \t\treturn null;\n\
-             \t}\n\
+            "\tif (!row) return null;\n\
              \treturn {\n\
              \t\tid: row['id'] as number,\n\
              \t\tname: row['name'] as string,\n\
