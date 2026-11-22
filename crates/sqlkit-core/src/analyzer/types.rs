@@ -448,6 +448,17 @@ pub(super) struct PlaceholderOperand {
     pub(super) signed: bool,
 }
 
+/// What one use of a parameter says about it, for
+/// [`Analyzer::register_param`]: a field left `None` says nothing.
+#[derive(Debug, Clone, Default)]
+pub(super) struct ParamUse {
+    pub(super) name: Option<String>,
+    pub(super) neutral_type: Option<String>,
+    pub(super) null_evidence: Option<NullEvidence>,
+    /// The relation of the column the parameter is compared with.
+    pub(super) source_relation: Option<String>,
+}
+
 /// Tracked parameter info during analysis
 #[derive(Debug, Clone)]
 pub(super) struct ParamInfo {

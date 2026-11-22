@@ -60,7 +60,7 @@ impl<'a> Analyzer<'a> {
                     // `$N` exactly as before and, for `?`, assigns (and memoizes by
                     // span) the next positional slot.
                     if let Some(pos) = self.resolve_placeholder_position(p) {
-                        self.register_param(pos, None, None, None, None);
+                        self.register_param(pos, ParamUse::default());
                     }
                     // ~keep Same "nothing to infer a type from" shape as the NULL arm
                     // above -- a bare placeholder reached with no CAST/comparison/
@@ -224,7 +224,14 @@ impl<'a> Analyzer<'a> {
                         Some(op_ti) => (operand.as_ref().map(|op| param_name(op)), op_ti.neutral_type.clone()),
                         None => (Some("flag".to_string()), "bool".to_string()),
                     };
-                    self.bind_placeholder(&case_when.condition, name, Some(neutral_type), None, None);
+                    self.bind_placeholder(
+                        &case_when.condition,
+                        ParamUse {
+                            name,
+                            neutral_type: Some(neutral_type),
+                            ..ParamUse::default()
+                        },
+                    );
 
                     let ti = self.infer_expr_type(&case_when.result, scope);
                     // Widen across every arm instead of keeping only the
@@ -624,7 +631,15 @@ impl<'a> Analyzer<'a> {
                 let param_type = (result_type != "unknown").then(|| result_type.clone());
                 for arg in &args {
                     let evidence = Some(NullEvidence::CoalesceArgument);
-                    if !self.bind_placeholder(arg, coalesce_name.clone(), param_type.clone(), evidence, None) {
+                    if !self.bind_placeholder(
+                        arg,
+                        ParamUse {
+                            name: coalesce_name.clone(),
+                            neutral_type: param_type.clone(),
+                            null_evidence: evidence,
+                            ..ParamUse::default()
+                        },
+                    ) {
                         self.propagate_null_evidence(arg, NullEvidence::CoalesceArgument);
                     }
                 }
@@ -1060,7 +1075,15 @@ impl<'a> Analyzer<'a> {
                 neutral_type = array_element_type(&neutral_type).unwrap_or(&neutral_type).to_string();
             }
             let evidence = (!matched.function.strict).then_some(NullEvidence::CalledOnNullInput);
-            self.bind_placeholder(expression, declaration.name.clone(), Some(neutral_type), evidence, None);
+            self.bind_placeholder(
+                expression,
+                ParamUse {
+                    name: declaration.name.clone(),
+                    neutral_type: Some(neutral_type),
+                    null_evidence: evidence,
+                    ..ParamUse::default()
+                },
+            );
         }
     }
 

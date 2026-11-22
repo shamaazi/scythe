@@ -352,7 +352,7 @@ fn register_unvisited_placeholders(analyzer: &mut Analyzer<'_>, stmt: &sqlparser
         std::ops::ControlFlow::<()>::Continue(())
     });
     for position in positions {
-        analyzer.register_param(position, None, None, None, None);
+        analyzer.register_param(position, types::ParamUse::default());
     }
 }
 

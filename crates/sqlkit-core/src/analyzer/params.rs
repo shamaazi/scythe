@@ -35,33 +35,34 @@ impl<'a> Analyzer<'a> {
             signed: token.signed,
         })
     }
-
-    /// Register the placeholder `expr` is, if it is one: named `name`, typed
-    /// by its own cast or else by `context_type`. Returns whether it was one.
-    pub(super) fn bind_placeholder(
-        &mut self,
-        expr: &Expr,
-        name: Option<String>,
-        context_type: Option<String>,
-        null_evidence: Option<NullEvidence>,
-        source_relation: Option<String>,
-    ) -> bool {
+    /// Register the placeholder `expr` is, if it is one, with what `param_use`
+    /// says of it -- its own cast, if any, typing it ahead of
+    /// `param_use.neutral_type`. Returns whether it was one.
+    pub(super) fn bind_placeholder(&mut self, expr: &Expr, param_use: ParamUse) -> bool {
         let Some(operand) = self.placeholder_operand(expr) else {
             return false;
         };
-        let neutral_type = operand.cast_type.or(context_type);
-        self.register_param(operand.position, name, neutral_type, null_evidence, source_relation);
+        let neutral_type = operand.cast_type.or(param_use.neutral_type);
+        self.register_param(
+            operand.position,
+            ParamUse {
+                neutral_type,
+                ..param_use
+            },
+        );
         true
     }
 
-    pub(super) fn register_param(
-        &mut self,
-        position: i64,
-        name: Option<String>,
-        neutral_type: Option<String>,
-        null_evidence: Option<NullEvidence>,
-        source_relation: Option<String>,
-    ) {
+    /// Record one use of the parameter at `position`: the first use to give
+    /// it a name, a type or a source relation sets it, and any use's null
+    /// evidence does.
+    pub(super) fn register_param(&mut self, position: i64, param_use: ParamUse) {
+        let ParamUse {
+            name,
+            neutral_type,
+            null_evidence,
+            source_relation,
+        } = param_use;
         if let Some(existing) = self.params.iter_mut().find(|p| p.position == position) {
             // Evidence accumulates where the rest fills blanks: one use that
             // gives the caller a reason to pass NULL makes the parameter
@@ -336,7 +337,13 @@ impl<'a> Analyzer<'a> {
     /// Register the placeholder an `IS [NOT] NULL` tests -- bare, parenthesised
     /// or cast (`$1::date IS NULL`) -- as nullable, typed by its cast if any.
     fn bind_null_tested_operand(&mut self, operand: &Expr) {
-        if !self.bind_placeholder(operand, None, None, Some(NullEvidence::NullTested), None) {
+        if !self.bind_placeholder(
+            operand,
+            ParamUse {
+                null_evidence: Some(NullEvidence::NullTested),
+                ..ParamUse::default()
+            },
+        ) {
             self.propagate_null_evidence(operand, NullEvidence::NullTested);
         }
     }
@@ -358,7 +365,13 @@ impl<'a> Analyzer<'a> {
             return;
         }
         for argument in self.get_function_args(func) {
-            if !self.bind_placeholder(&argument, None, None, Some(evidence), None) {
+            if !self.bind_placeholder(
+                &argument,
+                ParamUse {
+                    null_evidence: Some(evidence),
+                    ..ParamUse::default()
+                },
+            ) {
                 self.propagate_null_evidence(&argument, evidence);
             }
         }
@@ -375,7 +388,13 @@ impl<'a> Analyzer<'a> {
     /// A placeholder that is an operand of `NOT`, `AND` or `OR` is boolean, as
     /// PostgreSQL infers it: `NOT $1` leaves no other context to type `$1` from.
     fn bind_boolean_operand(&mut self, operand: &Expr) {
-        self.bind_placeholder(operand, None, Some("bool".to_string()), None, None);
+        self.bind_placeholder(
+            operand,
+            ParamUse {
+                neutral_type: Some("bool".to_string()),
+                ..ParamUse::default()
+            },
+        );
     }
 
     pub(super) fn try_bind_param_from_comparison(
@@ -397,15 +416,24 @@ impl<'a> Analyzer<'a> {
         // `register_param` is called from, the relation stays `None`.
         self.bind_placeholder(
             param_side,
-            Some(param_name),
-            Some(col_ti.neutral_type),
-            None,
-            col_ti.source_relation,
+            ParamUse {
+                name: Some(param_name),
+                neutral_type: Some(col_ti.neutral_type),
+                source_relation: col_ti.source_relation,
+                ..ParamUse::default()
+            },
         );
     }
 
     pub(super) fn collect_param_from_expr(&mut self, expr: &Expr, name: &str, type_str: &str) {
-        self.bind_placeholder(expr, Some(name.to_string()), Some(type_str.to_string()), None, None);
+        self.bind_placeholder(
+            expr,
+            ParamUse {
+                name: Some(name.to_string()),
+                neutral_type: Some(type_str.to_string()),
+                ..ParamUse::default()
+            },
+        );
     }
 
     pub(super) fn collect_param_from_expr_with_type(&mut self, expr: &Expr, type_str: &str, name: &str) {
@@ -422,7 +450,15 @@ impl<'a> Analyzer<'a> {
         name: &str,
         nullable: Option<NullEvidence>,
     ) {
-        if self.bind_placeholder(expr, Some(name.to_string()), Some(type_str.to_string()), nullable, None) {
+        if self.bind_placeholder(
+            expr,
+            ParamUse {
+                name: Some(name.to_string()),
+                neutral_type: Some(type_str.to_string()),
+                null_evidence: nullable,
+                ..ParamUse::default()
+            },
+        ) {
             return;
         }
         match expr {
@@ -469,7 +505,14 @@ impl<'a> Analyzer<'a> {
     /// Type the placeholder a cast to `neutral_type` is applied to.
     pub(super) fn collect_param_type_from_cast(&mut self, expr: &Expr, neutral_type: &str) {
         let name = (neutral_type == "interval").then(|| "duration".to_string());
-        self.bind_placeholder(expr, name, Some(neutral_type.to_string()), None, None);
+        self.bind_placeholder(
+            expr,
+            ParamUse {
+                name,
+                neutral_type: Some(neutral_type.to_string()),
+                ..ParamUse::default()
+            },
+        );
     }
 
     /// Bind the placeholders of the array operand of `= ANY(...)`/`= ALL(...)`
@@ -477,7 +520,14 @@ impl<'a> Analyzer<'a> {
     /// an `ARRAY[...]` constructor.
     pub(super) fn collect_param_from_any(&mut self, expr: &Expr, left_ti: &TypeInfo, left_name: &str) {
         let array_type = format!("array<{}>", left_ti.neutral_type);
-        if self.bind_placeholder(expr, Some(pluralize(left_name)), Some(array_type), None, None) {
+        if self.bind_placeholder(
+            expr,
+            ParamUse {
+                name: Some(pluralize(left_name)),
+                neutral_type: Some(array_type),
+                ..ParamUse::default()
+            },
+        ) {
             return;
         }
         match expr {
@@ -485,7 +535,14 @@ impl<'a> Analyzer<'a> {
             Expr::Array(arr) => {
                 for (i, elem) in arr.elem.iter().enumerate() {
                     let name = format!("{}{}", left_name, i + 1);
-                    self.bind_placeholder(elem, Some(name), Some(left_ti.neutral_type.clone()), None, None);
+                    self.bind_placeholder(
+                        elem,
+                        ParamUse {
+                            name: Some(name),
+                            neutral_type: Some(left_ti.neutral_type.clone()),
+                            ..ParamUse::default()
+                        },
+                    );
                 }
             }
             _ => {}
@@ -523,7 +580,14 @@ mod tests {
     fn test_register_param_new() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), None, None);
+        analyzer.register_param(
+            1,
+            ParamUse {
+                name: Some("id".to_string()),
+                neutral_type: Some("int32".to_string()),
+                ..ParamUse::default()
+            },
+        );
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].position, 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
@@ -535,12 +599,19 @@ mod tests {
     fn test_register_param_dedup_fills_missing() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, None, None, None, None);
+        analyzer.register_param(1, ParamUse::default());
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, None);
         assert_eq!(analyzer.params[0].neutral_type, None);
 
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), None, None);
+        analyzer.register_param(
+            1,
+            ParamUse {
+                name: Some("id".to_string()),
+                neutral_type: Some("int32".to_string()),
+                ..ParamUse::default()
+            },
+        );
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
         assert_eq!(analyzer.params[0].neutral_type, Some("int32".to_string()));
@@ -550,13 +621,22 @@ mod tests {
     fn test_register_param_does_not_overwrite_existing() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), None, None);
         analyzer.register_param(
             1,
-            Some("new_name".to_string()),
-            Some("string".to_string()),
-            Some(NullEvidence::NullTested),
-            None,
+            ParamUse {
+                name: Some("id".to_string()),
+                neutral_type: Some("int32".to_string()),
+                ..ParamUse::default()
+            },
+        );
+        analyzer.register_param(
+            1,
+            ParamUse {
+                name: Some("new_name".to_string()),
+                neutral_type: Some("string".to_string()),
+                null_evidence: Some(NullEvidence::NullTested),
+                ..ParamUse::default()
+            },
         );
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
@@ -570,14 +650,23 @@ mod tests {
         // param out of later picking one up from a comparison site.
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), None, None);
+        analyzer.register_param(
+            1,
+            ParamUse {
+                name: Some("id".to_string()),
+                neutral_type: Some("int32".to_string()),
+                ..ParamUse::default()
+            },
+        );
         assert_eq!(analyzer.params[0].source_relation, None);
         analyzer.register_param(
             1,
-            Some("id".to_string()),
-            Some("int32".to_string()),
-            None,
-            Some("users".to_string()),
+            ParamUse {
+                name: Some("id".to_string()),
+                neutral_type: Some("int32".to_string()),
+                source_relation: Some("users".to_string()),
+                ..ParamUse::default()
+            },
         );
         assert_eq!(analyzer.params.len(), 1, "still one param, not a second entry");
         assert_eq!(analyzer.params[0].source_relation, Some("users".to_string()));
@@ -589,17 +678,21 @@ mod tests {
         let mut analyzer = make_analyzer(&catalog);
         analyzer.register_param(
             1,
-            Some("id".to_string()),
-            Some("int32".to_string()),
-            None,
-            Some("users".to_string()),
+            ParamUse {
+                name: Some("id".to_string()),
+                neutral_type: Some("int32".to_string()),
+                source_relation: Some("users".to_string()),
+                ..ParamUse::default()
+            },
         );
         analyzer.register_param(
             1,
-            Some("id".to_string()),
-            Some("int32".to_string()),
-            None,
-            Some("orders".to_string()),
+            ParamUse {
+                name: Some("id".to_string()),
+                neutral_type: Some("int32".to_string()),
+                source_relation: Some("orders".to_string()),
+                ..ParamUse::default()
+            },
         );
         assert_eq!(analyzer.params[0].source_relation, Some("users".to_string()));
     }
@@ -608,8 +701,22 @@ mod tests {
     fn test_register_multiple_params() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("name".to_string()), Some("string".to_string()), None, None);
-        analyzer.register_param(2, Some("age".to_string()), Some("int32".to_string()), None, None);
+        analyzer.register_param(
+            1,
+            ParamUse {
+                name: Some("name".to_string()),
+                neutral_type: Some("string".to_string()),
+                ..ParamUse::default()
+            },
+        );
+        analyzer.register_param(
+            2,
+            ParamUse {
+                name: Some("age".to_string()),
+                neutral_type: Some("int32".to_string()),
+                ..ParamUse::default()
+            },
+        );
         assert_eq!(analyzer.params.len(), 2);
         assert_eq!(analyzer.params[0].position, 1);
         assert_eq!(analyzer.params[1].position, 2);
