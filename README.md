@@ -1,37 +1,14 @@
 # sqlkit
 
-**Write SQL. Get type-safe TypeScript for Bun, or Rust.**
-
-sqlkit is Shamaazi's fork of [Scythe](https://github.com/Goldziher/scythe), trimmed to what we use:
-PostgreSQL, generating TypeScript for [Bun's built-in SQL client](https://bun.com/docs/runtime/sql)
-and Rust for [sqlx](https://github.com/launchbadge/sqlx) or
-[tokio-postgres](https://github.com/sfackler/rust-postgres). It compiles annotated `.sql` files into
-database access code (row types, query functions and type mappings) that stays in sync with the
-schema. It reads SQL statically, so generation needs no database connection.
-
-Upstream supports ten languages and ten databases; this fork keeps three backends and PostgreSQL alone,
-and adds Bun support, per-file output, schema type modules and other PostgreSQL work. Everything is
-named `sqlkit`: the crates (`sqlkit-*`), the binary, the config file (`sqlkit.toml`, with a
-`[sqlkit]` table), the provenance header (`sqlkit:provenance`) and the audit suppression comments
-(`-- sqlkit-audit: ignore[...]`). Rule ids keep their `SC-` prefix.
-
-## What you get
-
-| | What it does |
-|---|---|
-| **Type inference that reads the query** | Nullability propagated through `LEFT`/`RIGHT`/`FULL` joins, `COALESCE`, `CASE WHEN`, aggregates, window functions and SQL functions, not just column constraints. CTEs (including recursive), `RETURNING`, enums, domains, composites, arrays and JSON map to native types. |
-| **`sqlkit check`** | Verifies committed code still matches the SQL it was generated from, through the provenance header every generated file carries. Given `--database-url`, it also compares the schema with a live PostgreSQL catalog. |
-| **`sqlkit lint`** | Correctness and performance rules (`UPDATE` without `WHERE`, `NULL` compared with `=`, leading-wildcard `LIKE`, query naming), plus sqruff's style rules. |
-| **`sqlkit audit`** | Security and migration-safety rules: dangerous functions, `GRANT` to `PUBLIC`, literal passwords, `SECURITY DEFINER` misuse, locking `ALTER`s and destructive DDL. Human, SARIF or JSON output. |
-| **`sqlkit fmt`** | SQL formatting through sqruff. |
-| **`sqlkit inspect`** | Live PostgreSQL health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. |
-| **Annotations** | `@name` and `@returns` (`:one`, `:opt`, `:many`, `:exec`, `:batch`, `:grouped` with `@group_by`), `@param` names and nullability, `@optional` filters. |
+Shamaazi's internal SQL toolkit, a fork of [Scythe](https://github.com/Goldziher/scythe) trimmed to
+PostgreSQL. It compiles annotated `.sql` files into typed database access code for
+[Bun's SQL client](https://bun.com/docs/runtime/sql), [sqlx](https://github.com/launchbadge/sqlx) or
+[tokio-postgres](https://github.com/sfackler/rust-postgres), and lints, audits, formats and checks
+that SQL. It reads SQL statically, so generation needs no database. mygiving is its only user.
 
 ## Installation
 
-Through Nix, building the `sqlkit-cli` package (which installs the `sqlkit` binary) with only the
-features a project needs
-(PostgreSQL and TypeScript here):
+mygiving builds it through Nix with only the features it needs:
 
 ```nix
 sqlkit = pkgs.rustPlatform.buildRustPackage (final: {
@@ -52,67 +29,15 @@ sqlkit = pkgs.rustPlatform.buildRustPackage (final: {
 });
 ```
 
-Or with Cargo from a checkout: `cargo install --path crates/sqlkit-cli`.
-
 Cargo features: `postgres` enables the live PostgreSQL driver (for `inspect` and
 `check --database-url`); `lang-typescript` and `lang-rust` select the backends. The default build
 has all three.
 
-## Quick start
+## Annotations
 
-**1. Annotate a query.** `status` is an enum column; `o.total` and `o.notes` sit on the nullable
-side of a `LEFT JOIN`.
-
-```sql
--- @name GetUserOrders
--- @returns :many
-SELECT u.id, u.name, o.total, o.notes
-FROM users u
-LEFT JOIN orders o ON u.id = o.user_id
-WHERE u.status = $1;
-```
-
-**2. Point `sqlkit.toml` at it.**
-
-```toml
-[sqlkit]
-version = "1"
-
-[[sql]]
-name = "main"
-engine = "postgresql"
-schema = ["sql/schema.sql"]
-queries = ["sql/queries.sql"]
-
-[[sql.gen]]
-backend = "typescript-bun"
-output = "src/generated"
-field_case = "camelCase"
-params = "object"
-```
-
-**3. Generate** with `sqlkit generate`.
-
-**4. Use it.** `total` and `notes` are nullable because the join can fail to match; `id` and `name`
-are not, and the enum parameter is typed with the generated union.
-
-```typescript
-export interface GetUserOrdersRow {
-	id: number;
-	name: string;
-	total: string | null;
-	notes: string | null;
-}
-
-export interface GetUserOrdersParams {
-	status: UserStatus;
-}
-
-export async function getUserOrders(
-	sql: SQL,
-	params: GetUserOrdersParams,
-): Promise<GetUserOrdersRow[]> {
-```
+`@name` and `@returns` (`:one`, `:opt`, `:many`, `:exec`, `:batch`, `:grouped` with `@group_by`),
+`@param` names and nullability, `@optional` filters. Plain `--` comment lines above the annotations
+become the generated function's doc comment.
 
 ## Backends
 
@@ -162,7 +87,7 @@ CI can tell the two apart. `sqlkit <command> --help` lists every flag.
 ## Development
 
 The development environment and every task live in [devenv.nix](devenv.nix): run `devenv shell`,
-then `devenv tasks run <task>`.
+then `devenv tasks run <task>`. Build in debug only; nothing here needs `--release`.
 
 | Task | What it runs |
 |------|--------------|
@@ -171,12 +96,51 @@ then `devenv tasks run <task>`.
 | `sqlkit:lint` | `cargo fmt --check` and clippy on the full and minimal builds |
 | `sqlkit:generate` | Regenerate the fixture tests and the integration projects' generated code |
 | `sqlkit:generated-fresh` | Fail if regeneration changes anything |
-| `sqlkit:integration` | The rust-sqlx, rust-tokio-postgres and Bun projects against devenv's PostgreSQL |
+| `sqlkit:integration` | The integration projects against devenv's PostgreSQL (port 5433, database `sqlkit_test`, user and password `sqlkit`) |
 | `sqlkit:cluster-scope` | Build the libpg_query helpers and run the `audit --cluster-scope` controls |
 
-There is no CI: `devenv shell` installs git hooks that run `sqlkit:lint` on commit and
-`sqlkit:test` and `sqlkit:generated-fresh` on push. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
-workflow.
+There is no CI. `devenv shell` installs git hooks: `sqlkit:lint` runs before each commit that
+touches Rust or Cargo files, `sqlkit:test` and `sqlkit:generated-fresh` before each push.
+`sqlkit:integration` needs PostgreSQL and stays manual: run it after changing a backend's runtime
+code. If linking every test binary at once exhausts memory, use `cargo test --workspace -j2`.
+
+Commits go straight to `main` as [Conventional Commits](https://www.conventionalcommits.org/) with a
+body that says why.
+
+### Layout
+
+```text
+sqlkit-cli
+  |-- sqlkit-codegen
+  |     |-- sqlkit-backend  (manifests, type resolution, naming)
+  |     +-- sqlkit-core     (SQL parsing, catalog, type analysis)
+  |-- sqlkit-inspect        (live PostgreSQL checks, schema drift)
+  +-- sqlkit-lint           (lint and audit rules, sqruff integration)
+```
+
+| Directory | Purpose |
+|---|---|
+| `crates/sqlkit-codegen/manifests/` | Backend manifests: type mappings per backend |
+| `crates/sqlkit-codegen/src/backends/` | `sqlx.rs`, `tokio_postgres.rs`, and `typescript_postgres.rs` (postgres.js and Bun) on `typescript_common.rs` |
+| `crates/sqlkit-lint/src/rules/` | Lint and audit rules; register new ones in `crates/sqlkit-lint/src/registry.rs` |
+| `crates/sqlkit-conformance/` | Live nullability conformance suite against PostgreSQL |
+| `testing_data/` | JSON fixtures the test generator turns into tests |
+| `integration_tests/` | Projects that run generated code against PostgreSQL |
+| `tools/test-generator/` | Generates `crates/sqlkit-codegen/tests/generated` from `testing_data/` |
+| `tools/integration-test-generator/` | Renders the Rust integration projects from templates |
+
+### Generated code
+
+Never hand-edit generated files: change the fixture, backend or template, run `sqlkit:generate` and
+commit the result (the pre-push hook fails otherwise). Fixture IDs under `testing_data/{category}/`
+must be unique `snake_case`, since they become test names; `tools/test-generator/src/fixture.rs` is
+the schema and rejects unknown keys.
+
+`rust-sqlx` and `rust-tokio-postgres` under `integration_tests/` are rendered from
+`tools/integration-test-generator/templates/`; `rust-sqlx-nested-json` and `typescript-bun` are kept
+by hand. `tools/integration-test-generator/tests/coverage_completeness.rs` checks that every backend
+manifest has a project and every project runs in `sqlkit:integration`; known gaps go in
+`tools/integration-test-generator/coverage-exemptions.txt` with a reason.
 
 ## License
 

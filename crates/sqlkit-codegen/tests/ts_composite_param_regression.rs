@@ -10,7 +10,7 @@
 //! a Postgres composite is not one of them, so `tsc` rejected the argument as
 //! not assignable to `ParameterOrFragment<never>` (TS2345), cascading into a
 //! TS1320 on the `await` (see `scripts/torture-expected-failures.txt`'s
-//! now-deleted Class 3 entry, and the CHANGELOG entry this fix responds to).
+//! now-deleted Class 3 entry).
 //!
 //! The fix builds a Postgres row-constructor literal instead of binding the
 //! whole object: `ROW(${value.field1}, ${value.field2})::composite_name`, one
