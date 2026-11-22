@@ -2,13 +2,13 @@
 //! enabled AND `$SQLKIT_TEST_DATABASE_URL` is set.
 //!
 //! Each test creates its own schema, runs the relevant check, and drops the
-//! schema on the way out. Tests are independent and may run concurrently
-//! (the default `cargo test` behaviour): the per-test schema bounds the
-//! *fixture*, not the *assertion* — `run_checks()` inspects every schema in the
-//! database, so a concurrently-running test's fixture can show up in
-//! `findings`, but every assertion below filters `findings` down to the
-//! schema/table name that test itself created, so unrelated fixtures never
-//! change the result.
+//! schema on the way out. The per-test schema bounds the *fixture*, not the
+//! *assertion*: `run_checks()` inspects every schema in the database, so every
+//! assertion below filters `findings` down to the schema/table name that test
+//! itself created. The tests still run one at a time (see [`serial`]): a check
+//! whose query opens each relation it lists (SC-INS13 reads `last_value`
+//! through `pg_sequences`) fails outright when another test drops that
+//! relation between the catalog scan and the read.
 //!
 //! SC-INS09 is the one rule whose fixture can't be isolated by schema at
 //! all: extensions live in a database-global namespace, so
@@ -93,6 +93,15 @@ async fn raw_client() -> tokio_postgres::Client {
     client
 }
 
+/// Held for the whole of each test, so the tests' fixtures never change under
+/// another test's database-wide checks. A tokio mutex, not `std`'s: every
+/// `#[tokio::test]` has its own runtime and holds the guard across awaits.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn serial() -> tokio::sync::MutexGuard<'static, ()> {
+    SERIAL.lock().await
+}
+
 /// Run the entire sqlkit-inspect Postgres pipeline against the live DB.
 async fn run_all_findings() -> Vec<sqlkit_lint::reporters::Finding> {
     let connection = PostgresConnection::open(&url()).await.expect("connect");
@@ -107,6 +116,7 @@ async fn run_all_findings() -> Vec<sqlkit_lint::reporters::Finding> {
 /// depends on the fixtures the tests running alongside have created.)
 #[tokio::test]
 async fn open_then_run_checks() {
+    let _serial = serial().await;
     let connection = PostgresConnection::open(&url()).await.expect("connect");
     assert!(
         connection.server_version() >= 120_000,
@@ -118,6 +128,7 @@ async fn open_then_run_checks() {
 
 #[tokio::test]
 async fn sc_ins01_fires_on_fk_without_covering_index() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -150,6 +161,7 @@ async fn sc_ins01_fires_on_fk_without_covering_index() {
 
 #[tokio::test]
 async fn sc_ins01_silent_when_fk_has_covering_index() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -182,6 +194,7 @@ async fn sc_ins01_silent_when_fk_has_covering_index() {
 
 #[tokio::test]
 async fn sc_ins02_fires_on_policy_with_rls_disabled() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -213,6 +226,7 @@ async fn sc_ins02_fires_on_policy_with_rls_disabled() {
 
 #[tokio::test]
 async fn sc_ins02_silent_when_rls_enabled_with_policy() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -242,6 +256,7 @@ async fn sc_ins02_silent_when_rls_enabled_with_policy() {
 
 #[tokio::test]
 async fn sc_ins03_fires_on_duplicate_index() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -268,6 +283,7 @@ async fn sc_ins03_fires_on_duplicate_index() {
 
 #[tokio::test]
 async fn sc_ins03_silent_when_indexes_are_distinct() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -297,6 +313,7 @@ async fn sc_ins03_silent_when_indexes_are_distinct() {
 
 #[tokio::test]
 async fn sc_ins04_fires_when_violation_present() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -322,6 +339,7 @@ async fn sc_ins04_fires_when_violation_present() {
 
 #[tokio::test]
 async fn sc_ins04_skips_when_violation_absent() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -346,6 +364,7 @@ async fn sc_ins04_skips_when_violation_absent() {
 
 #[tokio::test]
 async fn sc_ins05_fires_when_violation_present() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -372,6 +391,7 @@ async fn sc_ins05_fires_when_violation_present() {
 
 #[tokio::test]
 async fn sc_ins05_skips_when_violation_absent() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -398,6 +418,7 @@ async fn sc_ins05_skips_when_violation_absent() {
 
 #[tokio::test]
 async fn sc_ins06_fires_when_violation_present() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -429,6 +450,7 @@ async fn sc_ins06_fires_when_violation_present() {
 
 #[tokio::test]
 async fn sc_ins06_skips_when_violation_absent() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -458,6 +480,7 @@ async fn sc_ins06_skips_when_violation_absent() {
 
 #[tokio::test]
 async fn sc_ins07_fires_when_violation_present() {
+    let _serial = serial().await;
     let client = raw_client().await;
     if skip_if_pg_below(&client, 15, "sc_ins07_fires_when_violation_present").await {
         return;
@@ -490,6 +513,7 @@ async fn sc_ins07_fires_when_violation_present() {
 
 #[tokio::test]
 async fn sc_ins07_skips_when_violation_absent() {
+    let _serial = serial().await;
     let client = raw_client().await;
     if skip_if_pg_below(&client, 15, "sc_ins07_skips_when_violation_absent").await {
         return;
@@ -525,6 +549,7 @@ async fn sc_ins07_skips_when_violation_absent() {
 
 #[tokio::test]
 async fn sc_ins08_fires_when_violation_present() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -557,6 +582,7 @@ async fn sc_ins08_fires_when_violation_present() {
 
 #[tokio::test]
 async fn sc_ins08_skips_when_violation_absent() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -634,6 +660,7 @@ async fn install_test_extension_in_schema(
 
 #[tokio::test]
 async fn sc_ins09_fires_when_violation_present() {
+    let _serial = serial().await;
     let client = raw_client().await;
 
     let Some(ext) = install_test_extension_in_schema(&client, "public", &["pgcrypto", "btree_gin", "btree_gist"]).await
@@ -665,6 +692,7 @@ async fn sc_ins09_fires_when_violation_present() {
 
 #[tokio::test]
 async fn sc_ins09_skips_when_violation_absent() {
+    let _serial = serial().await;
     let client = raw_client().await;
 
     let schema = "sc_ins09_neg_ext_schema";
@@ -723,6 +751,7 @@ async fn sc_ins09_skips_when_violation_absent() {
 /// already did, elsewhere".
 #[tokio::test]
 async fn install_test_extension_in_schema_picks_disjoint_extensions_under_concurrent_contention() {
+    let _serial = serial().await;
     let public_client = raw_client().await;
     let scoped_client = raw_client().await;
     let schema = "sc_ins09_race_regression";
@@ -808,6 +837,7 @@ async fn install_test_extension_in_schema_picks_disjoint_extensions_under_concur
 
 #[tokio::test]
 async fn sc_ins10_fires_when_violation_present() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -838,6 +868,7 @@ async fn sc_ins10_fires_when_violation_present() {
 
 #[tokio::test]
 async fn sc_ins10_skips_when_violation_absent() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -865,6 +896,7 @@ async fn sc_ins10_skips_when_violation_absent() {
 
 #[tokio::test]
 async fn sc_ins11_fires_on_unlogged_table() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -893,6 +925,7 @@ async fn sc_ins11_fires_on_unlogged_table() {
 
 #[tokio::test]
 async fn sc_ins11_silent_on_logged_table() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -920,6 +953,7 @@ async fn sc_ins11_silent_on_logged_table() {
 
 #[tokio::test]
 async fn sc_ins12_fires_on_partition_without_default() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -950,6 +984,7 @@ async fn sc_ins12_fires_on_partition_without_default() {
 
 #[tokio::test]
 async fn sc_ins12_silent_when_default_partition_exists() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -981,6 +1016,7 @@ async fn sc_ins12_silent_when_default_partition_exists() {
 
 #[tokio::test]
 async fn sc_ins13_fires_on_sequence_over_70_percent() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
@@ -1015,6 +1051,7 @@ async fn sc_ins13_fires_on_sequence_over_70_percent() {
 
 #[tokio::test]
 async fn sc_ins13_silent_on_sequence_under_70_percent() {
+    let _serial = serial().await;
     let client = raw_client().await;
     client
         .batch_execute(
