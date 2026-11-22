@@ -242,7 +242,10 @@ pub struct AnalyzedColumn {
     pub untyped_literal: bool,
     /// The catalog column this column reads unchanged -- through aliases, views,
     /// CTEs, derived tables and outer joins -- or `None` for any computed value.
-    /// Internal bookkeeping for [`Self::constraints`], so not serialized.
+    /// Unlike [`Self::source_relation`], which names the relation the query
+    /// reads the column from (a CTE or derived table included), this is the
+    /// catalog's. Internal bookkeeping for [`Self::constraints`] and
+    /// [`Self::base_column`], which are derived from it, so not serialized.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub origin: Option<ColumnOrigin>,
     /// What the schema declares about the values of [`Self::origin`].
@@ -250,8 +253,11 @@ pub struct AnalyzedColumn {
     pub constraints: Option<ValueConstraints>,
     /// [`Self::origin`] followed through views to the table column it reads,
     /// or the view column itself where the view computes it: what a backend
-    /// keys per-column types on. Like `origin`, not serialized.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// keys per-column types on, so serialized like [`Self::constraints`].
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none", with = "column_origin")
+    )]
     pub base_column: Option<ColumnOrigin>,
 }
 
@@ -315,8 +321,11 @@ pub struct AnalyzedParam {
     pub constraints: Option<ValueConstraints>,
     /// The table column this parameter is written into directly, resolved
     /// through views like [`AnalyzedColumn::base_column`]; `None` when it is
-    /// written into none, or into several different ones. Not serialized.
-    #[cfg_attr(feature = "serde", serde(skip))]
+    /// written into none, or into several different ones.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none", with = "column_origin")
+    )]
     pub base_column: Option<ColumnOrigin>,
 }
 
@@ -613,9 +622,62 @@ impl<'a> Analyzer<'a> {
     }
 }
 
+/// Serde for an optional [`ColumnOrigin`] as `{"relation": ..., "column":
+/// ...}`, kept here so the catalog type needs no serde of its own.
+#[cfg(feature = "serde")]
+mod column_origin {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use crate::catalog::ColumnOrigin;
+
+    #[derive(Serialize, Deserialize)]
+    struct Wire {
+        relation: String,
+        column: String,
+    }
+
+    pub(super) fn serialize<S: Serializer>(origin: &Option<ColumnOrigin>, serializer: S) -> Result<S::Ok, S::Error> {
+        origin
+            .as_ref()
+            .map(|origin| Wire {
+                relation: origin.relation.clone(),
+                column: origin.column.clone(),
+            })
+            .serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<ColumnOrigin>, D::Error> {
+        Ok(Option::<Wire>::deserialize(deserializer)?.map(|wire| ColumnOrigin {
+            relation: wire.relation,
+            column: wire.column,
+        }))
+    }
+}
+
 #[cfg(all(test, feature = "serde"))]
 mod serde_tests {
     use super::CompositeFieldInfo;
+
+    #[test]
+    fn should_round_trip_a_base_column() {
+        let column = super::AnalyzedColumn {
+            name: "id".to_string(),
+            base_column: Some(crate::catalog::ColumnOrigin {
+                relation: "users".to_string(),
+                column: "id".to_string(),
+            }),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&column).expect("serializes");
+        assert!(
+            json.contains(r#""base_column":{"relation":"users","column":"id"}"#),
+            "{json}"
+        );
+        let back: super::AnalyzedColumn = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.base_column, column.base_column);
+        let none = serde_json::to_string(&super::AnalyzedParam::default()).expect("serializes");
+        assert!(!none.contains("base_column"), "{none}");
+    }
 
     #[test]
     fn composite_field_requires_nullable_in_serialized_metadata() {
