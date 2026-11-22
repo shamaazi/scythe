@@ -54,11 +54,11 @@ become the generated function's doc comment.
 |--------|--------|--------|
 | `output` | path, or a path containing `{dir}` | Output directory; with `{dir}`, one module per query file, written beside it |
 | `field_case` | `snake_case` (default), `camelCase` | Property names of rows and parameters |
-| `row_keys` | `remap` (default), `driver` | With `camelCase`, `driver` trusts the client to return camel-cased keys (e.g. Bun's `SQL.camel` transform) instead of remapping rows |
+| `row_keys` | `remap` (default), `driver` | With `camelCase`, `driver` trusts the client to return camel-cased keys (e.g. Bun's `SQL.camel` transform) instead of remapping rows; `driver` needs `field_case = "camelCase"` |
 | `params` | `positional` (default), `object` | Query functions take positional arguments or one parameter object |
-| `row_type` | `interface` (default), `zod` | Plain interfaces or Zod schemas |
+| `row_type` | `interface` (default), `zod` | Plain interfaces or Zod schemas; `zod` cannot be combined with `validation = "jsdoc"` |
 | `validation` | `none` (default), `jsdoc` | Document translated `CHECK` constraints on parameters |
-| `constraints` | `ignore`, `warn`, `error` | What to do with a constraint that cannot be translated |
+| `constraints` | `ignore`, `warn`, `error` | What to do with a constraint that cannot be translated; `warn` and `error` need `validation = "jsdoc"` |
 | `schema_types` | path | Write the schema's enums and domains once, to that module, and import them from it. An output like `output`: it gets a provenance header, `check` verifies it, and two outputs may not share a path |
 | `schema_types_import` | module specifier | What query modules import the schema types by; without it, each module imports `schema_types` by its path relative to itself (`../types/schema`, no `.ts`) |
 | `structs_only` | `true`/`false` | Emit types only, no query functions |

@@ -164,3 +164,42 @@ fn should_reject_invalid_option_values() {
         assert!(backend.apply_options(&options).is_err(), "{key} = {value}");
     }
 }
+
+/// Options that only mean something together with another one fail alone.
+#[test]
+fn should_reject_options_that_need_another_option() {
+    for (options, expected) in [
+        (&[("constraints", "warn")][..], "needs validation = \"jsdoc\""),
+        (
+            &[("constraints", "error"), ("validation", "none")][..],
+            "needs validation = \"jsdoc\"",
+        ),
+        (&[("row_keys", "driver")][..], "needs field_case = \"camelCase\""),
+        (
+            &[("row_keys", "driver"), ("field_case", "snake_case")][..],
+            "needs field_case = \"camelCase\"",
+        ),
+        (
+            &[("validation", "jsdoc"), ("row_type", "zod")][..],
+            "needs row_type = \"interface\"",
+        ),
+    ] {
+        let mut backend = get_backend("typescript-bun").unwrap();
+        let options: HashMap<String, String> = options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let error = backend.apply_options(&options).expect_err(&format!("{options:?}"));
+        assert_eq!(error.code, ErrorCode::InvalidConfig, "{options:?}");
+        assert!(error.message.contains(expected), "{options:?}: {}", error.message);
+    }
+    for options in [
+        &[("constraints", "ignore")][..],
+        &[("constraints", "error"), ("validation", "jsdoc")][..],
+        &[("row_keys", "driver"), ("field_case", "camelCase")][..],
+        &[("row_type", "zod")][..],
+    ] {
+        let mut backend = get_backend("typescript-bun").unwrap();
+        let options: HashMap<String, String> = options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        backend
+            .apply_options(&options)
+            .unwrap_or_else(|e| panic!("{options:?}: {e}"));
+    }
+}

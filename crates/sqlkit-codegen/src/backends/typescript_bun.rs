@@ -1174,6 +1174,33 @@ impl CodegenBackend for TypescriptBunBackend {
             self.schema_types_import = Some(ts_schema_types_import_specifier(module, self.row_type)?);
         }
 
+        self.reject_option_combinations()
+    }
+}
+
+impl TypescriptBunBackend {
+    /// Reject options that only mean something together with another one, so a
+    /// combination that would silently do nothing (or lose a check) fails instead.
+    fn reject_option_combinations(&self) -> Result<(), SqlkitError> {
+        let invalid = |message: &str| Err(SqlkitError::new(ErrorCode::InvalidConfig, message.to_string()));
+        if self.constraint_policy != ConstraintPolicy::Ignore && self.validation != TsValidation::JsDoc {
+            return invalid(
+                "constraints = \"warn\" or \"error\" needs validation = \"jsdoc\": without validation no \
+                 constraint is rendered, so none can be reported missing",
+            );
+        }
+        if self.driver_keys && self.field_case != TsFieldCase::Camel {
+            return invalid(
+                "row_keys = \"driver\" needs field_case = \"camelCase\": snake_case rows already use the \
+                 driver's keys",
+            );
+        }
+        if self.validation == TsValidation::JsDoc && self.row_type == TsRowType::Zod {
+            return invalid(
+                "validation = \"jsdoc\" needs row_type = \"interface\": a Zod schema drops the JSDoc tags and \
+                 turns narrowed literal unions into z.custom<...>(), which checks nothing at runtime",
+            );
+        }
         Ok(())
     }
 }
