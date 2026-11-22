@@ -1704,7 +1704,6 @@ pub(super) enum FuncArgShape {
 mod tests {
     use super::*;
     use crate::catalog::Catalog;
-    use ahash::AHashMap;
     use sqlparser::ast::{
         Function, FunctionArg, FunctionArgExpr, FunctionArgumentClause, FunctionArgumentList, FunctionArguments, Ident,
         NullTreatment, ObjectName, ObjectNamePart, Value, ValueWithSpan, WildcardAdditionalOptions, WindowFrame,
@@ -1717,15 +1716,7 @@ mod tests {
     }
 
     fn make_analyzer(catalog: &Catalog) -> Analyzer<'_> {
-        Analyzer {
-            catalog,
-            params: Vec::new(),
-            ctes: AHashMap::new(),
-            type_errors: Vec::new(),
-            pending_nested: Vec::new(),
-            next_nested_id: 0,
-            outer_sources: Vec::new(),
-        }
+        Analyzer::new(catalog)
     }
 
     fn empty_scope() -> Scope {

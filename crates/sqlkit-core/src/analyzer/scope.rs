@@ -220,6 +220,7 @@ impl<'a> Analyzer<'a> {
                     pending_nested: Vec::new(),
                     next_nested_id: self.next_nested_id,
                     outer_sources,
+                    keep_table_row_type: false,
                 };
                 let sub_cols = sub_analyzer.analyze_query(subquery)?;
 
@@ -629,7 +630,6 @@ fn with_function_alias_columns(
 mod tests {
     use super::*;
     use crate::catalog::Catalog;
-    use ahash::AHashMap;
     use sqlparser::ast::Statement;
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
@@ -639,15 +639,7 @@ mod tests {
     }
 
     fn make_analyzer(catalog: &Catalog) -> Analyzer<'_> {
-        Analyzer {
-            catalog,
-            params: Vec::new(),
-            ctes: AHashMap::new(),
-            type_errors: Vec::new(),
-            pending_nested: Vec::new(),
-            next_nested_id: 0,
-            outer_sources: Vec::new(),
-        }
+        Analyzer::new(catalog)
     }
 
     fn parse_from(sql: &str) -> Vec<ast::TableWithJoins> {

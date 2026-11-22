@@ -497,7 +497,6 @@ impl<'a> Analyzer<'a> {
 mod tests {
     use super::*;
     use crate::catalog::Catalog;
-    use ahash::AHashMap;
     use sqlparser::ast::{Ident, Value, ValueWithSpan};
     use sqlparser::tokenizer::Span;
 
@@ -506,15 +505,7 @@ mod tests {
     }
 
     fn make_analyzer(catalog: &Catalog) -> Analyzer<'_> {
-        Analyzer {
-            catalog,
-            params: Vec::new(),
-            ctes: AHashMap::new(),
-            type_errors: Vec::new(),
-            pending_nested: Vec::new(),
-            next_nested_id: 0,
-            outer_sources: Vec::new(),
-        }
+        Analyzer::new(catalog)
     }
 
     fn placeholder_expr(pos: &str) -> Expr {
@@ -627,15 +618,7 @@ mod tests {
     #[test]
     fn test_try_bind_param_from_comparison_basic() {
         let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL);"]).unwrap();
-        let mut analyzer = Analyzer {
-            catalog: &catalog,
-            params: Vec::new(),
-            ctes: AHashMap::new(),
-            type_errors: Vec::new(),
-            pending_nested: Vec::new(),
-            next_nested_id: 0,
-            outer_sources: Vec::new(),
-        };
+        let mut analyzer = Analyzer::new(&catalog);
         let scope = Scope {
             sources: vec![ScopeSource {
                 alias: "users".to_string(),
@@ -672,15 +655,7 @@ mod tests {
     #[test]
     fn test_try_bind_param_from_comparison_uses_real_table_name_not_alias() {
         let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER NOT NULL);"]).unwrap();
-        let mut analyzer = Analyzer {
-            catalog: &catalog,
-            params: Vec::new(),
-            ctes: AHashMap::new(),
-            type_errors: Vec::new(),
-            pending_nested: Vec::new(),
-            next_nested_id: 0,
-            outer_sources: Vec::new(),
-        };
+        let mut analyzer = Analyzer::new(&catalog);
         let scope = Scope {
             sources: vec![ScopeSource {
                 alias: "u".to_string(),
@@ -707,15 +682,7 @@ mod tests {
     #[test]
     fn test_collect_params_from_where_in_list_has_no_source_relation() {
         let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER NOT NULL);"]).unwrap();
-        let mut analyzer = Analyzer {
-            catalog: &catalog,
-            params: Vec::new(),
-            ctes: AHashMap::new(),
-            type_errors: Vec::new(),
-            pending_nested: Vec::new(),
-            next_nested_id: 0,
-            outer_sources: Vec::new(),
-        };
+        let mut analyzer = Analyzer::new(&catalog);
         let scope = Scope {
             sources: vec![ScopeSource {
                 alias: "users".to_string(),

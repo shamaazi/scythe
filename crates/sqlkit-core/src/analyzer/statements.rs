@@ -53,6 +53,7 @@ impl<'a> Analyzer<'a> {
     }
 
     pub(super) fn analyze_query(&mut self, query: &ast::Query) -> Result<Vec<AnalyzedColumn>, SqlkitError> {
+        let keep_table_row_type = std::mem::take(&mut self.keep_table_row_type);
         if let Some(with) = &query.with {
             for cte in &with.cte_tables {
                 let cte_name = cte.alias.name.value.to_lowercase();
@@ -118,7 +119,9 @@ impl<'a> Analyzer<'a> {
             ast::OrderByKind::All(_) => None,
         });
         let result = match query.body.as_ref() {
-            SetExpr::Select(select) => self.analyze_select(select, order_by.unwrap_or_default())?,
+            SetExpr::Select(select) => {
+                self.analyze_select(select, order_by.unwrap_or_default(), keep_table_row_type)?
+            }
             body => {
                 let columns = self.analyze_set_expr(body)?;
                 // A set operation is ordered by its output columns.
@@ -159,7 +162,7 @@ impl<'a> Analyzer<'a> {
 
     pub(super) fn analyze_set_expr(&mut self, set_expr: &SetExpr) -> Result<Vec<AnalyzedColumn>, SqlkitError> {
         match set_expr {
-            SetExpr::Select(select) => self.analyze_select(select, &[]),
+            SetExpr::Select(select) => self.analyze_select(select, &[], false),
             SetExpr::Query(query) => self.analyze_query(query),
             SetExpr::SetOperation { left, right, .. } => {
                 let left_cols = self.analyze_set_expr(left)?;
@@ -344,8 +347,18 @@ impl<'a> Analyzer<'a> {
         &mut self,
         select: &ast::Select,
         order_by: &[ast::OrderByExpr],
+        keep_table_row_type: bool,
     ) -> Result<Vec<AnalyzedColumn>, SqlkitError> {
         let scope = self.build_scope_from_from(&select.from)?;
+        // The projection sees the scope as the filters leave it: each column
+        // they prove non-null is, and an outer-joined source they prove
+        // present is no longer null-extended. A query whose columns are its
+        // table's row type keeps that type; see `AnalyzedQuery::source_table`.
+        let projected = if keep_table_row_type {
+            scope.clone()
+        } else {
+            narrowed_by_filters(select, &scope)
+        };
 
         // ~keep Projection is analyzed before WHERE/HAVING even though the scope-building
         // FROM clause runs first: `SELECT ... FROM ... WHERE ...` places the
@@ -358,25 +371,25 @@ impl<'a> Analyzer<'a> {
         for item in &select.projection {
             match item {
                 SelectItem::UnnamedExpr(expr) => {
-                    self.collect_params_from_where(expr, &scope);
-                    let ti = self.infer_expr_type(expr, &scope);
+                    self.collect_params_from_where(expr, &projected);
+                    let ti = self.infer_expr_type(expr, &projected);
                     let name = expr_to_name(expr);
                     columns.push(AnalyzedColumn::from_type_info(name, ti));
                 }
                 SelectItem::ExprWithAlias { expr, alias } => {
-                    self.collect_params_from_where(expr, &scope);
-                    let ti = self.infer_expr_type(expr, &scope);
+                    self.collect_params_from_where(expr, &projected);
+                    let ti = self.infer_expr_type(expr, &projected);
                     columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti));
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
-                    self.collect_params_from_where(expr, &scope);
-                    let ti = self.infer_expr_type(expr, &scope);
+                    self.collect_params_from_where(expr, &projected);
+                    let ti = self.infer_expr_type(expr, &projected);
                     for alias in aliases {
                         columns.push(AnalyzedColumn::from_type_info(ident_name(alias), ti.clone()));
                     }
                 }
                 SelectItem::Wildcard(_) => {
-                    for source in &scope.sources {
+                    for source in &projected.sources {
                         for col in &source.columns {
                             columns.push(AnalyzedColumn::from_type_info(
                                 col.name.clone(),
@@ -390,7 +403,7 @@ impl<'a> Analyzer<'a> {
                         ast::SelectItemQualifiedWildcardKind::ObjectName(name) => object_column_name(name),
                         ast::SelectItemQualifiedWildcardKind::Expr(expr) => expr_to_name(expr),
                     };
-                    for source in &scope.sources {
+                    for source in &projected.sources {
                         if source.alias == qualifier || source.table_name == qualifier {
                             for col in &source.columns {
                                 columns.push(AnalyzedColumn::from_type_info(
@@ -400,47 +413,6 @@ impl<'a> Analyzer<'a> {
                             }
                         }
                     }
-                }
-            }
-        }
-
-        let proven = filtered_non_null_refs(select, &scope);
-        if !proven.is_empty() {
-            let projected = select.projection.iter().flat_map(|item| match item {
-                SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
-                    vec![scope_column_ref(expr, &scope)]
-                }
-                SelectItem::ExprWithAliases { expr, aliases } => vec![scope_column_ref(expr, &scope); aliases.len()],
-                SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(..) => {
-                    let qualifier = match item {
-                        SelectItem::QualifiedWildcard(ast::SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
-                            Some(object_column_name(name))
-                        }
-                        SelectItem::QualifiedWildcard(ast::SelectItemQualifiedWildcardKind::Expr(expr), _) => {
-                            Some(expr_to_name(expr))
-                        }
-                        _ => None,
-                    };
-                    scope
-                        .sources
-                        .iter()
-                        .filter(|source| {
-                            qualifier
-                                .as_ref()
-                                .is_none_or(|qual| source.alias == *qual || source.table_name == *qual)
-                        })
-                        .flat_map(|source| {
-                            source
-                                .columns
-                                .iter()
-                                .map(|col| Some((source.alias.clone(), col.name.clone())))
-                        })
-                        .collect()
-                }
-            });
-            for (column, reference) in columns.iter_mut().zip(projected) {
-                if reference.is_some_and(|reference| proven.contains(&reference)) {
-                    column.nullable = false;
                 }
             }
         }
@@ -790,31 +762,6 @@ impl<'a> Analyzer<'a> {
     }
 }
 
-/// The column of `scope` that `expr` reads unchanged, as its source's alias
-/// and the column's name; `None` for anything computed or ambiguous.
-fn scope_column_ref(expr: &Expr, scope: &Scope) -> Option<(String, String)> {
-    let mut expr = expr;
-    while let Expr::Nested(inner) = expr {
-        expr = inner;
-    }
-    let (qualifier, column) = match expr {
-        Expr::Identifier(ident) => (None, ident_name(ident)),
-        Expr::CompoundIdentifier(parts) if parts.len() >= 2 => (
-            Some(ident_name(&parts[parts.len() - 2])),
-            ident_name(&parts[parts.len() - 1]),
-        ),
-        _ => return None,
-    };
-    let mut sources = scope.sources.iter().filter(|source| {
-        qualifier
-            .as_ref()
-            .is_none_or(|qual| source.alias == *qual || source.table_name == *qual)
-            && source.columns.iter().any(|c| c.name == column)
-    });
-    let source = sources.next()?;
-    sources.next().is_none().then(|| (source.alias.clone(), column))
-}
-
 /// The columns a row must hold a value in to satisfy `condition`: those it
 /// tests `IS NOT NULL`, and those it compares, since a comparison with NULL
 /// is never true. Only conjuncts count, through `AND` and parentheses.
@@ -848,22 +795,36 @@ fn non_null_refs(condition: &Expr, scope: &Scope, refs: &mut Vec<(String, String
     }
 }
 
+/// `scope` as the rows `select`'s filters let through see it: each column a
+/// filter proves non-null is non-null, and a source one of whose columns a
+/// filter proves non-null is not null-extended, since an outer join's
+/// missing row is NULL in every column. Its columns return to their own
+/// nullability and leave the outer join's group.
+fn narrowed_by_filters(select: &ast::Select, scope: &Scope) -> Scope {
+    let proven = filtered_non_null_refs(select, scope);
+    let mut narrowed = scope.clone();
+    for source in &mut narrowed.sources {
+        for column in &mut source.columns {
+            if proven
+                .iter()
+                .any(|(alias, name)| *alias == source.alias && *name == column.name)
+            {
+                column.base_nullable = false;
+            }
+        }
+        if proven.iter().any(|(alias, _)| *alias == source.alias) {
+            source.nullable_from_join = false;
+        }
+    }
+    narrowed
+}
+
 /// The columns a SELECT's WHERE clause and inner joins' ON conditions prove
 /// non-null in its rows. An inner join's condition stops counting when a
 /// later RIGHT or FULL join can null-extend its side again, and none counts
 /// under ROLLUP, CUBE or GROUPING SETS, whose subtotal rows null them.
-/// A whole-table `SELECT *` keeps the table's row type, the model every such
-/// query shares.
 fn filtered_non_null_refs(select: &ast::Select, scope: &Scope) -> Vec<(String, String)> {
     let mut refs = Vec::new();
-    let table_star = select.projection.len() == 1
-        && matches!(select.projection[0], SelectItem::Wildcard(_))
-        && select.from.len() == 1
-        && select.from[0].joins.is_empty()
-        && matches!(select.from[0].relation, ast::TableFactor::Table { .. });
-    if table_star {
-        return refs;
-    }
     if let ast::GroupByExpr::Expressions(group_by, _) = &select.group_by
         && group_by
             .iter()
@@ -899,7 +860,6 @@ fn filtered_non_null_refs(select: &ast::Select, scope: &Scope) -> Vec<(String, S
 mod union_sql_type_tests {
     use super::*;
     use crate::catalog::Catalog;
-    use ahash::AHashMap;
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
@@ -908,15 +868,7 @@ mod union_sql_type_tests {
     }
 
     fn make_analyzer(catalog: &Catalog) -> Analyzer<'_> {
-        Analyzer {
-            catalog,
-            params: Vec::new(),
-            ctes: AHashMap::new(),
-            type_errors: Vec::new(),
-            pending_nested: Vec::new(),
-            next_nested_id: 0,
-            outer_sources: Vec::new(),
-        }
+        Analyzer::new(catalog)
     }
 
     fn parse_query(sql: &str) -> ast::Query {

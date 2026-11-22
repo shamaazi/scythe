@@ -494,36 +494,41 @@ pub(super) fn is_not_null_guard(condition: &Expr, result: &Expr, scope: &Scope) 
     }
 }
 
-/// Split an expression into `(qualifier, bare_name)` for column-identity
-/// comparison: `u.deleted_at` -> `(Some("u"), "deleted_at")`, `deleted_at` ->
-/// `(None, "deleted_at")`. Anything else falls back to [`expr_to_name`] with
-/// no qualifier, matching its existing "best-effort name" behaviour.
-fn expr_to_qualified_name(expr: &Expr) -> (Option<String>, String) {
-    match expr {
-        Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
-            let qualifier = ident_name(&parts[parts.len() - 2]);
-            let name = ident_name(&parts[parts.len() - 1]);
-            (Some(qualifier), name)
-        }
-        _ => (None, expr_to_name(expr)),
-    }
+/// The column of `scope` that `expr` reads unchanged, parenthesised or not,
+/// as its source's alias and the column's name; `None` for anything
+/// computed, ambiguous, or not a column of `scope` (an outer reference).
+pub(super) fn scope_column_ref(expr: &Expr, scope: &Scope) -> Option<(String, String)> {
+    let (qualifier, column) = match unwrap_nested(expr) {
+        Expr::Identifier(ident) => (None, ident_name(ident)),
+        Expr::CompoundIdentifier(parts) if parts.len() >= 2 => (
+            Some(ident_name(&parts[parts.len() - 2])),
+            ident_name(&parts[parts.len() - 1]),
+        ),
+        _ => return None,
+    };
+    let mut sources = scope.sources.iter().filter(|source| {
+        qualifier
+            .as_ref()
+            .is_none_or(|qual| source.alias == *qual || source.table_name == *qual)
+            && source.columns.iter().any(|c| c.name == column)
+    });
+    let source = sources.next()?;
+    sources.next().is_none().then(|| (source.alias.clone(), column))
 }
 
-/// Whether `a` and `b` name the same column, per [`is_not_null_guard`]'s
-/// qualified-identity rule.
+/// Whether `a` and `b` have the same value in a row: they read the same
+/// column of `scope` (by [`scope_column_ref`], so `u.deleted_at` and
+/// `o.deleted_at` differ, #124), or are the same qualified outer reference
+/// or computed expression. An unqualified name that does not resolve to one
+/// column of `scope` matches nothing.
 fn same_column_identity(a: &Expr, b: &Expr, scope: &Scope) -> bool {
-    let (qual_a, name_a) = expr_to_qualified_name(a);
-    let (qual_b, name_b) = expr_to_qualified_name(b);
-    if name_a != name_b {
-        return false;
-    }
-    match (qual_a, qual_b) {
-        (Some(qa), Some(qb)) => qa == qb,
-        // At least one side is unqualified: only safe to treat this as the
-        // same column when the query has a single table in scope, so the
-        // bare name cannot mean a different table's column of the same
-        // name.
-        _ => scope.sources.len() <= 1,
+    match (scope_column_ref(a, scope), scope_column_ref(b, scope)) {
+        (Some(a), Some(b)) => a == b,
+        (None, None) => {
+            let (a, b) = (unwrap_nested(a), unwrap_nested(b));
+            !matches!(a, Expr::Identifier(_)) && a == b
+        }
+        _ => false,
     }
 }
 

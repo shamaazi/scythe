@@ -27,7 +27,10 @@ pub struct AnalyzedQuery {
     /// [`Annotations::description`](crate::parser::Annotations::description).
     #[cfg_attr(feature = "serde", serde(default))]
     pub description: Option<String>,
-    /// If this is a SELECT * from a single table, the table name
+    /// The table, when the query is a `SELECT *` from it alone: its columns
+    /// are then the table's declared row type, which every such query shares
+    /// as one model, so filters do not narrow them (`WHERE bio IS NOT NULL`
+    /// leaves `bio` nullable) as they narrow any other query's.
     pub source_table: Option<String>,
     /// Composite type definitions needed by this query
     pub composites: Vec<CompositeInfo>,
@@ -579,9 +582,27 @@ pub(super) struct Analyzer<'a> {
     /// items before it. Innermost last. A column the current scope does not
     /// hold resolves against these, as PostgreSQL resolves outer references.
     pub(super) outer_sources: Vec<ScopeSource>,
+    /// Whether the next query analyzed returns its table's row type
+    /// unnarrowed: set for the statement's own query when it is a whole-table
+    /// `SELECT *` ([`AnalyzedQuery::source_table`]), and taken by the first
+    /// [`Analyzer::analyze_query`], so no nested query sees it.
+    pub(super) keep_table_row_type: bool,
 }
 
 impl<'a> Analyzer<'a> {
+    pub(super) fn new(catalog: &'a Catalog) -> Self {
+        Self {
+            catalog,
+            params: Vec::new(),
+            ctes: AHashMap::new(),
+            type_errors: Vec::new(),
+            pending_nested: Vec::new(),
+            next_nested_id: 0,
+            outer_sources: Vec::new(),
+            keep_table_row_type: false,
+        }
+    }
+
     /// Allocate the next `__nested__{id}` placeholder id and record its
     /// field shape for phase-2 naming to resolve.
     pub(super) fn push_pending_nested(&mut self, fields: Vec<NestedFieldInfo>) -> u32 {

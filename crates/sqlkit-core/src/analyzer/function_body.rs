@@ -1,7 +1,6 @@
 //! Analysis of a `LANGUAGE sql` function's body, which the catalog uses to
 //! prove the function's results non-null.
 
-use ahash::AHashMap;
 use sqlparser::ast;
 
 use crate::catalog::Catalog;
@@ -43,20 +42,13 @@ pub(crate) fn analyze_function_body(
             )
         })
         .collect();
-    let mut analyzer = Analyzer {
-        catalog,
-        params: Vec::new(),
-        ctes: AHashMap::new(),
-        type_errors: Vec::new(),
-        pending_nested: Vec::new(),
-        next_nested_id: 0,
-        outer_sources: vec![ScopeSource {
-            alias: function_name.to_string(),
-            table_name: function_name.to_string(),
-            columns,
-            nullable_from_join: false,
-        }],
-    };
+    let mut analyzer = Analyzer::new(catalog);
+    analyzer.outer_sources = vec![ScopeSource {
+        alias: function_name.to_string(),
+        table_name: function_name.to_string(),
+        columns,
+        nullable_from_join: false,
+    }];
     let columns = analyzer.analyze_query(body)?;
     if let Some(error) = analyzer.type_errors.first() {
         return Err(SqlkitError::type_mismatch(error.clone()));

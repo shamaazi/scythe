@@ -32,15 +32,9 @@ use helpers::{
 use types::{Analyzer, NullEvidence};
 
 pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, SqlkitError> {
-    let mut analyzer = Analyzer {
-        catalog,
-        params: Vec::new(),
-        ctes: AHashMap::new(),
-        type_errors: Vec::new(),
-        pending_nested: Vec::new(),
-        next_nested_id: 0,
-        outer_sources: Vec::new(),
-    };
+    let source_table = detect_select_star_source(&query.stmt);
+    let mut analyzer = Analyzer::new(catalog);
+    analyzer.keep_table_row_type = source_table.is_some();
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;
     register_unvisited_placeholders(&mut analyzer, &query.stmt);
@@ -160,8 +154,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Sqlkit
     // `analyze_returning` -- one rule for every identifier sqlkit generates
     // from a user-supplied name (#175).
     disambiguate_duplicate_names(params.iter_mut().map(|p| &mut p.name));
-
-    let source_table = detect_select_star_source(&query.stmt);
 
     // ~keep Every neutral type that a generated file must be able to name. Nested
     // struct fields belong here alongside the top-level columns and params:
@@ -762,6 +754,45 @@ SELECT u.id, u.name, p.title, p.body FROM users u LEFT JOIN posts p ON u.id = p.
             nullable("SELECT u.age FROM users u JOIN posts p ON p.user_id = u.age RIGHT JOIN comments c ON true"),
             [true],
             "a later right join null-extends it again"
+        );
+    }
+
+    /// A filter on any column of an outer-joined source proves its row is
+    /// there, so every column of it returns to its own nullability and leaves
+    /// the join's group.
+    #[test]
+    fn should_restore_a_left_joined_source_a_filter_proves_present() {
+        let query = parse_query(
+            "-- @name Q\n-- @returns :many\n\
+             SELECT u.id, p.title, p.body, (SELECT c.body FROM comments c WHERE p.id = $2 LIMIT 1) AS latest \
+             FROM users u LEFT JOIN posts p ON p.user_id = u.id WHERE p.id = $1",
+        )
+        .unwrap();
+        let result = analyze(&make_catalog(), &query).unwrap();
+        let shape: Vec<_> = result
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c.nullable, c.join_group.as_deref()))
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                ("id", false, None),
+                ("title", false, None),
+                ("body", true, None),
+                ("latest", true, None)
+            ]
+        );
+        let outer = parse_query(
+            "-- @name Q\n-- @returns :many\n\
+             SELECT u.id, (SELECT p.title FROM comments c WHERE p.id = c.post_id) AS title \
+             FROM users u LEFT JOIN posts p ON p.user_id = u.id",
+        )
+        .unwrap();
+        let result = analyze(&make_catalog(), &outer).unwrap();
+        assert!(
+            result.columns[1].nullable,
+            "a correlated subquery's filter on an outer reference proves nothing about the outer row"
         );
     }
 
