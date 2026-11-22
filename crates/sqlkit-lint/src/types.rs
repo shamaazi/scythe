@@ -156,9 +156,21 @@ pub struct LintConfig {
 #[serde(deny_unknown_fields)]
 pub struct LintNamingConfig {
     /// The verb prefixes SC-N03 accepts at the start of a query name, replacing its
-    /// built-in list.
-    #[serde(default)]
+    /// built-in list. An empty list is a configuration error: it would reject every
+    /// name, and turning the rule off is `[lint.rules] SC-N03 = "off"`.
+    #[serde(default, deserialize_with = "non_empty_prefixes")]
     pub query_prefixes: Option<Vec<String>>,
+}
+
+fn non_empty_prefixes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Vec<String>>, D::Error> {
+    let prefixes = Vec::<String>::deserialize(deserializer)?;
+    if prefixes.is_empty() {
+        return Err(serde::de::Error::custom(
+            "`[lint.naming] query_prefixes` is empty, which would reject every query name; \
+             list at least one prefix, or set `[lint.rules] SC-N03 = \"off\"` to disable the rule",
+        ));
+    }
+    Ok(Some(prefixes))
 }
 
 #[cfg(test)]
@@ -278,5 +290,15 @@ mod tests {
         assert_eq!(config.categories.get(&RuleCategory::Safety), Some(&Severity::Error));
         assert_eq!(config.rules.len(), 1);
         assert_eq!(config.rules.get("SC-S01"), Some(&Severity::Off));
+    }
+
+    #[test]
+    fn query_prefixes_parse_and_reject_an_empty_list() {
+        let config: LintConfig = toml::from_str("[naming]\nquery_prefixes = [\"Get\"]\n").unwrap();
+        assert_eq!(config.naming.query_prefixes, Some(vec!["Get".to_string()]));
+        let config: LintConfig = toml::from_str("[naming]\n").unwrap();
+        assert_eq!(config.naming.query_prefixes, None);
+        let err = toml::from_str::<LintConfig>("[naming]\nquery_prefixes = []\n").unwrap_err();
+        assert!(err.to_string().contains("query_prefixes` is empty"), "{err}");
     }
 }

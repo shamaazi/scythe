@@ -232,9 +232,7 @@ fn load_registry(config_path: &str) -> Result<RuleRegistry, Box<dyn std::error::
     }
     let config_str = std::fs::read_to_string(config_path)?;
     let parsed: toml::Value = toml::from_str(&config_str)?;
-    if let Some(lint_section) = parsed.get("lint")
-        && let Ok(lint_config) = lint_section.clone().try_into::<sqlkit_lint::types::LintConfig>()
-    {
+    if let Some(lint_config) = parse_lint_section(&parsed, config_path)? {
         registry.apply_config(&lint_config);
     }
     if let Some(audit_section) = parsed.get("audit") {
@@ -268,6 +266,23 @@ fn load_registry(config_path: &str) -> Result<RuleRegistry, Box<dyn std::error::
     Ok(registry)
 }
 
+/// The `[lint]` table of a parsed `sqlkit.toml`, if it has one. A malformed
+/// table is an error, as it is for `sqlkit lint` and `sqlkit check`, rather
+/// than an audit that quietly runs without the configured severities.
+fn parse_lint_section(
+    parsed: &toml::Value,
+    config_path: &str,
+) -> Result<Option<sqlkit_lint::types::LintConfig>, Box<dyn std::error::Error>> {
+    let Some(lint_section) = parsed.get("lint") else {
+        return Ok(None);
+    };
+    let lint_config = lint_section
+        .clone()
+        .try_into()
+        .map_err(|e| format!("invalid [lint] table in '{}': {}", config_path, e))?;
+    Ok(Some(lint_config))
+}
+
 /// Resolve `SC-PARSE01`'s effective severity from
 /// [`sqlkit_lint::parse_registry`] after applying `config_path`'s `[lint]`
 /// table -- the same table [`load_registry`] applies to the audit rule
@@ -283,9 +298,7 @@ fn load_parse_severity(config_path: &str) -> Result<Severity, Box<dyn std::error
     }
     let config_str = std::fs::read_to_string(config_path)?;
     let parsed: toml::Value = toml::from_str(&config_str)?;
-    if let Some(lint_section) = parsed.get("lint")
-        && let Ok(lint_config) = lint_section.clone().try_into::<sqlkit_lint::types::LintConfig>()
-    {
+    if let Some(lint_config) = parse_lint_section(&parsed, config_path)? {
         registry.apply_config(&lint_config);
     }
     Ok(ParseSeverities::from_registry(&registry).unparseable)
