@@ -20,8 +20,9 @@ use sqlkit_core::catalog::{
     Catalog, CatalogBuilder, CatalogObjectName, CheckDefinition, ColumnDefinition, CompositeDefinition,
     CompositeFieldDefinition, DomainDefinition, EnumDefinition, RelationDefinition,
 };
-use tokio_postgres::Client;
+use tokio_postgres::types::FromSql;
 use tokio_postgres::types::{Kind, Type};
+use tokio_postgres::{Client, Row};
 
 use crate::error::InspectError;
 use crate::neutral::normalize_neutral_type;
@@ -35,28 +36,113 @@ use super::model::{
 /// Label used for the `check_id` of any [`InspectError::Query`] raised here.
 const DRIFT_CHECK_ID: &str = "schema-drift";
 
-/// Relation kinds the drift check considers a "table".
+/// A relation kind the drift check considers a "table" (`pg_class.relkind`,
+/// a `"char"`).
 ///
-/// Views (`v`) and materialized views (`m`) are included because sqlkit's
-/// catalog stores views in the same table map as ordinary tables; restricting
-/// this to `r` would report every view in the DDL as missing from the
-/// database. Partitioned tables (`p`) and foreign tables (`f`) are included
-/// for the same reason — they are ordinary tables as far as a query is
-/// concerned.
-///
-/// Inlined into the SQL below rather than bound as a parameter: it is a
-/// compile-time constant, never user input, and `"char"[]` is awkward to bind
-/// from Rust.
-const RELATION_KINDS: &str = "'r', 'p', 'v', 'm', 'f'";
-
-/// Relation kinds whose `attnotnull` flags describe the relation itself.
-///
-/// PostgreSQL stores `attnotnull = false` for every column of a view or
-/// materialized view, whatever the underlying table declares. Trusting that
-/// would report a nullability mismatch on every non-null column of every view.
-fn nullability_is_authoritative(relation_kind: &str) -> bool {
-    !matches!(relation_kind, "v" | "m")
+/// Views and materialized views are included because sqlkit's catalog stores
+/// views in the same table map as ordinary tables; restricting this to
+/// ordinary tables would report every view in the DDL as missing from the
+/// database. Partitioned and foreign tables are included for the same reason
+/// — they are ordinary tables as far as a query is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RelKind {
+    Table,
+    PartitionedTable,
+    View,
+    MaterializedView,
+    ForeignTable,
 }
+
+impl RelKind {
+    const ALL: [Self; 5] = [
+        Self::Table,
+        Self::PartitionedTable,
+        Self::View,
+        Self::MaterializedView,
+        Self::ForeignTable,
+    ];
+
+    /// The `relkind` code.
+    const fn code(self) -> u8 {
+        match self {
+            Self::Table => b'r',
+            Self::PartitionedTable => b'p',
+            Self::View => b'v',
+            Self::MaterializedView => b'm',
+            Self::ForeignTable => b'f',
+        }
+    }
+
+    /// Whether the relation is a view, plain or materialized.
+    fn is_view(self) -> bool {
+        matches!(self, Self::View | Self::MaterializedView)
+    }
+
+    /// Whether the relation's `attnotnull` flags describe it.
+    ///
+    /// PostgreSQL stores `attnotnull = false` for every column of a view or
+    /// materialized view, whatever the underlying table declares. Trusting that
+    /// would report a nullability mismatch on every non-null column of every
+    /// view.
+    fn has_authoritative_nullability(self) -> bool {
+        !self.is_view()
+    }
+}
+
+impl TryFrom<i8> for RelKind {
+    type Error = String;
+
+    fn try_from(code: i8) -> Result<Self, Self::Error> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.code() as i8 == code)
+            .ok_or_else(|| format!("unexpected pg_class.relkind {:?}", code as u8 as char))
+    }
+}
+
+/// The `relkind` list the relation query selects, inlined into its SQL: a
+/// compile-time constant, never user input, and `"char"[]` is awkward to
+/// bind from Rust.
+fn relation_kinds_sql() -> String {
+    RelKind::ALL
+        .iter()
+        .map(|kind| format!("'{}'", kind.code() as char))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A type's kind (`pg_type.typtype`, a `"char"`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum TypeKind {
+    #[default]
+    Base,
+    Composite,
+    Domain,
+    Enum,
+    Pseudo,
+    Range,
+    Multirange,
+}
+
+impl TryFrom<i8> for TypeKind {
+    type Error = String;
+
+    fn try_from(code: i8) -> Result<Self, Self::Error> {
+        Ok(match code as u8 {
+            b'b' => Self::Base,
+            b'c' => Self::Composite,
+            b'd' => Self::Domain,
+            b'e' => Self::Enum,
+            b'p' => Self::Pseudo,
+            b'r' => Self::Range,
+            b'm' => Self::Multirange,
+            other => return Err(format!("unexpected pg_type.typtype {:?}", other as char)),
+        })
+    }
+}
+
+/// `pg_type.typcategory` of an array type.
+const ARRAY_CATEGORY: i8 = b'A' as i8;
 
 /// A row of `pg_type`, kept so a type OID can be resolved into a
 /// [`tokio_postgres::types::Type`] without a second round trip per column.
@@ -64,14 +150,14 @@ fn nullability_is_authoritative(relation_kind: &str) -> bool {
 struct PgTypeRow {
     name: String,
     schema: String,
-    /// `pg_type.typtype`: `b` base, `e` enum, `d` domain, `c` composite, …
-    kind: String,
+    /// `pg_type.typtype`.
+    kind: TypeKind,
     /// `pg_type.typbasetype`, non-zero only for domains.
     base_type_oid: u32,
     /// `pg_type.typelem`, the element type of an array.
     element_type_oid: u32,
-    /// `pg_type.typcategory`; `A` marks an array type.
-    category: String,
+    /// Whether `pg_type.typcategory` marks an array type.
+    is_array: bool,
     /// SQL-quoted, schema-qualified name for use in raw catalog type strings.
     qualified_name: String,
     /// `format_type(typbasetype, typtypmod)` for domains.
@@ -139,17 +225,10 @@ pub async fn fetch_live_schema(
 ) -> Result<SchemaDescription, InspectError> {
     let (types, enum_labels, scope) = fetch_context(client, declared_schemas).await?;
     let composite_rows = fetch_composite_rows(client, &scope).await?;
+    let relations = fetch_relations(client, &scope).await?;
 
     let mut description = SchemaDescription::new();
-    fetch_tables(
-        client,
-        &types,
-        &enum_labels,
-        &scope,
-        &ColumnChecks::new(),
-        &mut description,
-    )
-    .await?;
+    describe_relations(&relations, &types, &enum_labels, &mut description);
     collect_enums(&types, &enum_labels, &scope, &mut description);
     collect_composites(&composite_rows, &types, &enum_labels, &mut description);
 
@@ -177,20 +256,11 @@ pub async fn fetch_live_catalog(client: &Client, declared_schemas: &[String]) ->
     let standalone_composites: HashSet<u32> = composite_rows.iter().map(|row| row.composite_oid).collect();
     let scoped_type_oids = scoped_user_type_oids(&types, &scope, &standalone_composites);
 
-    let mut unused_description = SchemaDescription::new();
     let (column_checks, domain_checks) = fetch_checks(client, &scope).await?;
-    let relations = fetch_tables(
-        client,
-        &types,
-        &enum_labels,
-        &scope,
-        &column_checks,
-        &mut unused_description,
-    )
-    .await?;
+    let relations = fetch_relations(client, &scope).await?;
     let mut builder = CatalogBuilder::new().search_path(scope.clone());
     for relation in relations {
-        builder = builder.relation(relation);
+        builder = builder.relation(relation.definition(&types, &column_checks));
     }
     for definition in catalog_enum_definitions(&types, &enum_labels, &scoped_type_oids) {
         builder = builder.enum_type(definition);
@@ -266,21 +336,45 @@ fn schema_scope(search_path: &[String], declared_schemas: &[String]) -> Vec<Stri
     scope
 }
 
-/// Wrap a failed catalog query, naming the step that failed.
+/// Wrap a failed catalog query, or a row of it that does not read as
+/// expected, naming the step that failed.
 ///
-/// The four queries fail for different reasons — a role without `SELECT` on
+/// The queries fail for different reasons — a role without `SELECT` on
 /// `pg_enum` is a different problem from one that cannot read `pg_class` — and
 /// a report that says only "schema-drift failed" leaves the user guessing
 /// which grant is missing.
-fn query_error(step: &'static str, error: tokio_postgres::Error) -> InspectError {
+fn query_error(step: &'static str, error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> InspectError {
     InspectError::Query {
         engine: "postgres",
         check_id: format!("{DRIFT_CHECK_ID}/{step}"),
-        source: Box::new(error),
+        source: error.into(),
+    }
+}
+
+/// A row of the catalog query `step`, whose columns are read as an error
+/// rather than a panic when one has an unexpected type or is NULL.
+struct CatalogRow<'a> {
+    row: &'a Row,
+    step: &'static str,
+}
+
+impl<'a> CatalogRow<'a> {
+    fn new(row: &'a Row, step: &'static str) -> Self {
+        Self { row, step }
+    }
+
+    fn get<T: FromSql<'a>>(&self, column: &str) -> Result<T, InspectError> {
+        self.row.try_get(column).map_err(|error| query_error(self.step, error))
+    }
+
+    /// A `"char"` column, read as its code into `T`.
+    fn code<T: TryFrom<i8, Error = String>>(&self, column: &str) -> Result<T, InspectError> {
+        T::try_from(self.get::<i8>(column)?).map_err(|error| query_error(self.step, error))
     }
 }
 
 async fn fetch_search_path(client: &Client) -> Result<Vec<String>, InspectError> {
+    const STEP: &str = "search-path";
     let rows = client
         .query(
             "SELECT schema_name::text AS schema_name \
@@ -288,21 +382,24 @@ async fn fetch_search_path(client: &Client) -> Result<Vec<String>, InspectError>
             &[],
         )
         .await
-        .map_err(|e| query_error("search-path", e))?;
+        .map_err(|e| query_error(STEP, e))?;
 
-    Ok(rows.iter().map(|row| row.get::<_, String>("schema_name")).collect())
+    rows.iter()
+        .map(|row| CatalogRow::new(row, STEP).get("schema_name"))
+        .collect()
 }
 
 async fn fetch_types(client: &Client) -> Result<HashMap<u32, PgTypeRow>, InspectError> {
+    const STEP: &str = "pg_type";
     let rows = client
         .query(
             "SELECT t.oid                AS type_oid, \
                     t.typname::text      AS type_name, \
                     n.nspname::text      AS type_schema, \
-                    t.typtype::text      AS type_kind, \
+                    t.typtype            AS type_kind, \
                     t.typbasetype        AS base_type_oid, \
                     t.typelem            AS element_type_oid, \
-                    t.typcategory::text  AS type_category, \
+                    t.typcategory        AS type_category, \
                     format('%I.%I', n.nspname, t.typname) AS qualified_name, \
                     pg_catalog.format_type(t.typbasetype, t.typtypmod) AS domain_base_sql_type, \
                     t.typnotnull         AS domain_not_null, \
@@ -317,32 +414,33 @@ async fn fetch_types(client: &Client) -> Result<HashMap<u32, PgTypeRow>, Inspect
             &[],
         )
         .await
-        .map_err(|e| query_error("pg_type", e))?;
+        .map_err(|e| query_error(STEP, e))?;
 
-    Ok(rows
-        .iter()
+    rows.iter()
         .map(|row| {
-            (
-                row.get::<_, u32>("type_oid"),
+            let row = CatalogRow::new(row, STEP);
+            Ok((
+                row.get::<u32>("type_oid")?,
                 PgTypeRow {
-                    name: row.get("type_name"),
-                    schema: row.get("type_schema"),
-                    kind: row.get("type_kind"),
-                    base_type_oid: row.get("base_type_oid"),
-                    element_type_oid: row.get("element_type_oid"),
-                    category: row.get("type_category"),
-                    qualified_name: row.get("qualified_name"),
-                    domain_base_sql_type: row.get("domain_base_sql_type"),
-                    domain_not_null: row.get("domain_not_null"),
-                    domain_collation: row.get("domain_collation"),
-                    domain_comment: row.get("domain_comment"),
+                    name: row.get("type_name")?,
+                    schema: row.get("type_schema")?,
+                    kind: row.code("type_kind")?,
+                    base_type_oid: row.get("base_type_oid")?,
+                    element_type_oid: row.get("element_type_oid")?,
+                    is_array: row.get::<i8>("type_category")? == ARRAY_CATEGORY,
+                    qualified_name: row.get("qualified_name")?,
+                    domain_base_sql_type: row.get("domain_base_sql_type")?,
+                    domain_not_null: row.get("domain_not_null")?,
+                    domain_collation: row.get("domain_collation")?,
+                    domain_comment: row.get("domain_comment")?,
                 },
-            )
+            ))
         })
-        .collect())
+        .collect()
 }
 
 async fn fetch_enum_labels(client: &Client) -> Result<HashMap<u32, Vec<String>>, InspectError> {
+    const STEP: &str = "pg_enum";
     let rows = client
         .query(
             "SELECT e.enumtypid       AS type_oid, \
@@ -352,26 +450,85 @@ async fn fetch_enum_labels(client: &Client) -> Result<HashMap<u32, Vec<String>>,
             &[],
         )
         .await
-        .map_err(|e| query_error("pg_enum", e))?;
+        .map_err(|e| query_error(STEP, e))?;
 
     let mut labels: HashMap<u32, Vec<String>> = HashMap::new();
     for row in &rows {
+        let row = CatalogRow::new(row, STEP);
         labels
-            .entry(row.get::<_, u32>("type_oid"))
+            .entry(row.get::<u32>("type_oid")?)
             .or_default()
-            .push(row.get("label"));
+            .push(row.get("label")?);
     }
     Ok(labels)
 }
 
-async fn fetch_tables(
-    client: &Client,
-    types: &HashMap<u32, PgTypeRow>,
-    enum_labels: &HashMap<u32, Vec<String>>,
-    scope: &[String],
-    checks: &ColumnChecks,
-    description: &mut SchemaDescription,
-) -> Result<Vec<RelationDefinition>, InspectError> {
+/// A table or view in scope, with its columns in `attnum` order.
+struct LiveRelation {
+    schema: String,
+    name: String,
+    kind: RelKind,
+    /// The schema's position in the scope, which picks the relation a bare
+    /// name refers to.
+    schema_rank: i32,
+    columns: Vec<LiveColumn>,
+}
+
+/// A column of a [`LiveRelation`].
+struct LiveColumn {
+    name: String,
+    type_oid: u32,
+    /// `format_type` of the column's type and typmod.
+    sql_type: String,
+    not_null: bool,
+    primary_key: bool,
+    /// The collation, when it differs from the type's.
+    collation: Option<String>,
+    comment: Option<String>,
+    /// `(pg_class.oid, attnum)`, which its checks are keyed by.
+    check_key: (u32, i16),
+}
+
+impl LiveRelation {
+    /// The relation as a code-generation catalog definition, its columns
+    /// carrying their `checks`.
+    fn definition(self, types: &HashMap<u32, PgTypeRow>, checks: &ColumnChecks) -> RelationDefinition {
+        let columns = self
+            .columns
+            .into_iter()
+            .map(|column| {
+                let mut definition = ColumnDefinition::new(
+                    column.name,
+                    catalog_sql_type(column.type_oid, &column.sql_type, types, 0),
+                    !column.not_null,
+                );
+                if column.primary_key {
+                    definition = definition.primary_key();
+                }
+                if let Some(collation) = column.collation {
+                    definition = definition.collation(collation);
+                }
+                if let Some(comment) = column.comment {
+                    definition = definition.comment(comment);
+                }
+                for check in checks.get(&column.check_key).into_iter().flatten() {
+                    definition = definition.check(check.clone());
+                }
+                definition
+            })
+            .collect();
+        let name = CatalogObjectName::qualified(self.schema, self.name);
+        if self.kind.is_view() {
+            RelationDefinition::view(name, columns)
+        } else {
+            RelationDefinition::table(name, columns)
+        }
+    }
+}
+
+/// Read the tables and views in `scope`, ordered by scope rank, then name.
+async fn fetch_relations(client: &Client, scope: &[String]) -> Result<Vec<LiveRelation>, InspectError> {
+    const STEP: &str = "pg_class";
     // The scope is bound as a `text[]` parameter rather than re-deriving it
     // server-side from `current_schemas(false)`: the rank that resolves a name
     // collision and the filter that selects the rows must come from the same
@@ -380,7 +537,7 @@ async fn fetch_tables(
     let sql = format!(
         "SELECT n.nspname::text AS schema_name, \
                 c.relname::text  AS relation_name, \
-                c.relkind::text  AS relation_kind, \
+                c.relkind        AS relation_kind, \
                 a.attname::text  AS column_name, \
                 a.attnotnull     AS not_null, \
                 a.atttypid       AS type_oid, \
@@ -405,89 +562,88 @@ async fn fetch_tables(
          JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid \
          JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid \
          LEFT JOIN pg_catalog.pg_collation co ON co.oid = a.attcollation \
-         WHERE c.relkind IN ({RELATION_KINDS}) \
+         WHERE c.relkind IN ({kinds}) \
            AND n.nspname::text = ANY ($1::text[]) \
            AND a.attnum > 0 \
            AND NOT a.attisdropped \
-         ORDER BY schema_rank, c.relname, a.attnum"
+         ORDER BY schema_rank, c.relname, a.attnum",
+        kinds = relation_kinds_sql()
     );
 
     let scope_param: Vec<&str> = scope.iter().map(String::as_str).collect();
     let rows = client
         .query(sql.as_str(), &[&scope_param])
         .await
-        .map_err(|e| query_error("pg_class", e))?;
+        .map_err(|e| query_error(STEP, e))?;
 
-    // Qualified tables remain distinct. The scope rank additionally selects
-    // the bare alias used for an unqualified DDL declaration.
-    let mut winning_relations: HashMap<String, (i32, String)> = HashMap::new();
-    let mut relation_indexes: HashMap<String, usize> = HashMap::new();
-    let mut catalog_relations: Vec<(String, String, String, Vec<ColumnDefinition>)> = Vec::new();
-
+    let mut relations: Vec<LiveRelation> = Vec::new();
+    let mut indexes: HashMap<u32, usize> = HashMap::new();
     for row in &rows {
-        let schema: String = row.get("schema_name");
-        let relation: String = row.get("relation_name");
-        let rank: i32 = row.get("schema_rank");
-        let bare_key = object_key(&relation);
-        let qualified_key = format!("{schema}.{relation}").to_lowercase();
-
-        if !relation_indexes.contains_key(&qualified_key) {
-            let relation_kind: String = row.get("relation_kind");
-            let mut table = TableDescription::new(format!("{schema}.{relation}"));
-            if !nullability_is_authoritative(&relation_kind) {
-                table = table.without_authoritative_nullability();
+        let row = CatalogRow::new(row, STEP);
+        let relation_oid: u32 = row.get("relation_oid")?;
+        let index = match indexes.get(&relation_oid) {
+            Some(&index) => index,
+            None => {
+                relations.push(LiveRelation {
+                    schema: row.get("schema_name")?,
+                    name: row.get("relation_name")?,
+                    kind: row.code("relation_kind")?,
+                    schema_rank: row.get("schema_rank")?,
+                    columns: Vec::new(),
+                });
+                indexes.insert(relation_oid, relations.len() - 1);
+                relations.len() - 1
             }
-            relation_indexes.insert(qualified_key.clone(), catalog_relations.len());
-            catalog_relations.push((schema, relation.clone(), relation_kind, Vec::new()));
-            description.tables.insert(qualified_key.clone(), table);
-            match winning_relations.get(&bare_key) {
-                Some((winner_rank, _)) if *winner_rank <= rank => {}
-                _ => {
-                    winning_relations.insert(bare_key, (rank, qualified_key.clone()));
-                }
-            }
-        }
-
-        let type_oid: u32 = row.get("type_oid");
-        let not_null: bool = row.get("not_null");
-        let primary_key: bool = row.get("primary_key");
-        let column_name: String = row.get("column_name");
-        let column = ColumnDescription {
-            name: column_name.clone(),
-            // Normalised here rather than at the comparison site, matching
-            // `describe_catalog`: one normalisation point, applied to both
-            // derivations of the type.
-            neutral_type: resolve_neutral_type(type_oid, types, enum_labels, 0)
-                .map(|neutral| normalize_neutral_type(&neutral).into_owned()),
-            nullable: !not_null,
-            primary_key,
         };
+        relations[index].columns.push(LiveColumn {
+            name: row.get("column_name")?,
+            type_oid: row.get("type_oid")?,
+            sql_type: row.get("sql_type")?,
+            not_null: row.get("not_null")?,
+            primary_key: row.get("primary_key")?,
+            collation: row.get("collation")?,
+            comment: row.get("comment")?,
+            check_key: (relation_oid, row.get("attnum")?),
+        });
+    }
+    Ok(relations)
+}
 
-        if let Some(table) = description.tables.get_mut(&qualified_key) {
+/// Add `relations` to `description` as drift compares them: each by its
+/// qualified key, and the one earliest in the scope also by its bare name,
+/// the one an unqualified DDL declaration means.
+fn describe_relations(
+    relations: &[LiveRelation],
+    types: &HashMap<u32, PgTypeRow>,
+    enum_labels: &HashMap<u32, Vec<String>>,
+    description: &mut SchemaDescription,
+) {
+    let mut winning_relations: HashMap<String, (i32, String)> = HashMap::new();
+    for relation in relations {
+        let qualified_key = format!("{}.{}", relation.schema, relation.name).to_lowercase();
+        let mut table = TableDescription::new(format!("{}.{}", relation.schema, relation.name));
+        if !relation.kind.has_authoritative_nullability() {
+            table = table.without_authoritative_nullability();
+        }
+        for column in &relation.columns {
+            let column = ColumnDescription {
+                name: column.name.clone(),
+                // Normalised here rather than at the comparison site, matching
+                // `describe_catalog`: one normalisation point, applied to both
+                // derivations of the type.
+                neutral_type: resolve_neutral_type(column.type_oid, types, enum_labels, 0)
+                    .map(|neutral| normalize_neutral_type(&neutral).into_owned()),
+                nullable: !column.not_null,
+                primary_key: column.primary_key,
+            };
             table.columns.insert(column.name.to_lowercase(), column);
         }
-
-        if let Some(&index) = relation_indexes.get(&qualified_key) {
-            let raw_sql_type: String = row.get("sql_type");
-            let mut definition = ColumnDefinition::new(
-                column_name,
-                catalog_sql_type(type_oid, &raw_sql_type, types, 0),
-                !not_null,
-            );
-            if primary_key {
-                definition = definition.primary_key();
+        description.tables.insert(qualified_key.clone(), table);
+        match winning_relations.get(&object_key(&relation.name)) {
+            Some((winner_rank, _)) if *winner_rank <= relation.schema_rank => {}
+            _ => {
+                winning_relations.insert(object_key(&relation.name), (relation.schema_rank, qualified_key));
             }
-            if let Some(collation) = row.get::<_, Option<String>>("collation") {
-                definition = definition.collation(collation);
-            }
-            if let Some(comment) = row.get::<_, Option<String>>("comment") {
-                definition = definition.comment(comment);
-            }
-            let check_key = (row.get::<_, u32>("relation_oid"), row.get::<_, i16>("attnum"));
-            for check in checks.get(&check_key).into_iter().flatten() {
-                definition = definition.check(check.clone());
-            }
-            catalog_relations[index].3.push(definition);
         }
     }
 
@@ -496,18 +652,6 @@ async fn fetch_tables(
             description.tables.insert(bare_key, table);
         }
     }
-
-    Ok(catalog_relations
-        .into_iter()
-        .map(|(schema, relation, relation_kind, columns)| {
-            let name = CatalogObjectName::qualified(schema, relation);
-            if matches!(relation_kind.as_str(), "v" | "m") {
-                RelationDefinition::view(name, columns)
-            } else {
-                RelationDefinition::table(name, columns)
-            }
-        })
-        .collect())
 }
 
 async fn fetch_composite_rows(client: &Client, scope: &[String]) -> Result<Vec<PgCompositeFieldRow>, InspectError> {
@@ -537,19 +681,21 @@ async fn fetch_composite_rows(client: &Client, scope: &[String]) -> Result<Vec<P
         .await
         .map_err(|e| query_error("pg_composite", e))?;
 
-    Ok(rows
-        .iter()
-        .map(|row| PgCompositeFieldRow {
-            composite_oid: row.get("composite_oid"),
-            schema: row.get("schema_name"),
-            composite: row.get("composite_name"),
-            field: row.get("field_name"),
-            type_oid: row.get("type_oid"),
-            sql_type: row.get("sql_type"),
-            nullable: !row.get::<_, bool>("not_null"),
-            schema_rank: row.get("schema_rank"),
+    rows.iter()
+        .map(|row| {
+            let row = CatalogRow::new(row, "pg_composite");
+            Ok(PgCompositeFieldRow {
+                composite_oid: row.get("composite_oid")?,
+                schema: row.get("schema_name")?,
+                composite: row.get("composite_name")?,
+                field: row.get("field_name")?,
+                type_oid: row.get("type_oid")?,
+                sql_type: row.get("sql_type")?,
+                nullable: !row.get::<bool>("not_null")?,
+                schema_rank: row.get("schema_rank")?,
+            })
         })
-        .collect())
+        .collect()
 }
 
 fn collect_composites(
@@ -601,7 +747,9 @@ fn scoped_user_type_oids(
 ) -> HashSet<u32> {
     let mut scoped = HashSet::new();
     for (&oid, row) in types {
-        if !matches!(row.kind.as_str(), "e" | "d") && !(row.kind == "c" && standalone_composites.contains(&oid)) {
+        if !matches!(row.kind, TypeKind::Enum | TypeKind::Domain)
+            && !(row.kind == TypeKind::Composite && standalone_composites.contains(&oid))
+        {
             continue;
         }
         if scope.iter().any(|schema| schema == &row.schema) {
@@ -618,7 +766,7 @@ fn catalog_enum_definitions(
 ) -> Vec<EnumDefinition> {
     let mut rows: Vec<_> = types
         .iter()
-        .filter(|(oid, row)| row.kind == "e" && scoped.contains(oid))
+        .filter(|(oid, row)| row.kind == TypeKind::Enum && scoped.contains(oid))
         .collect();
     rows.sort_unstable_by_key(|(_, row)| (&row.schema, &row.name));
     rows.into_iter()
@@ -663,7 +811,7 @@ fn catalog_domain_definitions(
 ) -> Vec<DomainDefinition> {
     let mut rows: Vec<_> = types
         .iter()
-        .filter(|(oid, row)| row.kind == "d" && scoped.contains(oid))
+        .filter(|(oid, row)| row.kind == TypeKind::Domain && scoped.contains(oid))
         .collect();
     rows.sort_unstable_by_key(|(_, row)| (&row.schema, &row.name));
     rows.into_iter()
@@ -725,15 +873,16 @@ async fn fetch_checks(client: &Client, scope: &[String]) -> Result<(ColumnChecks
     let mut columns = ColumnChecks::new();
     let mut domains = DomainChecks::new();
     for row in &rows {
-        let mut check = CheckDefinition::new(row.get::<_, String>("name"), row.get::<_, String>("expression"));
-        if !row.get::<_, bool>("validated") {
+        let row = CatalogRow::new(row, "pg_constraint");
+        let mut check = CheckDefinition::new(row.get::<String>("name")?, row.get::<String>("expression")?);
+        if !row.get::<bool>("validated")? {
             check = check.not_valid();
         }
-        let type_oid: u32 = row.get("type_oid");
+        let type_oid: u32 = row.get("type_oid")?;
         if type_oid != 0 {
             domains.entry(type_oid).or_default().push(check);
         } else {
-            let key = (row.get::<_, u32>("relation_oid"), row.get::<_, i16>("attnum"));
+            let key = (row.get::<u32>("relation_oid")?, row.get::<i16>("attnum")?);
             columns.entry(key).or_default().push(check);
         }
     }
@@ -747,10 +896,10 @@ fn catalog_sql_type(oid: u32, formatted: &str, types: &HashMap<u32, PgTypeRow>, 
     let Some(row) = types.get(&oid) else {
         return formatted.to_string();
     };
-    if matches!(row.kind.as_str(), "e" | "c" | "d") {
+    if matches!(row.kind, TypeKind::Enum | TypeKind::Composite | TypeKind::Domain) {
         return row.qualified_name.clone();
     }
-    if row.category == "A" && row.element_type_oid != 0 && Type::from_oid(row.element_type_oid).is_none() {
+    if row.is_array && row.element_type_oid != 0 && Type::from_oid(row.element_type_oid).is_none() {
         let element = catalog_sql_type(row.element_type_oid, formatted.trim_end_matches("[]"), types, depth + 1);
         return format!("{element}[]");
     }
@@ -770,11 +919,11 @@ fn resolve_neutral_type(
         return neutral_type_for(&builtin);
     }
     let row = types.get(&oid)?;
-    match row.kind.as_str() {
-        "e" => Some(format!("enum::{}", row.name)),
-        "c" => Some(format!("composite::{}", row.name)),
-        "d" => resolve_neutral_type(row.base_type_oid, types, enum_labels, depth + 1),
-        _ if row.category == "A" && row.element_type_oid != 0 => {
+    match row.kind {
+        TypeKind::Enum => Some(format!("enum::{}", row.name)),
+        TypeKind::Composite => Some(format!("composite::{}", row.name)),
+        TypeKind::Domain => resolve_neutral_type(row.base_type_oid, types, enum_labels, depth + 1),
+        _ if row.is_array && row.element_type_oid != 0 => {
             let element = resolve_neutral_type(row.element_type_oid, types, enum_labels, depth + 1)?;
             Some(format!("array<{element}>"))
         }
@@ -797,7 +946,7 @@ fn collect_enums(
     let mut winners: HashMap<String, (usize, String)> = HashMap::new();
 
     for (oid, row) in types {
-        if row.kind != "e" {
+        if row.kind != TypeKind::Enum {
             continue;
         }
         let Some(rank) = scope.iter().position(|schema| *schema == row.schema) else {
@@ -857,18 +1006,18 @@ fn resolve_type(
 
     let row = types.get(&oid)?;
 
-    match row.kind.as_str() {
-        "e" => Some(Type::new(
+    match row.kind {
+        TypeKind::Enum => Some(Type::new(
             row.name.clone(),
             oid,
             Kind::Enum(enum_labels.get(&oid).cloned().unwrap_or_default()),
             row.schema.clone(),
         )),
-        "d" => {
+        TypeKind::Domain => {
             let base = resolve_type(row.base_type_oid, types, enum_labels, depth + 1)?;
             Some(Type::new(row.name.clone(), oid, Kind::Domain(base), row.schema.clone()))
         }
-        _ if row.category == "A" && row.element_type_oid != 0 => {
+        _ if row.is_array && row.element_type_oid != 0 => {
             let element = resolve_type(row.element_type_oid, types, enum_labels, depth + 1)?;
             Some(Type::new(
                 row.name.clone(),
@@ -889,21 +1038,21 @@ mod tests {
         PgTypeRow {
             name: "status".to_string(),
             schema: "public".to_string(),
-            kind: "e".to_string(),
+            kind: TypeKind::Enum,
             base_type_oid: 0,
             element_type_oid: 0,
-            category: "E".to_string(),
+            is_array: false,
             qualified_name: "public.status".to_string(),
             ..PgTypeRow::default()
         }
     }
 
-    fn user_type_row(name: &str, schema: &str, kind: &str, category: &str) -> PgTypeRow {
+    fn user_type_row(name: &str, schema: &str, kind: u8, category: u8) -> PgTypeRow {
         PgTypeRow {
             name: name.to_string(),
             schema: schema.to_string(),
-            kind: kind.to_string(),
-            category: category.to_string(),
+            kind: TypeKind::try_from(kind as i8).expect("a typtype"),
+            is_array: category == b'A',
             qualified_name: format!("{schema}.{name}"),
             ..PgTypeRow::default()
         }
@@ -956,13 +1105,13 @@ mod tests {
         let array_oid = 100_102;
         let domain_oid = 100_103;
         let composite_oid = 100_104;
-        let mut array = user_type_row("_status", "public", "b", "A");
+        let mut array = user_type_row("_status", "public", b'b', b'A');
         array.element_type_oid = enum_oid;
         let types = HashMap::from([
-            (enum_oid, user_type_row("status", "public", "e", "E")),
+            (enum_oid, user_type_row("status", "public", b'e', b'E')),
             (array_oid, array),
-            (domain_oid, user_type_row("postal_code", "public", "d", "S")),
-            (composite_oid, user_type_row("address", "public", "c", "C")),
+            (domain_oid, user_type_row("postal_code", "public", b'd', b'S')),
+            (composite_oid, user_type_row("address", "public", b'c', b'C')),
         ]);
 
         assert_eq!(catalog_sql_type(enum_oid, "status", &types, 0), "public.status");
@@ -979,12 +1128,12 @@ mod tests {
         let composite_oid = 100_109;
         let array_oid = 100_110;
         let domain_oid = 100_111;
-        let mut array = user_type_row("_address", "public", "b", "A");
+        let mut array = user_type_row("_address", "public", b'b', b'A');
         array.element_type_oid = composite_oid;
-        let mut domain = user_type_row("address_list", "public", "d", "A");
+        let mut domain = user_type_row("address_list", "public", b'd', b'A');
         domain.base_type_oid = array_oid;
         let types = HashMap::from([
-            (composite_oid, user_type_row("address", "public", "c", "C")),
+            (composite_oid, user_type_row("address", "public", b'c', b'C')),
             (array_oid, array),
             (domain_oid, domain),
         ]);
@@ -1008,8 +1157,8 @@ mod tests {
         let enum_oid = 100_105;
         let composite_oid = 100_106;
         let types = HashMap::from([
-            (enum_oid, user_type_row("state", "preferred", "e", "E")),
-            (composite_oid, user_type_row("state", "fallback", "c", "C")),
+            (enum_oid, user_type_row("state", "preferred", b'e', b'E')),
+            (composite_oid, user_type_row("state", "fallback", b'c', b'C')),
         ]);
         let standalone = std::collections::HashSet::from([composite_oid]);
         let scoped = scoped_user_type_oids(&types, &["preferred".to_string(), "fallback".to_string()], &standalone);
@@ -1056,28 +1205,48 @@ mod tests {
                 .contains_key("country")
         );
     }
-
     /// The constraint that makes the whole check work on views: restricting to
     /// ordinary tables would report every view sqlkit's catalog holds as a
     /// missing table.
     #[test]
     fn relation_kinds_cover_tables_partitions_views_matviews_and_foreign_tables() {
-        for kind in ["'r'", "'p'", "'v'", "'m'", "'f'"] {
-            assert!(RELATION_KINDS.contains(kind), "relkind {kind} must be selected");
+        assert_eq!(relation_kinds_sql(), "'r', 'p', 'v', 'm', 'f'");
+        for code in *b"rpvmf" {
+            assert_eq!(RelKind::try_from(code as i8).map(RelKind::code), Ok(code));
         }
+        assert!(
+            RelKind::try_from(b'i' as i8).is_err(),
+            "an index is not a relation drift reads"
+        );
     }
 
     #[test]
     fn views_and_matviews_have_no_authoritative_nullability() {
-        assert!(!nullability_is_authoritative("v"));
-        assert!(!nullability_is_authoritative("m"));
+        assert!(!RelKind::View.has_authoritative_nullability());
+        assert!(!RelKind::MaterializedView.has_authoritative_nullability());
     }
 
     #[test]
     fn ordinary_partitioned_and_foreign_tables_have_authoritative_nullability() {
-        assert!(nullability_is_authoritative("r"));
-        assert!(nullability_is_authoritative("p"));
-        assert!(nullability_is_authoritative("f"));
+        assert!(RelKind::Table.has_authoritative_nullability());
+        assert!(RelKind::PartitionedTable.has_authoritative_nullability());
+        assert!(RelKind::ForeignTable.has_authoritative_nullability());
+    }
+
+    #[test]
+    fn type_kinds_read_every_typtype_postgresql_documents() {
+        for (code, kind) in [
+            (b'b', TypeKind::Base),
+            (b'c', TypeKind::Composite),
+            (b'd', TypeKind::Domain),
+            (b'e', TypeKind::Enum),
+            (b'p', TypeKind::Pseudo),
+            (b'r', TypeKind::Range),
+            (b'm', TypeKind::Multirange),
+        ] {
+            assert_eq!(TypeKind::try_from(code as i8), Ok(kind));
+        }
+        assert!(TypeKind::try_from(b'x' as i8).is_err());
     }
 
     #[test]
@@ -1107,10 +1276,10 @@ mod tests {
             PgTypeRow {
                 name: "us_zip".to_string(),
                 schema: "public".to_string(),
-                kind: "d".to_string(),
+                kind: TypeKind::Domain,
                 base_type_oid: Type::TEXT.oid(),
                 element_type_oid: 0,
-                category: "S".to_string(),
+                is_array: false,
                 qualified_name: "public.us_zip".to_string(),
                 domain_base_sql_type: "text".to_string(),
                 ..PgTypeRow::default()
@@ -1134,10 +1303,10 @@ mod tests {
                 PgTypeRow {
                     name: "_status".to_string(),
                     schema: "public".to_string(),
-                    kind: "b".to_string(),
+                    kind: TypeKind::Base,
                     base_type_oid: 0,
                     element_type_oid: enum_oid,
-                    category: "A".to_string(),
+                    is_array: true,
                     qualified_name: "public._status".to_string(),
                     ..PgTypeRow::default()
                 },
@@ -1166,10 +1335,10 @@ mod tests {
             PgTypeRow {
                 name: "address".to_string(),
                 schema: "public".to_string(),
-                kind: "c".to_string(),
+                kind: TypeKind::Composite,
                 base_type_oid: 0,
                 element_type_oid: 0,
-                category: "C".to_string(),
+                is_array: false,
                 qualified_name: "public.address".to_string(),
                 ..PgTypeRow::default()
             },
@@ -1188,10 +1357,10 @@ mod tests {
             PgTypeRow {
                 name: "loop".to_string(),
                 schema: "public".to_string(),
-                kind: "d".to_string(),
+                kind: TypeKind::Domain,
                 base_type_oid: oid,
                 element_type_oid: 0,
-                category: "S".to_string(),
+                is_array: false,
                 qualified_name: "public.loop".to_string(),
                 ..PgTypeRow::default()
             },
@@ -1407,10 +1576,10 @@ mod tests {
                         PgTypeRow {
                             name: format!("d{step}"),
                             schema: "public".to_string(),
-                            kind: "d".to_string(),
+                            kind: TypeKind::Domain,
                             base_type_oid,
                             element_type_oid: 0,
-                            category: "S".to_string(),
+                            is_array: false,
                             qualified_name: format!("public.d{step}"),
                             domain_base_sql_type: "text".to_string(),
                             ..PgTypeRow::default()
@@ -1437,5 +1606,41 @@ mod tests {
             resolve_type(200_000, &beyond, &HashMap::new(), 0).is_none(),
             "a chain one level past the bound must stop rather than recurse"
         );
+    }
+}
+
+/// Reading catalog rows against a live server: what `try_get` and the
+/// `"char"` codes do with values the queries could produce.
+#[cfg(all(test, feature = "live-tests"))]
+mod live_tests {
+    use super::*;
+    use tokio_postgres::NoTls;
+
+    #[tokio::test]
+    async fn should_report_an_unreadable_catalog_column_instead_of_panicking() {
+        let url = std::env::var("SQLKIT_TEST_DATABASE_URL").expect("SQLKIT_TEST_DATABASE_URL must be set");
+        let (client, connection) = tokio_postgres::connect(&url, NoTls).await.expect("connect");
+        tokio::spawn(connection);
+        let row = client
+            .query_one(
+                "SELECT NULL::text AS missing, 'v'::\"char\" AS view, 'i'::\"char\" AS index, 'A'::\"char\" AS array_category",
+                &[],
+            )
+            .await
+            .expect("query");
+        let row = CatalogRow::new(&row, "test");
+
+        let missing = row.get::<String>("missing").expect_err("NULL is not a String");
+        assert!(matches!(missing, InspectError::Query { ref check_id, .. } if check_id == "schema-drift/test"));
+        assert_eq!(row.get::<Option<String>>("missing").expect("NULL is an Option"), None);
+        assert!(row.get::<i32>("view").is_err(), "a \"char\" is not an int4");
+        assert!(row.get::<String>("absent").is_err(), "an absent column is an error");
+
+        assert_eq!(row.code::<RelKind>("view").expect("relkind"), RelKind::View);
+        let index = row
+            .code::<RelKind>("index")
+            .expect_err("an index is not a relation drift reads");
+        assert!(index.to_string().contains("relkind"), "{index}");
+        assert_eq!(row.get::<i8>("array_category").expect("typcategory"), ARRAY_CATEGORY);
     }
 }
