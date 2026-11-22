@@ -313,6 +313,7 @@ impl CodegenBackend for TokioPostgresBackend {
                 }
                 let _ = writeln!(out, "}}");
                 let _ = writeln!(out);
+                out.push_str(&super::rust_query_doc(analyzed));
                 let _ = writeln!(
                     out,
                     "pub async fn {}({}, items: &[{}]) -> Result<(), {}> {{",
@@ -335,6 +336,7 @@ impl CodegenBackend for TokioPostgresBackend {
                 let _ = writeln!(out, "    Ok(())");
             } else if params.len() == 1 {
                 let param = &params[0];
+                out.push_str(&super::rust_query_doc(analyzed));
                 let _ = writeln!(
                     out,
                     "pub async fn {}({}, items: &[{}]) -> Result<(), {}> {{",
@@ -346,6 +348,7 @@ impl CodegenBackend for TokioPostgresBackend {
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "    Ok(())");
             } else {
+                out.push_str(&super::rust_query_doc(analyzed));
                 let _ = writeln!(
                     out,
                     "pub async fn {}({}, count: usize) -> Result<(), {}> {{",
@@ -374,6 +377,8 @@ impl CodegenBackend for TokioPostgresBackend {
                 unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         };
+
+        out.push_str(&super::rust_query_doc(analyzed));
 
         let _ = writeln!(
             out,
@@ -587,6 +592,8 @@ impl CodegenBackend for TokioPostgresBackend {
             .find(|c| c.name == key_column || c.field_name == key_field)
             .map(|c| c.full_type.as_str())
             .unwrap_or("i64");
+
+        out.push_str(&super::rust_query_doc(analyzed));
 
         let _ = writeln!(
             out,

@@ -480,6 +480,9 @@ impl GetUserProfileRow {
     }
 }
 
+/// Exercises a nullable enum column and a nullable composite column
+/// (board #197). Callers must pass an id seeded via raw SQL, since a
+/// composite VALUES literal is not part of this generator's fixture surface.
 pub async fn get_user_profile(
     client: &(impl tokio_postgres::GenericClient + Sync),
     id: i32,

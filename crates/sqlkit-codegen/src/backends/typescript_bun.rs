@@ -787,11 +787,13 @@ impl CodegenBackend for TypescriptBunBackend {
                             params_type_name
                         }
                     };
-                    let _ = writeln!(
-                        out,
-                        "/** Execute {} for each item in the batch within a transaction. */",
-                        analyzed.name
-                    );
+                    out.push_str(&ts_query_doc(
+                        analyzed,
+                        &format!(
+                            "Execute {} for each item in the batch within a transaction.",
+                            analyzed.name
+                        ),
+                    ));
                     let batch_sig_params = vec![
                         ("sql".to_string(), "SQL".to_string()),
                         ("items".to_string(), format!("{}[]", params_type_name)),
@@ -801,11 +803,13 @@ impl CodegenBackend for TypescriptBunBackend {
                     self.write_batch_body(&mut out, "for (const item of items)", &batch_sql);
                     let _ = write!(out, "}}");
                 } else if params.len() == 1 {
-                    let _ = writeln!(
-                        out,
-                        "/** Execute {} for each item in the batch within a transaction. */",
-                        analyzed.name
-                    );
+                    out.push_str(&ts_query_doc(
+                        analyzed,
+                        &format!(
+                            "Execute {} for each item in the batch within a transaction.",
+                            analyzed.name
+                        ),
+                    ));
                     let batch_sig_params = vec![
                         ("sql".to_string(), "SQL".to_string()),
                         ("items".to_string(), format!("{}[]", params[0].ts_full_type())),
@@ -815,11 +819,13 @@ impl CodegenBackend for TypescriptBunBackend {
                     self.write_batch_body(&mut out, "for (const item of items)", &batch_sql);
                     let _ = write!(out, "}}");
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "/** Execute {} for each item in the batch within a transaction. */",
-                        analyzed.name
-                    );
+                    out.push_str(&ts_query_doc(
+                        analyzed,
+                        &format!(
+                            "Execute {} for each item in the batch within a transaction.",
+                            analyzed.name
+                        ),
+                    ));
                     let batch_sig_params = vec![
                         ("sql".to_string(), "SQL".to_string()),
                         ("count".to_string(), "number".to_string()),
@@ -1990,6 +1996,35 @@ mod tests {
             ),
             "got:\n{query_fn}"
         );
+    }
+
+    /// `:batch` functions document themselves with the description too, in
+    /// each of their three shapes.
+    #[test]
+    fn test_batch_fn_doc_comes_from_the_query_description() {
+        let backend = TypescriptBunBackend::new().unwrap();
+        let param = |name: &str, position| AnalyzedParam {
+            name: name.to_string(),
+            neutral_type: "int32".to_string(),
+            position,
+            ..Default::default()
+        };
+        for params in [vec![], vec![param("a", 1)], vec![param("a", 1), param("b", 2)]] {
+            let sql = match params.len() {
+                0 => "DELETE FROM t",
+                1 => "DELETE FROM t WHERE a = $1",
+                _ => "DELETE FROM t WHERE a = $1 AND b = $2",
+            };
+            let mut query = make_batch_query("PruneRows", sql, params);
+            query.description = Some("Prune each row.".to_string());
+            let result = crate::generate_with_backend(&query, &backend).unwrap();
+            let query_fn = result.query_fn.as_deref().unwrap();
+            assert!(
+                query_fn.contains("/** Prune each row. */\nexport async function pruneRowsBatch("),
+                "got:\n{query_fn}"
+            );
+            assert!(!query_fn.contains("for each item"), "got:\n{query_fn}");
+        }
     }
 
     #[test]

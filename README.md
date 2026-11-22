@@ -38,7 +38,8 @@ has all three. PostgreSQL is the only engine, so `[[sql]] engine` is optional; w
 
 `@name` and `@returns` (`:one`, `:opt`, `:many`, `:exec`, `:batch`, `:grouped` with `@group_by`),
 `@param` names and nullability, `@optional` filters. Plain `--` comment lines above the annotations
-become the generated function's doc comment.
+become the generated function's doc comment in every backend (`///` in Rust, JSDoc in TypeScript),
+`:batch` functions included.
 
 ## Backends
 

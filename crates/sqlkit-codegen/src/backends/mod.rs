@@ -25,6 +25,23 @@ pub(crate) fn query_doc_text<'a>(analyzed: &'a sqlkit_core::analyzer::AnalyzedQu
     analyzed.description.as_deref().unwrap_or(fallback)
 }
 
+/// The `///` doc comment the Rust backends write above a query's function:
+/// the query header's description, one `///` line per line, or nothing.
+#[cfg_attr(not(feature = "lang-rust"), allow(dead_code))]
+pub(crate) fn rust_query_doc(analyzed: &sqlkit_core::analyzer::AnalyzedQuery) -> String {
+    let Some(description) = analyzed.description.as_deref() else {
+        return String::new();
+    };
+    description
+        .trim()
+        .lines()
+        .map(|line| match line.trim_end() {
+            "" => "///\n".to_string(),
+            line => format!("/// {line}\n"),
+        })
+        .collect()
+}
+
 /// Parse a backend's compiled-in manifest.
 ///
 /// Manifest selection is a pure function of the backend. There is

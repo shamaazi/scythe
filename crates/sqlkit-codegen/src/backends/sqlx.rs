@@ -184,6 +184,8 @@ impl CodegenBackend for SqlxBackend {
                 let _ = writeln!(out, "}}");
                 let _ = writeln!(out);
 
+                out.push_str(&super::rust_query_doc(analyzed));
+
                 let _ = writeln!(
                     out,
                     "pub async fn {}(pool: &{}, items: &[{}]) -> Result<(), sqlx::Error> {{",
@@ -213,6 +215,7 @@ impl CodegenBackend for SqlxBackend {
                 let _ = writeln!(out, "    Ok(())");
             } else if params.len() == 1 {
                 let param = &params[0];
+                out.push_str(&super::rust_query_doc(analyzed));
                 let _ = writeln!(
                     out,
                     "pub async fn {}(pool: &{}, items: &[{}]) -> Result<(), sqlx::Error> {{",
@@ -227,6 +230,7 @@ impl CodegenBackend for SqlxBackend {
                 let _ = writeln!(out, "    tx.commit().await?;");
                 let _ = writeln!(out, "    Ok(())");
             } else {
+                out.push_str(&super::rust_query_doc(analyzed));
                 let _ = writeln!(
                     out,
                     "pub async fn {}(pool: &{}, count: usize) -> Result<(), sqlx::Error> {{",
@@ -266,6 +270,8 @@ impl CodegenBackend for SqlxBackend {
                 unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         };
+
+        out.push_str(&super::rust_query_doc(analyzed));
 
         let _ = writeln!(
             out,
@@ -450,6 +456,8 @@ impl CodegenBackend for SqlxBackend {
                 }
             })
             .collect();
+
+        out.push_str(&super::rust_query_doc(analyzed));
 
         let _ = writeln!(
             out,
