@@ -35,6 +35,13 @@ use super::{Catalog, CatalogObjectName, GeneratedColumnKind, RelationKind};
 /// previously indistinguishable from "no such construct", a changed
 /// separator, a changed truncation length, etc.). Do not bump it merely
 /// because this file's code changed.
+///
+/// The value-constraint lines (`CHECK`s, `COMMENT ON` text, `COLLATE`) were
+/// added without a bump: they are emitted only for a column or domain that
+/// declares one, so a schema without any keeps its `sch2` value. A schema
+/// with them moves, which is intended -- its generated code depends on them,
+/// and an artifact fingerprinted before they participated must read as
+/// stale so it is regenerated.
 const FINGERPRINT_ALGORITHM_TAG: &str = "sch2";
 
 /// Number of leading hash bytes kept (rendered as `2 * TRUNCATED_BYTES` hex
@@ -49,13 +56,18 @@ impl Catalog {
     /// same tables (name, columns, column order, column type, column
     /// nullability, primary-key flags), the same enum types (name, ordered
     /// values), the same composite types (name, ordered fields), the same
-    /// domain types (name, base type, `NOT NULL`-ness).
+    /// domain types (name, base type, `NOT NULL`-ness), the same value
+    /// constraints (`CHECK`s, `COMMENT ON` text and `COLLATE` of columns and
+    /// domains).
     ///
     /// # Stability guarantees
     ///
     /// - **Reformat-invariant**: DDL text is never hashed directly, so
-    ///   whitespace, comments, and top-level statement reordering that do
-    ///   not change the schema produce the same fingerprint.
+    ///   whitespace, SQL comments (`--` and `/* */`), and top-level statement
+    ///   reordering that do not change the schema produce the same
+    ///   fingerprint. `COMMENT ON` text is schema, not formatting: it
+    ///   participates (see below). A `CHECK` participates as sqlparser
+    ///   prints its expression, so reformatting one does not move the hash.
     /// - **Process-invariant**: map keys are sorted explicitly before
     ///   hashing. `Catalog`'s maps are [`AHashMap`], whose iteration order
     ///   is seeded once per process — relying on it would make the
@@ -77,6 +89,12 @@ impl Catalog {
     ///   different file than the table that uses it in a multi-file schema,
     ///   never surfaces through any table's resolved column type -- so it
     ///   needs its own line to be covered at all.
+    /// - Per column and per domain that declares any: each single-value
+    ///   `CHECK` (the name PostgreSQL knows it by, whether it is validated,
+    ///   and its expression), the `COMMENT ON` text and an explicit
+    ///   `COLLATE`. Generated code renders them as validation and
+    ///   documentation, so editing one must read as drift. Each is a line of
+    ///   its own kind, absent when not declared.
     /// - Inspected metadata that changes how a catalog is consumed: views,
     ///   generated-column persistence, materially distinct database-reported
     ///   types, and preserved qualified or case-sensitive object names.
@@ -187,8 +205,40 @@ impl Catalog {
         }
 
         self.append_inspection_metadata(&mut lines);
+        self.append_value_constraints(&mut lines);
 
         lines.join("\n")
+    }
+
+    /// One line per check, comment and collation a column or domain
+    /// declares; none for one that declares none.
+    fn append_value_constraints(&self, lines: &mut Vec<String>) {
+        fn append(lines: &mut Vec<String>, kind: &str, owner: &str, facts: &super::ColumnConstraints) {
+            for check in &facts.checks {
+                lines.push(format!(
+                    "{kind}-check\t{owner}\t{}\t{}\t{}",
+                    escape_component(&check.system_name),
+                    check.validated,
+                    escape_component(&check.sql)
+                ));
+            }
+            if let Some(comment) = &facts.comment {
+                lines.push(format!("{kind}-comment\t{owner}\t{}", escape_component(comment)));
+            }
+            if let Some(collation) = &facts.collation {
+                lines.push(format!("{kind}-collation\t{owner}\t{}", escape_component(collation)));
+            }
+        }
+        for (key, table) in canonical_entries(&self.tables) {
+            let key = escape_component(&key);
+            for column in &table.columns {
+                let owner = format!("{key}\t{}", escape_component(&column.name));
+                append(lines, "column", &owner, &column.constraints);
+            }
+        }
+        for (key, domain) in canonical_entries(&self.domains) {
+            append(lines, "domain", &escape_component(&key), &domain.constraints);
+        }
     }
 
     fn append_inspection_metadata(&self, lines: &mut Vec<String>) {
@@ -1005,5 +1055,37 @@ mod tests {
              CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);
              CREATE TYPE point AS (x INTEGER, y INTEGER);"])
         .unwrap()
+    }
+
+    #[test]
+    fn test_checks_comments_and_collations_change_hash() {
+        let hash = |ddl: &str| Catalog::from_ddl(&[ddl]).unwrap().fingerprint();
+        let base = hash("CREATE DOMAIN code AS text; CREATE TABLE t (a integer, b text);");
+        let variants = [
+            "CREATE DOMAIN code AS text; CREATE TABLE t (a integer CHECK (a > 0), b text);",
+            "CREATE DOMAIN code AS text; CREATE TABLE t (a integer CHECK (a > 1), b text);",
+            "CREATE DOMAIN code AS text CHECK (VALUE <> ''); CREATE TABLE t (a integer, b text);",
+            "CREATE DOMAIN code AS text; CREATE TABLE t (a integer, b text); COMMENT ON COLUMN t.b IS 'B.';",
+            "CREATE DOMAIN code AS text; CREATE TABLE t (a integer, b text); COMMENT ON DOMAIN code IS 'C.';",
+            "CREATE DOMAIN code AS text; CREATE TABLE t (a integer, b text COLLATE \"de_DE\");",
+            "CREATE DOMAIN code AS text; CREATE TABLE t (a integer, b text); \
+             ALTER TABLE t ADD CONSTRAINT t_a CHECK (a > 0) NOT VALID;",
+        ];
+        let mut seen = vec![base.clone()];
+        for ddl in variants {
+            let hash = hash(ddl);
+            assert!(!seen.contains(&hash), "{ddl} must fingerprint differently");
+            seen.push(hash);
+        }
+        assert_eq!(
+            hash("CREATE DOMAIN code AS text;\n-- a comment\nCREATE TABLE t (a integer, b text);"),
+            base,
+            "an SQL comment is formatting"
+        );
+        assert_eq!(
+            hash("CREATE TABLE t (a integer CHECK (a > 0));"),
+            hash("CREATE TABLE t (a integer CHECK ( a  >  0 ));"),
+            "a check's spacing is formatting"
+        );
     }
 }
