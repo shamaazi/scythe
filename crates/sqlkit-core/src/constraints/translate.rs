@@ -285,14 +285,19 @@ fn compare(operand: &Expr, op: &BinaryOperator, literal: &Expr, subject: &str) -
             let n: i64 = n
                 .parse()
                 .map_err(|_| "a length must be compared with an integer literal")?;
+            let out_of_range = || "the length bound is out of range".to_string();
             let (min, max) = match op {
-                Gt => (Some(n + 1), None),
+                Gt => (Some(n.checked_add(1).ok_or_else(out_of_range)?), None),
                 GtEq => (Some(n), None),
-                Lt => (None, Some(n - 1)),
+                Lt => (None, Some(n.checked_sub(1).ok_or_else(out_of_range)?)),
                 LtEq => (None, Some(n)),
                 Eq => (Some(n), Some(n)),
                 _ => return Err("`<>` has no JSON Schema equivalent".to_string()),
             };
+            // A maximum below zero admits no value, which `maxLength` cannot say.
+            if max.is_some_and(|max| max < 0) {
+                return Err("no length satisfies the bound".to_string());
+            }
             Ok(Rules {
                 min_length: min.map(|n| n.max(0) as u64),
                 max_length: max.map(|n| n.max(0) as u64),
@@ -387,7 +392,7 @@ fn is_trim_of(expr: &Expr, subject: &str) -> bool {
     }
 }
 
-fn function_args(function: &Function) -> Option<Vec<Expr>> {
+fn function_args(function: &Function) -> Option<Vec<&Expr>> {
     let FunctionArguments::List(list) = &function.args else {
         return None;
     };
@@ -397,7 +402,7 @@ fn function_args(function: &Function) -> Option<Vec<Expr>> {
     list.args
         .iter()
         .map(|arg| match arg {
-            FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) => Some(expr.clone()),
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) => Some(expr),
             _ => None,
         })
         .collect()
@@ -442,55 +447,25 @@ fn is_subject(expr: &Expr, subject: &str) -> bool {
 }
 
 fn constant(expr: &Expr) -> bool {
-    number(expr).is_some() || string(expr).is_some()
+    literal(expr).is_some()
 }
 
-/// A numeric literal, including a negated one and a quoted one cast to a
-/// number (`'5'::integer`).
+/// A numeric literal: a number as written, negated or not, or a quoted one
+/// cast to a numeric type that keeps its value (`'-5'::integer`, which is how
+/// PostgreSQL prints a negative constant).
 fn number(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Nested(inner) => number(inner),
-        Expr::Value(value) => match &value.value {
-            Value::Number(n, _) => Some(n.clone()),
-            _ => None,
-        },
-        Expr::UnaryOp {
-            op: UnaryOperator::Minus,
-            expr: inner,
-        } => number(inner).map(|n| {
-            if let Some(n) = n.strip_prefix('-') {
-                n.to_string()
-            } else {
-                format!("-{n}")
-            }
-        }),
-        Expr::UnaryOp {
-            op: UnaryOperator::Plus,
-            expr: inner,
-        } => number(inner),
-        Expr::Cast { expr: inner, .. } => number(inner).or_else(|| {
-            string(inner)
-                .filter(|s| s.trim().parse::<f64>().is_ok())
-                .map(|s| s.trim().to_string())
-        }),
-        _ => None,
+    match literal(expr)? {
+        AllowedValue::Number(n) => Some(n),
+        AllowedValue::String(_) => None,
     }
 }
 
-/// A string literal, through casts (`'x'::text`, `'x'::character varying`).
+/// A string literal, through casts to anything but a number (`'x'::text`,
+/// `'x'::character varying`, `'active'::status`).
 fn string(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Nested(inner) => string(inner),
-        Expr::Value(value) => match &value.value {
-            Value::SingleQuotedString(s)
-            | Value::EscapedStringLiteral(s)
-            | Value::NationalStringLiteral(s)
-            | Value::UnicodeStringLiteral(s) => Some(s.clone()),
-            Value::DollarQuotedString(s) => Some(s.value.clone()),
-            _ => None,
-        },
-        Expr::Cast { expr: inner, .. } => string(inner),
-        _ => None,
+    match literal(expr)? {
+        AllowedValue::String(s) => Some(s),
+        AllowedValue::Number(_) => None,
     }
 }
 
@@ -499,22 +474,166 @@ fn allowed_values<'a>(list: impl Iterator<Item = &'a Expr>) -> Result<Vec<Allowe
         .collect()
 }
 
-/// A literal as written: a quoted string stays a string even when cast.
+/// The value of a literal, a number or a string. A quoted literal stays a
+/// string through casts, except a cast to a numeric type, which makes it the
+/// number it spells: `'10'::numeric` is 10, `'10'::text` is "10".
+///
+/// `None` when the value has no exact JSON form: a cast that may change it
+/// (to `numeric(p, s)`, a fraction to an integer type, a number `real` does
+/// not hold exactly), a number PostgreSQL accepts but JSON has no form for
+/// (`'NaN'`, `'Infinity'`, `'0x1F'`, `'1_000'`), or a number cast to a
+/// non-numeric type, whose value is no longer a number.
 fn literal(expr: &Expr) -> Option<AllowedValue> {
     match expr {
-        Expr::Nested(inner) | Expr::Cast { expr: inner, .. } => literal(inner),
-        Expr::Value(value) if matches!(value.value, Value::Number(..)) => number(expr).map(AllowedValue::Number),
-        Expr::UnaryOp { .. } => number(expr).map(AllowedValue::Number),
-        _ => string(expr).map(AllowedValue::String),
+        Expr::Nested(inner) => literal(inner),
+        Expr::Value(value) => match &value.value {
+            Value::Number(n, _) => json_number(n).map(AllowedValue::Number),
+            Value::SingleQuotedString(s)
+            | Value::EscapedStringLiteral(s)
+            | Value::NationalStringLiteral(s)
+            | Value::UnicodeStringLiteral(s) => Some(AllowedValue::String(s.clone())),
+            Value::DollarQuotedString(s) => Some(AllowedValue::String(s.value.clone())),
+            _ => None,
+        },
+        Expr::UnaryOp {
+            op: UnaryOperator::Minus,
+            expr: inner,
+        } => match literal(inner)? {
+            AllowedValue::Number(n) => Some(AllowedValue::Number(match n.strip_prefix('-') {
+                Some(n) => n.to_string(),
+                None => format!("-{n}"),
+            })),
+            AllowedValue::String(_) => None,
+        },
+        Expr::UnaryOp {
+            op: UnaryOperator::Plus,
+            expr: inner,
+        } => match literal(inner)? {
+            number @ AllowedValue::Number(_) => Some(number),
+            AllowedValue::String(_) => None,
+        },
+        Expr::Cast {
+            expr: inner, data_type, ..
+        } => match (numeric_cast(data_type), literal(inner)?) {
+            (Some(cast), AllowedValue::Number(n)) => cast.keeps(&n).then_some(AllowedValue::Number(n)),
+            // PostgreSQL trims the input of a numeric type.
+            (Some(cast), AllowedValue::String(s)) => json_number(s.trim())
+                .filter(|n| cast.keeps(n))
+                .map(AllowedValue::Number),
+            (None, string @ AllowedValue::String(_)) => Some(string),
+            (None, AllowedValue::Number(_)) => None,
+        },
+        _ => None,
     }
 }
 
+/// A cast to a numeric type, by what it does to the number cast.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NumericCast {
+    /// `smallint`, `integer`, `bigint`: an integer stays; a fraction is
+    /// rounded.
+    Integer,
+    /// `real`: an integer it holds exactly stays; a fraction is rounded to
+    /// binary.
+    Real,
+    /// `numeric` without a typmod, `double precision`: a JSON number stays
+    /// (JSON validators compare as doubles, like `double precision`).
+    Exact,
+    /// `numeric(p, s)`, which rounds to its scale and limits its precision.
+    Rounded,
+}
+
+impl NumericCast {
+    /// Whether the cast leaves the JSON number `n` unchanged.
+    fn keeps(self, n: &str) -> bool {
+        let integer = || n.parse::<i64>().ok();
+        match self {
+            Self::Integer => integer().is_some(),
+            Self::Real => integer().is_some_and(|n| n.unsigned_abs() <= 1 << 24),
+            Self::Exact => true,
+            Self::Rounded => false,
+        }
+    }
+}
+
+/// The numeric cast `data_type` names, if it is a built-in numeric type. A
+/// domain over one is not recognised (its base type is not known here), so
+/// a literal cast to it is not translated.
+fn numeric_cast(data_type: &DataType) -> Option<NumericCast> {
+    use sqlparser::ast::ExactNumberInfo;
+    Some(match data_type {
+        DataType::SmallInt(_)
+        | DataType::Int2(_)
+        | DataType::Int(_)
+        | DataType::Int4(_)
+        | DataType::Integer(_)
+        | DataType::BigInt(_)
+        | DataType::Int8(_) => NumericCast::Integer,
+        DataType::Real | DataType::Float4 => NumericCast::Real,
+        // `float(p)` is `real` up to 24 bits of precision.
+        DataType::Float(ExactNumberInfo::Precision(p)) if *p <= 24 => NumericCast::Real,
+        DataType::Float(_) | DataType::Float8 | DataType::DoublePrecision => NumericCast::Exact,
+        DataType::Numeric(ExactNumberInfo::None)
+        | DataType::Decimal(ExactNumberInfo::None)
+        | DataType::Dec(ExactNumberInfo::None) => NumericCast::Exact,
+        DataType::Numeric(_) | DataType::Decimal(_) | DataType::Dec(_) => NumericCast::Rounded,
+        DataType::Custom(name, modifiers) => match name.to_string().to_lowercase().as_str() {
+            "int2" | "int4" | "int8" | "smallint" | "integer" | "bigint" => NumericCast::Integer,
+            "float4" => NumericCast::Real,
+            "float8" => NumericCast::Exact,
+            "numeric" | "decimal" if modifiers.is_empty() => NumericCast::Exact,
+            "numeric" | "decimal" => NumericCast::Rounded,
+            _ => return None,
+        },
+        _ => return None,
+    })
+}
+
+/// `text` as a JSON number, if it spells a decimal one -- an optional sign,
+/// digits with an optional fraction, an optional exponent -- written as JSON
+/// requires: no `+`, no leading zeros, digits on both sides of a point.
+fn json_number(text: &str) -> Option<String> {
+    let (negative, unsigned) = match text.as_bytes().first()? {
+        b'-' => (true, &text[1..]),
+        b'+' => (false, &text[1..]),
+        _ => (false, text),
+    };
+    let (mantissa, exponent) = match unsigned.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
+        None => (unsigned, None),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+    if (whole.is_empty() && fraction.is_empty()) || !digits(whole) || !digits(fraction) {
+        return None;
+    }
+    let mut out = String::new();
+    if negative {
+        out.push('-');
+    }
+    let whole = whole.trim_start_matches('0');
+    out.push_str(if whole.is_empty() { "0" } else { whole });
+    if !fraction.is_empty() {
+        out.push('.');
+        out.push_str(fraction);
+    }
+    if let Some(exponent) = exponent {
+        let magnitude = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+        if magnitude.is_empty() || !digits(magnitude) {
+            return None;
+        }
+        out.push('e');
+        out.push_str(exponent);
+    }
+    Some(out)
+}
+
 /// The elements of `ARRAY[...]`, through parentheses and casts.
-fn array_elements(expr: &Expr) -> Option<Vec<Expr>> {
+fn array_elements(expr: &Expr) -> Option<&[Expr]> {
     match expr {
         Expr::Nested(inner) => array_elements(inner),
         Expr::Cast { expr: inner, .. } => array_elements(inner),
-        Expr::Array(array) => Some(array.elem.clone()),
+        Expr::Array(array) => Some(&array.elem),
         _ => None,
     }
 }
@@ -692,6 +811,90 @@ mod tests {
         assert!(kept.untranslated.is_empty(), "{kept:?}");
         assert_eq!(kept.rules.max_length, Some(5));
         assert_eq!(kept.rules.pattern, s(NOT_BLANK));
+    }
+
+    #[test]
+    fn should_keep_quoted_literals_cast_to_text_as_strings() {
+        let strings = |values: &[&str]| {
+            Some(
+                values
+                    .iter()
+                    .map(|v| AllowedValue::String(v.to_string()))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        // How pg_get_constraintdef prints `CHECK (code = '10')` and
+        // `CHECK (code IN ('10', '20'))` on a text column.
+        assert_eq!(rules("code = '10'::text", "code").allowed, strings(&["10"]));
+        assert_eq!(rules("code IN ('10', '20')", "code").allowed, strings(&["10", "20"]));
+        assert_eq!(
+            rules("code = ANY (ARRAY['10'::text, '20'::text])", "code").allowed,
+            strings(&["10", "20"])
+        );
+        assert_eq!(
+            rules("code = '1e3'::character varying", "code").allowed,
+            strings(&["1e3"])
+        );
+        // A string bound on text is a collation-dependent comparison.
+        refused("code >= '10'::text", "code");
+    }
+
+    #[test]
+    fn should_read_quoted_literals_cast_to_numeric_types_as_numbers() {
+        // How PostgreSQL prints a negative constant.
+        assert_eq!(rules("amount > '-1'::integer", "amount").exclusive_minimum, s("-1"));
+        assert_eq!(rules("amount >= '2.50'::numeric", "amount").minimum, s("2.50"));
+        assert_eq!(rules("amount <= ' +.5 '::double precision", "amount").maximum, s("0.5"));
+        assert_eq!(
+            rules("amount < (0.5)::double precision", "amount").exclusive_maximum,
+            s("0.5")
+        );
+        assert_eq!(rules("amount <= '007'::bigint", "amount").maximum, s("7"));
+        assert_eq!(
+            rules("amount = '1E3'::numeric", "amount").allowed,
+            Some(vec![AllowedValue::Number("1e3".to_string())])
+        );
+        assert_eq!(
+            rules("amount IN ('1'::integer, '-2'::integer)", "amount").allowed,
+            Some(vec![
+                AllowedValue::Number("1".to_string()),
+                AllowedValue::Number("-2".to_string())
+            ])
+        );
+        assert_eq!(rules("amount >= '5'::int4", "amount").minimum, s("5"));
+    }
+
+    #[test]
+    fn should_refuse_numbers_without_an_exact_json_form() {
+        for sql in [
+            "amount < 'NaN'::numeric",
+            "amount = 'NaN'::numeric",
+            "amount < 'Infinity'::double precision",
+            "amount < 'inf'::real",
+            "amount IN ('NaN'::numeric)",
+            "amount > '0x1F'::integer",
+            "amount > '1_000'::integer",
+            // Casts that change the value.
+            "amount > 5.5::integer",
+            "amount > '1.25'::numeric(3, 1)",
+            "amount > 0.1::real",
+            "amount > 16777217::real",
+            // A number cast to text is text.
+            "amount = (10)::text",
+        ] {
+            refused(sql, "amount");
+        }
+        assert_eq!(
+            rules("amount > 16777216::real", "amount").exclusive_minimum,
+            s("16777216")
+        );
+    }
+
+    #[test]
+    fn should_refuse_length_bounds_out_of_range() {
+        refused("length(code) > 9223372036854775807", "code");
+        refused("length(code) < 0", "code");
+        assert_eq!(rules("length(code) < 1", "code").max_length, Some(0));
     }
 
     #[test]

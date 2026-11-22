@@ -627,3 +627,42 @@ fn should_free_constraint_names_with_what_owns_them() {
         named(&[("a", "t_a_check"), ("a", "t_a_check1")])
     );
 }
+
+#[test]
+fn should_keep_quoted_text_literals_as_strings_and_cast_numbers_as_numbers() {
+    let catalog = Catalog::from_ddl(&[
+        // `code = '10'::text` is how pg_get_constraintdef prints a text check.
+        "CREATE TABLE t (
+            code text CHECK (code IN ('10', '20')),
+            single text CHECK (single = '10'::text),
+            amount numeric CHECK (amount >= '-1.5'::numeric AND amount < '1e3'::numeric),
+            level integer CHECK (level IN ('1'::integer, '2'::integer)),
+            ratio numeric CHECK (ratio < 'NaN'::numeric),
+            score real CHECK (score <= 'Infinity'::real)
+        );",
+    ])
+    .unwrap();
+    let strings = |values: &[&str]| Some(values.iter().map(|v| AllowedValue::String(v.to_string())).collect());
+    assert_eq!(
+        catalog.column_constraints("t", "code").unwrap().rules.allowed,
+        strings(&["10", "20"])
+    );
+    assert_eq!(
+        catalog.column_constraints("t", "single").unwrap().rules.allowed,
+        strings(&["10"])
+    );
+    let amount = catalog.column_constraints("t", "amount").unwrap().rules;
+    assert_eq!((amount.minimum, amount.exclusive_maximum), (s("-1.5"), s("1e3")));
+    assert_eq!(
+        catalog.column_constraints("t", "level").unwrap().rules.allowed,
+        Some(vec![
+            AllowedValue::Number("1".to_string()),
+            AllowedValue::Number("2".to_string())
+        ])
+    );
+    for column in ["ratio", "score"] {
+        let constraints = catalog.column_constraints("t", column).unwrap();
+        assert!(constraints.rules.is_empty(), "{column}: {constraints:?}");
+        assert_eq!(constraints.untranslated.len(), 1, "{column}");
+    }
+}
