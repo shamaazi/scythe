@@ -589,6 +589,9 @@ fn preprocess_postgres_sql(sql: &str) -> String {
 /// default to a single space, so inserting `' '` before `FROM` gives the same
 /// expression in a form sqlparser parses. Comments and string literals are
 /// skipped; every other byte is copied unchanged.
+///
+/// Workaround for sqlparser's TRIM grammar (a trim specification must be
+/// followed by characters); remove once sqlparser accepts `TRIM(BOTH FROM x)`.
 pub(crate) fn spell_out_default_trim_characters(sql: &str) -> String {
     let mask = mask_postgres_for_scan(sql);
     let mask_bytes = mask.as_bytes();
@@ -630,6 +633,10 @@ pub(crate) fn spell_out_default_trim_characters(sql: &str) -> String {
 /// the select list itself, `WHERE true` is inserted before `ON`: it ends the
 /// list for sqlparser and filters nothing. Comments, string literals and
 /// quoted identifiers are skipped; every other byte is copied unchanged.
+///
+/// Workaround for sqlparser treating `ON` as a column alias (it does not
+/// reserve it after a select item); remove once sqlparser parses
+/// `INSERT ... SELECT x ON CONFLICT`.
 fn end_select_list_before_on_conflict(sql: &str) -> String {
     const CLAUSES: &[&str] = &[
         "SELECT", "FROM", "WHERE", "GROUP", "HAVING", "WINDOW", "ORDER", "LIMIT", "OFFSET", "FETCH", "VALUES",
