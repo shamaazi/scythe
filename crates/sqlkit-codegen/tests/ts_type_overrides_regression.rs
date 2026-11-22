@@ -262,3 +262,12 @@ fn should_match_ts_types_by_db_type_and_leave_rust_alone() {
         assert_eq!(text(&plain), text(&overridden));
     }
 }
+
+/// The removed `column_types` option names its replacement.
+#[test]
+fn should_point_column_types_at_type_overrides() {
+    let mut backend = get_backend("typescript-bun").unwrap();
+    let options = HashMap::from([("column_types".to_string(), MODULE.to_string())]);
+    let error = backend.apply_options(&options).unwrap_err();
+    assert!(error.message.contains("[[sql.type_overrides]]"), "{}", error.message);
+}

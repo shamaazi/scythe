@@ -1116,6 +1116,14 @@ impl CodegenBackend for TypescriptBunBackend {
     }
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), SqlkitError> {
+        if options.contains_key("column_types") {
+            return Err(SqlkitError::new(
+                ErrorCode::InvalidConfig,
+                "column_types was removed: declare each column's TypeScript type with a \
+                 [[sql.type_overrides]] entry (column = \"table.column\", ts_type, and ts_import for a \
+                 named type)",
+            ));
+        }
         reject_unknown_options(
             &[
                 "row_type",
