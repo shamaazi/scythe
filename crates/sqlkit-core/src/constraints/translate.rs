@@ -18,6 +18,10 @@ use super::{AllowedValue, Rules, Translation};
 
 const UNSUPPORTED: &str = "the expression has no JSON Schema equivalent";
 
+/// The pattern of a value that is not blank: it has a character other than
+/// a space.
+const NOT_BLANK: &str = "[^ ]";
+
 /// The names of the columns `expr` references, lowercased and deduplicated, in
 /// order of first appearance.
 pub(crate) fn referenced_columns(expr: &Expr) -> Vec<String> {
@@ -38,24 +42,37 @@ pub(crate) fn referenced_columns(expr: &Expr) -> Vec<String> {
     names
 }
 
+/// How the subject compares as text, which decides whether its string
+/// equalities and patterns mean what ECMAScript's `===` and regular
+/// expressions mean.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum TextComparison {
+    /// Byte by byte: the default collation (deterministic, as every
+    /// database default is), `C` or `POSIX`.
+    #[default]
+    Exact,
+    /// Otherwise -- `citext`, or another collation -- with the reason.
+    Inexact(String),
+}
+
 /// Translate the `CHECK` expression `expr` constraining `subject`: a column
 /// name, or `value` for a domain's `VALUE`.
-pub(crate) fn translate_check(expr: &Expr, subject: &str) -> Translation {
+pub(crate) fn translate_check(expr: &Expr, subject: &str, text: &TextComparison) -> Translation {
     let mut translation = Translation::default();
-    translate_into(expr, subject, &mut translation);
+    translate_into(expr, subject, text, &mut translation);
     translation
 }
 
-fn translate_into(expr: &Expr, subject: &str, translation: &mut Translation) {
+fn translate_into(expr: &Expr, subject: &str, text: &TextComparison, translation: &mut Translation) {
     match expr {
-        Expr::Nested(inner) => translate_into(inner, subject, translation),
+        Expr::Nested(inner) => translate_into(inner, subject, text, translation),
         Expr::BinaryOp {
             left,
             op: BinaryOperator::And,
             right,
         } => {
-            translate_into(left, subject, translation);
-            translate_into(right, subject, translation);
+            translate_into(left, subject, text, translation);
+            translate_into(right, subject, text, translation);
         }
         // `x IS NULL OR <rule on x>` is how a nullable value is often guarded,
         // and is equivalent: the check passes for NULL either way.
@@ -65,9 +82,9 @@ fn translate_into(expr: &Expr, subject: &str, translation: &mut Translation) {
             right,
         } if is_null_test_of(left, subject) || is_null_test_of(right, subject) => {
             let other = if is_null_test_of(left, subject) { right } else { left };
-            translate_into(other, subject, translation);
+            translate_into(other, subject, text, translation);
         }
-        _ => match translate_atom(expr, subject) {
+        _ => match translate_atom(expr, subject).and_then(|rules| exact_text(rules, text)) {
             Ok(rules) => {
                 if let Some(reason) = translation.rules.intersect(&rules) {
                     translation.untranslated.push((expr.to_string(), reason));
@@ -76,6 +93,27 @@ fn translate_into(expr: &Expr, subject: &str, translation: &mut Translation) {
             Err(reason) => translation.untranslated.push((expr.to_string(), reason)),
         },
     }
+}
+
+/// `rules`, unless they compare text and `text` says the subject's text does
+/// not compare byte by byte: a pattern or an allowed string.
+fn exact_text(rules: Rules, text: &TextComparison) -> Result<Rules, String> {
+    let TextComparison::Inexact(reason) = text else {
+        return Ok(rules);
+    };
+    // The not-blank rule of a trimmed length only looks for a character other
+    // than a space, which neither case folding nor a collation changes.
+    let not_blank = rules.min_length == Some(1) && rules.pattern.as_deref() == Some(NOT_BLANK);
+    let pattern = rules.pattern.is_some() && !not_blank;
+    let string_values = rules
+        .allowed
+        .iter()
+        .flatten()
+        .any(|value| matches!(value, AllowedValue::String(_)));
+    if pattern || string_values {
+        return Err(reason.clone());
+    }
+    Ok(rules)
 }
 
 fn is_null_test_of(expr: &Expr, subject: &str) -> bool {
@@ -270,7 +308,7 @@ fn compare(operand: &Expr, op: &BinaryOperator, literal: &Expr, subject: &str) -
             if not_blank {
                 Ok(Rules {
                     min_length: Some(1),
-                    pattern: Some("[^ ]".to_string()),
+                    pattern: Some(NOT_BLANK.to_string()),
                     ..Rules::default()
                 })
             } else {
@@ -524,7 +562,7 @@ mod tests {
     }
 
     fn rules(sql: &str, subject: &str) -> Rules {
-        let translation = translate_check(&parse(sql), subject);
+        let translation = translate_check(&parse(sql), subject, &TextComparison::Exact);
         assert!(
             translation.untranslated.is_empty(),
             "{sql}: {:?}",
@@ -534,7 +572,7 @@ mod tests {
     }
 
     fn refused(sql: &str, subject: &str) -> String {
-        let translation = translate_check(&parse(sql), subject);
+        let translation = translate_check(&parse(sql), subject, &TextComparison::Exact);
         assert_eq!(translation.untranslated.len(), 1, "{sql}: {translation:?}");
         translation.untranslated[0].1.clone()
     }
@@ -582,7 +620,7 @@ mod tests {
         }
         assert!(refused("length(btrim(title)) > 3", "title").contains("not blank"));
         assert!(
-            !translate_check(&parse("length(btrim(title, 'x')) > 0"), "title")
+            !translate_check(&parse("length(btrim(title, 'x')) > 0"), "title", &TextComparison::Exact)
                 .untranslated
                 .is_empty()
         );
@@ -633,6 +671,30 @@ mod tests {
     }
 
     #[test]
+    fn should_refuse_text_comparisons_that_are_not_byte_exact() {
+        let citext = TextComparison::Inexact("citext compares case-insensitively".to_string());
+        for sql in [
+            "email ~ '^[a-z]+$'",
+            "email LIKE 'a%'",
+            "email IN ('a', 'b')",
+            "email = 'a'",
+        ] {
+            let translation = translate_check(&parse(sql), "email", &citext);
+            assert!(translation.rules.is_empty(), "{sql}: {translation:?}");
+            assert_eq!(translation.untranslated.len(), 1, "{sql}");
+            assert!(translation.untranslated[0].1.contains("citext"), "{sql}");
+        }
+        let kept = translate_check(
+            &parse("length(email) <= 5 AND length(trim(email)) > 0"),
+            "email",
+            &citext,
+        );
+        assert!(kept.untranslated.is_empty(), "{kept:?}");
+        assert_eq!(kept.rules.max_length, Some(5));
+        assert_eq!(kept.rules.pattern, s(NOT_BLANK));
+    }
+
+    #[test]
     fn should_translate_multiples() {
         assert_eq!(rules("amount % 5 = 0", "amount").multiple_of, s("5"));
     }
@@ -644,7 +706,11 @@ mod tests {
 
     #[test]
     fn should_keep_translated_conjuncts_and_report_the_rest() {
-        let translation = translate_check(&parse("position >= 0 AND position <> 3"), "position");
+        let translation = translate_check(
+            &parse("position >= 0 AND position <> 3"),
+            "position",
+            &TextComparison::Exact,
+        );
         assert_eq!(translation.rules.minimum, s("0"));
         assert_eq!(translation.untranslated.len(), 1);
         assert_eq!(translation.untranslated[0].0, "position <> 3");

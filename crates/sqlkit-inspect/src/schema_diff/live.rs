@@ -149,6 +149,11 @@ pub async fn fetch_live_schema(
 /// The same ordered scope and catalog queries as [`fetch_live_schema`] are
 /// used, but the result retains raw SQL types, primary keys, enums, domains,
 /// and standalone composites rather than reducing them to drift metadata.
+///
+/// Value constraints are not read: the catalog has no `CHECK` constraints,
+/// collations, `COMMENT ON` text or `varchar(n)` lengths as validation rules
+/// (see [`sqlkit_core::catalog::CatalogBuilder`]), so code generated from it
+/// lacks what the same schema parsed from DDL validates and documents.
 pub async fn fetch_live_catalog(client: &Client, declared_schemas: &[String]) -> Result<Catalog, InspectError> {
     let (types, enum_labels, scope) = fetch_context(client, declared_schemas).await?;
     let composite_rows = fetch_composite_rows(client, &scope).await?;

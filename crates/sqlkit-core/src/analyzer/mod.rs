@@ -370,7 +370,7 @@ fn written_constraints(
 ) -> Option<crate::constraints::ValueConstraints> {
     let mut resolved = columns
         .iter()
-        .filter_map(|origin| catalog.column_constraints(&origin.relation, &origin.column));
+        .filter_map(|origin| catalog.written_column_constraints(&origin.relation, &origin.column));
     let mut constraints = resolved.next()?;
     for other in resolved {
         constraints.intersect(&other);

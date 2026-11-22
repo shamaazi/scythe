@@ -300,6 +300,14 @@ impl DomainDefinition {
 }
 
 /// Validates inspected schema definitions before constructing a [`Catalog`].
+///
+/// An inspected catalog records no value constraints: its columns and
+/// domains carry no `varchar(n)` length, `CHECK`, `COLLATE` or `COMMENT ON`
+/// text (see [`super::ColumnConstraints`]), so [`Catalog::column_constraints`]
+/// and [`Catalog::domain_constraints`] resolve nothing from it. Code generated
+/// from an inspected catalog therefore lacks the validation and documentation
+/// the same schema parsed from DDL produces; generate from DDL where they
+/// matter.
 #[derive(Debug, Default)]
 pub struct CatalogBuilder {
     search_path: Option<Vec<String>>,

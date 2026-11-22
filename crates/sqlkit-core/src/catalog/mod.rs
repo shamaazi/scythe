@@ -341,6 +341,8 @@ impl Catalog {
             let upper = no_comments.to_uppercase();
             if upper.starts_with("CREATE DOMAIN") {
                 self.try_parse_create_domain(no_comments);
+            } else if upper.starts_with("ALTER DOMAIN") {
+                self.process_alter_domain(no_comments);
             } else if upper.starts_with("CREATE SCHEMA") {
             } else if Self::is_create_trigger(&upper) {
                 // Trigger definitions add no catalog state and may have bodies
@@ -617,7 +619,7 @@ impl Catalog {
             Ok(stmts) => {
                 if let Some(Statement::CreateTable(ct)) = stmts.into_iter().next() {
                     if let Some(col) = ct.columns.first() {
-                        constraints = ColumnConstraints::from_type(&col.data_type, &self.domains);
+                        constraints = ColumnConstraints::from_type(&col.data_type, &col.options, &self.domains);
                         let (t, _) = normalize_data_type(&col.data_type, &self.domains);
                         t
                     } else {
@@ -630,15 +632,10 @@ impl Catalog {
             Err(_) => base_type_raw.to_lowercase(),
         };
 
+        let mut taken = self.check_names();
         for (name, body) in constraints::domain_checks(&rest[end_pos..]) {
-            let body = crate::parser::spell_out_default_trim_characters(&body);
-            let parsed = Parser::new(&PostgreSqlDialect {})
-                .try_with_sql(&body)
-                .and_then(|mut parser| parser.parse_expr());
-            constraints.checks.push(match parsed {
-                Ok(expr) => CheckConstraint::new(name, &expr, "value"),
-                Err(_) => CheckConstraint::unparsed(name, &body),
-            });
+            let check = self.domain_check(&domain_name, name, &body, &mut taken);
+            constraints.checks.push(check);
         }
 
         self.domains.insert(
@@ -650,6 +647,93 @@ impl Catalog {
             },
         );
         true
+    }
+
+    /// Follow the `ALTER DOMAIN` forms that change a domain's checks: `ADD
+    /// [CONSTRAINT name] CHECK (...) [NOT VALID]`, `DROP CONSTRAINT [IF
+    /// EXISTS] name`, `VALIDATE CONSTRAINT name` and `RENAME CONSTRAINT a TO
+    /// b`. sqlparser does not parse `ALTER DOMAIN`, so the statement is read
+    /// here; its other forms change nothing the catalog records about values
+    /// and are skipped.
+    fn process_alter_domain(&mut self, sql: &str) {
+        let trimmed = sql.trim().trim_end_matches(';').trim();
+        // ASCII uppercasing keeps byte offsets valid in `trimmed`; see
+        // `try_parse_create_domain`.
+        let upper = trimmed.to_ascii_uppercase();
+        let name_start = skip_ws(&upper, "ALTER DOMAIN".len());
+        let name_end = find_ws(&upper, name_start);
+        let Some(key) = self.domain_key(&trimmed[name_start..name_end].to_lowercase()) else {
+            return;
+        };
+        let rest = &trimmed[name_end..];
+        let tokens: Vec<&str> = rest.split_whitespace().collect();
+        let keyword = |i: usize, keyword: &str| tokens.get(i).is_some_and(|t| t.eq_ignore_ascii_case(keyword));
+        let identifier = |i: usize| tokens.get(i).map(|t| constraints::unquote_identifier(t));
+        if keyword(0, "ADD") {
+            let rest_upper = &upper[name_end..];
+            let not_valid = top_level_contains_keyword(rest_upper, "NOT VALID");
+            let after_add = skip_ws(rest_upper, 0) + "ADD".len();
+            let mut taken = self.check_names();
+            let checks: Vec<CheckConstraint> = constraints::domain_checks(&rest[after_add..])
+                .into_iter()
+                .map(|(name, body)| {
+                    let mut check = self.domain_check(&key, name, &body, &mut taken);
+                    check.validated = !not_valid;
+                    check
+                })
+                .collect();
+            if let Some(domain) = self.domains.get_mut(&key) {
+                domain.constraints.checks.extend(checks);
+            }
+            return;
+        }
+        let Some(domain) = self.domains.get_mut(&key) else {
+            return;
+        };
+        let checks = &mut domain.constraints.checks;
+        if keyword(0, "DROP") && keyword(1, "CONSTRAINT") {
+            let at = if keyword(2, "IF") && keyword(3, "EXISTS") { 4 } else { 2 };
+            if let Some(name) = identifier(at) {
+                checks.retain(|check| check.system_name != name);
+            }
+        } else if keyword(0, "VALIDATE") && keyword(1, "CONSTRAINT") {
+            if let Some(name) = identifier(2) {
+                validate_check(checks, &name);
+            }
+        } else if keyword(0, "RENAME")
+            && keyword(1, "CONSTRAINT")
+            && keyword(3, "TO")
+            && let (Some(old), Some(new)) = (identifier(2), identifier(4))
+        {
+            rename_check(checks, &old, &new);
+        }
+    }
+
+    /// The key of the domain `key` names: itself, or the first (sorted)
+    /// schema-qualified key it is the bare name of.
+    fn domain_key(&self, key: &str) -> Option<String> {
+        if self.domains.contains_key(key) {
+            return Some(key.to_string());
+        }
+        let suffix = format!(".{key}");
+        let mut candidates: Vec<&String> = self.domains.keys().filter(|k| k.ends_with(&suffix)).collect();
+        candidates.sort();
+        candidates.first().map(|k| (*k).clone())
+    }
+}
+
+/// Mark the check PostgreSQL knows as `name` validated.
+fn validate_check(checks: &mut [CheckConstraint], name: &str) {
+    for check in checks.iter_mut().filter(|check| check.system_name == name) {
+        check.validated = true;
+    }
+}
+
+/// Rename the check PostgreSQL knows as `old`.
+fn rename_check(checks: &mut [CheckConstraint], old: &str, new: &str) {
+    for check in checks.iter_mut().filter(|check| check.system_name == old) {
+        check.name = Some(new.to_string());
+        check.system_name = new.to_string();
     }
 }
 
@@ -696,15 +780,7 @@ impl Catalog {
                 }
             }
             CommentObject::Domain => {
-                let key = object_name_to_key(object_name);
-                let key = if self.domains.contains_key(&key) {
-                    Some(key)
-                } else {
-                    let suffix = format!(".{key}");
-                    let mut candidates: Vec<&String> = self.domains.keys().filter(|k| k.ends_with(&suffix)).collect();
-                    candidates.sort();
-                    candidates.first().map(|k| (*k).clone())
-                };
+                let key = self.domain_key(&object_name_to_key(object_name));
                 if let Some(domain) = key.and_then(|key| self.domains.get_mut(&key)) {
                     domain.constraints.comment = comment;
                 }
@@ -832,7 +908,7 @@ impl Catalog {
                 let mut nullable = !is_serial;
                 let mut default: Option<String> = None;
                 let mut primary_key = false;
-                let constraints = ColumnConstraints::from_type(&col_def.data_type, &self.domains);
+                let constraints = ColumnConstraints::from_type(&col_def.data_type, &col_def.options, &self.domains);
 
                 for opt_def in &col_def.options {
                     if let ColumnOption::Check(check) = &opt_def.option {
@@ -889,8 +965,9 @@ impl Catalog {
                 }
             }
 
+            let mut taken = self.check_names();
             for (name, expr) in pending_checks {
-                attach_check(&mut columns, name, &expr);
+                attach_check(&raw_name, &mut columns, name, &expr, true, &mut taken);
             }
 
             columns
@@ -918,6 +995,7 @@ impl Catalog {
         for op in operations {
             match op {
                 AlterTableOperation::AddColumn { column_def, .. } => {
+                    let mut taken = self.check_names();
                     let Some(table) = get_table_mut(&mut self.tables, &table_key) else {
                         return Err(SqlkitError::unknown_table(&table_key));
                     };
@@ -948,12 +1026,16 @@ impl Catalog {
                         nullable,
                         default,
                         primary_key,
-                        constraints: ColumnConstraints::from_type(&column_def.data_type, &self.domains),
+                        constraints: ColumnConstraints::from_type(
+                            &column_def.data_type,
+                            &column_def.options,
+                            &self.domains,
+                        ),
                     });
                     for opt_def in &column_def.options {
                         if let ColumnOption::Check(check) = &opt_def.option {
                             let name = check.name.as_ref().or(opt_def.name.as_ref()).map(ident_to_lower);
-                            attach_check(&mut table.columns, name, &check.expr);
+                            attach_check(&table.raw_name, &mut table.columns, name, &check.expr, true, &mut taken);
                         }
                     }
                 }
@@ -1039,12 +1121,21 @@ impl Catalog {
                         }
                     }
                 }
-                AlterTableOperation::AddConstraint { constraint, .. } => {
+                AlterTableOperation::AddConstraint { constraint, not_valid } => {
+                    let mut taken = self.check_names();
                     let Some(table) = get_table_mut(&mut self.tables, &table_key) else {
                         return Err(SqlkitError::unknown_table(&table_key));
                     };
                     if let TableConstraint::Check(check) = &constraint {
-                        attach_check(&mut table.columns, check.name.as_ref().map(ident_to_lower), &check.expr);
+                        // `NOT VALID` leaves the rows already stored unchecked.
+                        attach_check(
+                            &table.raw_name,
+                            &mut table.columns,
+                            check.name.as_ref().map(ident_to_lower),
+                            &check.expr,
+                            !not_valid,
+                            &mut taken,
+                        );
                     }
                     if let TableConstraint::PrimaryKey(pk_constraint) = &constraint {
                         for idx_col in &pk_constraint.columns {
@@ -1057,12 +1148,28 @@ impl Catalog {
                     }
                 }
                 AlterTableOperation::DropConstraint { name, .. } => {
+                    // By the name PostgreSQL knows it by, which for an unnamed
+                    // check is the one it generated.
                     let name = ident_to_lower(&name);
                     if let Some(table) = get_table_mut(&mut self.tables, &table_key) {
                         for col in &mut table.columns {
-                            col.constraints
-                                .checks
-                                .retain(|check| check.name.as_deref() != Some(name.as_str()));
+                            col.constraints.checks.retain(|check| check.system_name != name);
+                        }
+                    }
+                }
+                AlterTableOperation::ValidateConstraint { name } => {
+                    let name = ident_to_lower(&name);
+                    if let Some(table) = get_table_mut(&mut self.tables, &table_key) {
+                        for col in &mut table.columns {
+                            validate_check(&mut col.constraints.checks, &name);
+                        }
+                    }
+                }
+                AlterTableOperation::RenameConstraint { old_name, new_name } => {
+                    let (old, new) = (ident_to_lower(&old_name), ident_to_lower(&new_name));
+                    if let Some(table) = get_table_mut(&mut self.tables, &table_key) {
+                        for col in &mut table.columns {
+                            rename_check(&mut col.constraints.checks, &old, &new);
                         }
                     }
                 }

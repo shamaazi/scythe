@@ -24,6 +24,13 @@ const SYNTAX: &str = "^$\\.*+?()[]{}|/";
 /// `\Z`, `\uXXXX`, and escaped punctuation. `.` becomes `[\s\S]` because an
 /// ARE's `.` matches a newline and ECMAScript's does not.
 ///
+/// `\d` and `[:digit:]` become the ASCII `0-9`, which assumes the database's
+/// regular expressions classify characters through a libc locale, as
+/// PostgreSQL does for the default and libc collations: libc counts only the
+/// ASCII digits as digits there. Under an ICU collation `\d` also matches
+/// other scripts' decimal digits, and the translated pattern rejects values
+/// the database accepts.
+///
 /// Refused: locale-dependent classes (`\w`, `\s`, `[:alpha:]`, ...), word
 /// boundaries and ARE-only escapes (`\m`, `\M`, `\y`, `\Y`, `\b`), back
 /// references, collating elements, embedded options and directors (`***`,

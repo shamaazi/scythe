@@ -63,11 +63,8 @@ fn should_record_varchar_and_char_lengths() {
 }
 
 #[test]
-fn should_record_numeric_precision_without_rules() {
-    let catalog = catalog();
-    let facts = catalog.column_constraint_facts("causes", "ratio").unwrap();
-    assert_eq!(facts.precision, Some((5, 2)));
-    assert_eq!(catalog.column_constraints("causes", "ratio"), None);
+fn should_not_turn_numeric_precision_into_rules() {
+    assert_eq!(catalog().column_constraints("causes", "ratio"), None);
 }
 
 #[test]
@@ -288,4 +285,155 @@ fn should_name_the_base_column_of_returning_wildcards() {
             .collect();
         assert_eq!(columns, [s("causes.id"), s("causes.title")], "RETURNING {returning}");
     }
+}
+
+#[test]
+fn should_leave_not_valid_checks_out_of_read_values_only() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE TABLE t (a integer, b integer);",
+        "ALTER TABLE t ADD CONSTRAINT t_a CHECK (a < 10) NOT VALID;",
+        "ALTER TABLE t ADD CONSTRAINT t_b CHECK (b < 10) NOT VALID;",
+        "ALTER TABLE t VALIDATE CONSTRAINT t_b;",
+    ])
+    .unwrap();
+    assert_eq!(catalog.column_constraints("t", "a"), None);
+    assert_eq!(
+        catalog
+            .written_column_constraints("t", "a")
+            .unwrap()
+            .rules
+            .exclusive_maximum,
+        s("10")
+    );
+    assert_eq!(
+        catalog.column_constraints("t", "b").unwrap().rules.exclusive_maximum,
+        s("10")
+    );
+
+    let query = {
+        let query = parse_query("-- @name Set\n-- @returns :one\nUPDATE t SET a = $1 RETURNING a;").unwrap();
+        analyze(&catalog, &query).unwrap()
+    };
+    assert_eq!(query.columns[0].constraints, None, "a read value may predate the check");
+    assert_eq!(
+        query.params[0].constraints.as_ref().unwrap().rules.exclusive_maximum,
+        s("10"),
+        "a written value must pass it"
+    );
+}
+
+#[test]
+fn should_drop_unnamed_checks_by_their_generated_names() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE TABLE t (a integer CHECK (a > 0), b integer, CHECK (b > 0), CHECK (b < 100), CHECK (a < b));",
+        "ALTER TABLE t DROP CONSTRAINT t_a_check;",
+        "ALTER TABLE t DROP CONSTRAINT t_b_check1;",
+    ])
+    .unwrap();
+    assert_eq!(catalog.column_constraints("t", "a"), None);
+    let b = catalog.column_constraints("t", "b").unwrap();
+    assert_eq!((b.rules.exclusive_minimum, b.rules.exclusive_maximum), (s("0"), None));
+    let names: Vec<_> = catalog
+        .column_constraint_facts("t", "b")
+        .unwrap()
+        .checks
+        .iter()
+        .map(|c| c.system_name.as_str())
+        .collect();
+    assert_eq!(names, ["t_b_check"]);
+}
+
+#[test]
+fn should_follow_alter_domain_constraints() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE DOMAIN code AS text CHECK (VALUE ~ '^[a-z]+$');",
+        "ALTER DOMAIN code ADD CONSTRAINT code_short CHECK (length(VALUE) <= 8);",
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2) NOT VALID;",
+        "ALTER DOMAIN code DROP CONSTRAINT code_check;",
+        "ALTER DOMAIN code RENAME CONSTRAINT code_short TO code_length;",
+        "CREATE TABLE t (c code);",
+    ])
+    .unwrap();
+    let read = catalog.domain_constraints("code").unwrap().rules;
+    assert_eq!((read.pattern, read.min_length, read.max_length), (None, None, Some(8)));
+    let written = catalog.written_column_constraints("t", "c").unwrap().rules;
+    assert_eq!(written.min_length, Some(2), "the NOT VALID check binds writes");
+
+    let validated = Catalog::from_ddl(&[
+        "CREATE DOMAIN code AS text;",
+        "ALTER DOMAIN code ADD CHECK (length(VALUE) >= 2) NOT VALID;",
+        "ALTER DOMAIN code VALIDATE CONSTRAINT code_check;",
+        "ALTER DOMAIN code DROP CONSTRAINT IF EXISTS code_length;",
+    ])
+    .unwrap();
+    assert_eq!(validated.domain_constraints("code").unwrap().rules.min_length, Some(2));
+}
+
+#[test]
+fn should_not_translate_text_comparisons_on_citext_or_collated_values() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE DOMAIN email AS citext CHECK (VALUE ~ '^[^@]+@[^@]+$');",
+        "CREATE DOMAIN tag AS text COLLATE \"und-x-icu\" CHECK (VALUE IN ('a', 'b'));",
+        "CREATE TABLE t (
+            e email,
+            name citext CHECK (name LIKE 'x%' AND length(name) <= 5),
+            tag tag,
+            label text COLLATE \"en_US\" CHECK (label = 'x'),
+            code text COLLATE \"C\" CHECK (code ~ '^[a-z]+$')
+        );",
+    ])
+    .unwrap();
+    let e = catalog.column_constraints("t", "e").unwrap();
+    assert_eq!(e.rules.pattern, None);
+    assert!(e.untranslated[0].reason.contains("citext"), "{:?}", e.untranslated);
+    let name = catalog.column_constraints("t", "name").unwrap();
+    assert_eq!((name.rules.pattern, name.rules.max_length), (None, Some(5)));
+    assert_eq!(name.untranslated.len(), 1);
+    let tag = catalog.column_constraints("t", "tag").unwrap();
+    assert_eq!(tag.rules.allowed, None);
+    assert!(
+        tag.untranslated[0].reason.contains("und-x-icu"),
+        "{:?}",
+        tag.untranslated
+    );
+    let label = catalog.column_constraints("t", "label").unwrap();
+    assert!(
+        label.untranslated[0].reason.contains("en_us"),
+        "{:?}",
+        label.untranslated
+    );
+    assert_eq!(
+        catalog.column_constraints("t", "code").unwrap().rules.pattern,
+        s("^[a-z]+$"),
+        "the C collation compares byte by byte"
+    );
+}
+
+#[test]
+fn should_split_smart_tags_from_comments() {
+    let catalog = Catalog::from_ddl(&[
+        "CREATE DOMAIN amount AS integer;",
+        "COMMENT ON DOMAIN amount IS 'In minor units.';",
+        "CREATE TABLE t (a amount, b text);",
+        "COMMENT ON COLUMN t.a IS E'@deprecated\\n@since 2024';",
+        "COMMENT ON COLUMN t.b IS E'@omit create\\nA name.\\n@pattern ^x$';",
+    ])
+    .unwrap();
+    let a = catalog.column_constraints("t", "a").unwrap();
+    assert_eq!(
+        a.description.as_deref(),
+        Some("In minor units."),
+        "only tags: the domain's description stays"
+    );
+    assert_eq!(
+        a.tags,
+        [
+            ("deprecated".to_string(), String::new()),
+            ("since".to_string(), "2024".to_string())
+        ]
+    );
+    let b = catalog.column_constraints("t", "b").unwrap();
+    assert_eq!(b.tags, [("omit".to_string(), "create".to_string())]);
+    assert_eq!(b.description.as_deref(), Some("A name.\n@pattern ^x$"));
+    assert_eq!(b.rules.pattern, None, "a description line is never a rule");
 }
